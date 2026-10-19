@@ -1,0 +1,14 @@
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+*.db
+*.db-shm
+*.db-wal
+# Les fichiers Excel du parc contiennent des données personnelles et des mots de passe : jamais dans Git
+*.xlsx
+*.xlsm
+*.xls
+appsettings.*.local.json
+TestResults/

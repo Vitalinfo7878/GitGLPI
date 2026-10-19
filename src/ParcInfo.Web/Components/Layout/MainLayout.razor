@@ -1,0 +1,44 @@
+@inherits LayoutComponentBase
+@inject IConfiguration Config
+
+<MudThemeProvider Theme="Theme.Vitalrest" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="0" Color="Color.Surface" Class="barre">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Edge="Edge.Start" OnClick="@(() => _menuOuvert = !_menuOuvert)" aria-label="Menu" />
+        <a href="/" class="d-flex align-center ml-2"><img src="img/logo-vitalrest.jpg" alt="Vitalrest" class="logo" /></a>
+        <MudText Typo="Typo.subtitle1" Class="ml-3 d-none d-sm-flex titre-app">Parc informatique</MudText>
+        <MudSpacer />
+        <AuthorizeView>
+            <MudText Typo="Typo.body2" Class="mr-2 d-none d-md-flex">@context.User.FindFirst("name")?.Value</MudText>
+            <MudTooltip Text="Se déconnecter">
+                <MudIconButton Icon="@Icons.Material.Filled.Logout" Href="@UrlDeconnexion" aria-label="Se déconnecter" />
+            </MudTooltip>
+        </AuthorizeView>
+    </MudAppBar>
+    <MudDrawer @bind-Open="_menuOuvert" ClipMode="DrawerClipMode.Always" Elevation="0" Variant="DrawerVariant.Responsive" Class="menu">
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="py-6 px-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Une erreur inattendue est survenue.
+    <a href="." class="reload">Recharger</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool _menuOuvert = true;
+
+    private string UrlDeconnexion => string.IsNullOrWhiteSpace(Config["AzureAd:ClientId"])
+        ? "/demo/deconnexion"
+        : "/MicrosoftIdentity/Account/SignOut";
+}

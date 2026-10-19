@@ -1,0 +1,8 @@
+<dt>@Libelle</dt>
+<dd>@(ChildContent ?? (RenderFragment)(b => b.AddContent(0, string.IsNullOrWhiteSpace(Valeur) ? "—" : Valeur)))</dd>
+
+@code {
+    [Parameter, EditorRequired] public string Libelle { get; set; } = "";
+    [Parameter] public string? Valeur { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

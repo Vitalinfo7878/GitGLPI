@@ -1,0 +1,84 @@
+@page "/sites"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Sites</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Parc sites</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" Href="/sites/0">Nouveau site</MudButton>
+</div>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">Cuisines et sites (non enregistrés dans Entra ID).</MudText>
+
+<MudPaper Elevation="0" Class="carte pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Code, nom, responsable, région…"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect T="string" @bind-Value="_region" Label="Région" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var r in _regions) { <MudSelectItem Value="r">@r</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3" Class="d-flex align-center">
+            <MudCheckBox @bind-Value="_avecMateriel" Label="Avec matériel uniquement" Dense="true" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_sites is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Ligne" Items="Filtres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne">
+        <Columns>
+            <PropertyColumn Property="x => x.Code" Title="Code" CellStyle="font-weight:600" />
+            <PropertyColumn Property="x => x.Nom" Title="Nom" />
+            <PropertyColumn Property="x => x.Region" Title="Région" />
+            <PropertyColumn Property="x => x.Responsable" Title="Responsable" />
+            <PropertyColumn Property="x => x.Telephone" Title="Téléphone" />
+            <PropertyColumn Property="x => x.Email" Title="Adresse mail" />
+            <PropertyColumn Property="x => x.Pc" Title="PC" />
+            <PropertyColumn Property="x => x.Ecrans" Title="Écrans" />
+            <PropertyColumn Property="x => x.Imprimantes" Title="Imprimantes" />
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+    </MudDataGrid>
+}
+
+@code {
+    private sealed record Ligne(int Id, string Code, string? Nom, string? Region, string? Responsable, string? Telephone, string? Email, int Pc, int Ecrans, int Imprimantes);
+
+    private List<Ligne>? _sites;
+    private List<string> _regions = [];
+    private string? _recherche;
+    private string? _region;
+    private bool _avecMateriel = true;
+
+    private IEnumerable<Ligne> Filtres => (_sites ?? [])
+        .Where(s => !_avecMateriel || s.Pc + s.Ecrans + s.Imprimantes > 0)
+        .Where(s => _region is null || s.Region == _region)
+        .Where(s => string.IsNullOrWhiteSpace(_recherche)
+            || $"{s.Code} {s.Nom} {s.Responsable} {s.Region} {s.Email}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _sites = await db.Sites.AsNoTracking()
+            .Select(s => new Ligne(s.Id, s.Code, s.Nom, s.Region!.Nom, s.Responsable, s.Telephone, s.Email,
+                s.Materiels.Count(m => m.Type == TypeMateriel.PcFixe || m.Type == TypeMateriel.PcPortable),
+                s.Materiels.Count(m => m.Type == TypeMateriel.Ecran),
+                s.Materiels.Count(m => m.Type == TypeMateriel.Imprimante)))
+            .ToListAsync();
+        _sites = _sites.OrderBy(s => s.Code.PadLeft(8, '0')).ToList();
+        _regions = _sites.Select(s => s.Region).OfType<string>().Distinct().Order().ToList();
+    }
+
+    private void Ouvrir(DataGridRowClickEventArgs<Ligne> e) => Nav.NavigateTo($"/sites/{e.Item.Id}");
+}

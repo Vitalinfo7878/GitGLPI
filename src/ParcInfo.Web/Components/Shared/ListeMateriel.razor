@@ -1,0 +1,36 @@
+@inject NavigationManager Nav
+
+<MudPaper Elevation="0" Class="carte pa-4">
+    <div class="d-flex align-center mb-2">
+        <MudText Typo="Typo.h6">@Titre</MudText>
+        <MudSpacer />
+        @if (Materiels.Count > 0)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.SwapHoriz"
+                       Href="@($"/mouvements/nouveau?ids={string.Join(',', Materiels.Select(m => m.Id))}")">Mouvement sur tout le matériel</MudButton>
+        }
+    </div>
+    @if (Materiels.Count == 0)
+    {
+        <MudText Typo="Typo.body2">Aucun matériel.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead><tr><th>N° interne</th><th>Type</th><th>Modèle</th><th>N° série</th><th>Statut</th></tr></thead>
+            <tbody>
+                @foreach (var m in Materiels)
+                {
+                    <tr class="lien-ligne" @onclick="@(() => Nav.NavigateTo($"/materiels/{m.Id}"))">
+                        <td><b>@m.NumInterne</b></td><td>@m.Type.Libelle()</td><td>@m.Modele</td><td>@m.NumSerie</td><td><ChipStatut Statut="m.Statut" /></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Titre { get; set; } = "";
+    [Parameter, EditorRequired] public List<Materiel> Materiels { get; set; } = [];
+}

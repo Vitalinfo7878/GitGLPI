@@ -1,0 +1,18 @@
+.barre { border-bottom: 1px solid var(--mud-palette-lines-default); }
+.logo { height: 34px; }
+.titre-app { color: var(--mud-palette-primary); font-weight: 600; }
+.menu { border-right: 1px solid var(--mud-palette-lines-default); }
+.menu-section { color: var(--mud-palette-text-secondary); letter-spacing: .08em; }
+.carte { border: 1px solid var(--mud-palette-lines-default); }
+.chiffre { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--mud-palette-primary); }
+.lien-ligne { cursor: pointer; }
+.mot-de-passe { font-family: ui-monospace, Consolas, monospace; font-size: 1.05rem; letter-spacing: .04em; }
+.champ-lecture dt { color: var(--mud-palette-text-secondary); font-size: .8rem; margin-top: .6rem; }
+.champ-lecture dd { margin: 0; font-weight: 500; min-height: 1.2rem; white-space: pre-line; }
+.mud-table-cell { font-size: .875rem; }
+
+#blazor-error-ui {
+    background: #fff4e5; bottom: 0; box-shadow: 0 -1px 2px rgba(0,0,0,.2); display: none;
+    left: 0; padding: .6rem 1.25rem .7rem 1.25rem; position: fixed; width: 100%; z-index: 2000;
+}
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }

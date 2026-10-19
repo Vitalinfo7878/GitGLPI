@@ -1,0 +1,157 @@
+@page "/import"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@using ParcInfo.Web.Import
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+
+<PageTitle>Import Excel</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Import du fichier Excel</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Chargement initial depuis « Informatique Vitalrest – Suivi du stock » (feuilles INVENTAIRE et MOUVEMENT).
+    L'import n'est possible qu'une seule fois, sur une base vide.
+</MudText>
+
+@if (_baseNonVide)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">
+        La base contient déjà @_nbMateriels matériels : l'import est désactivé pour éviter les doublons.
+    </MudAlert>
+}
+else
+{
+    <MudPaper Elevation="0" Class="carte pa-4 mb-4">
+        <MudFileUpload T="IBrowserFile" FilesChanged="Charger" Accept=".xlsx,.xlsm" MaximumFileCount="1">
+            <CustomContent>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.UploadFile"
+                           OnClick="@context.OpenFilePickerAsync" Disabled="_traitement">Choisir le fichier Excel</MudButton>
+            </CustomContent>
+        </MudFileUpload>
+        @if (_traitement)
+        {
+            <div class="d-flex align-center gap-3 mt-4"><MudProgressCircular Indeterminate="true" Size="Size.Small" /> <span>@_etape</span></div>
+        }
+        @if (_erreur is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-4">@_erreur</MudAlert>
+        }
+    </MudPaper>
+}
+
+@if (_rapport is not null)
+{
+    <MudPaper Elevation="0" Class="carte pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            @(_rapport.Enregistre ? "Import terminé" : $"Aperçu de « {_nomFichier} »")
+        </MudText>
+        <MudGrid Spacing="2" Class="mb-3">
+            @foreach (var (libelle, valeur) in new[] { ("Matériels", _rapport.Materiels), ("Mouvements", _rapport.Mouvements), ("Sites", _rapport.Sites), ("Personnes", _rapport.Personnes), ("Régions / services", _rapport.Regions), ("Anomalies", _rapport.Anomalies.Count) })
+            {
+                <MudItem xs="6" sm="4" md="2">
+                    <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@libelle</MudText>
+                    <div class="chiffre">@valeur</div>
+                </MudItem>
+            }
+        </MudGrid>
+        @if (!_rapport.Enregistre)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Rien n'est encore enregistré. Vérifiez les anomalies ci-dessous puis lancez l'import.
+                Les anomalies n'empêchent pas l'import : elles indiquent les lignes corrigées automatiquement ou à vérifier ensuite.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Importer" Disabled="_traitement">Importer dans l'application</MudButton>
+        }
+        else
+        {
+            <MudButton Href="/inventaire" Variant="Variant.Filled" Color="Color.Primary">Voir l'inventaire</MudButton>
+        }
+    </MudPaper>
+
+    @if (_rapport.Anomalies.Count > 0)
+    {
+        <MudPaper Elevation="0" Class="carte pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">Anomalies (@_rapport.Anomalies.Count)</MudText>
+            <MudTable Items="_rapport.Anomalies" Dense="true" Hover="true" Elevation="0" RowsPerPage="50" Filter="FiltrerAnomalie">
+                <ToolBarContent>
+                    <MudTextField T="string" @bind-Value="_filtreAnomalie" Placeholder="Filtrer" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Margin="Margin.Dense" />
+                </ToolBarContent>
+                <HeaderContent><MudTh>Feuille</MudTh><MudTh>Ligne</MudTh><MudTh>Détail</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Feuille</MudTd>
+                    <MudTd>@(context.Ligne > 0 ? context.Ligne : "")</MudTd>
+                    <MudTd>@context.Message</MudTd>
+                </RowTemplate>
+                <PagerContent><MudTablePager RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" /></PagerContent>
+            </MudTable>
+        </MudPaper>
+    }
+}
+
+@code {
+    private bool _baseNonVide;
+    private int _nbMateriels;
+    private bool _traitement;
+    private string? _etape;
+    private string? _erreur;
+    private string? _nomFichier;
+    private string? _filtreAnomalie;
+    private RapportImport? _rapport;
+    private List<LigneInventaire>? _inventaire;
+    private List<LigneMouvement>? _mouvements;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _nbMateriels = await db.Materiels.CountAsync();
+        _baseNonVide = _nbMateriels > 0;
+    }
+
+    private bool FiltrerAnomalie(Anomalie a) =>
+        string.IsNullOrWhiteSpace(_filtreAnomalie) || $"{a.Feuille} {a.Ligne} {a.Message}".Contains(_filtreAnomalie, StringComparison.OrdinalIgnoreCase);
+
+    private async Task Charger(IBrowserFile? fichier)
+    {
+        if (fichier is null) return;
+        _erreur = null;
+        _rapport = null;
+        _traitement = true;
+        _nomFichier = fichier.Name;
+        try
+        {
+            _etape = "Téléversement du fichier…";
+            StateHasChanged();
+            using var ms = new MemoryStream();
+            await using (var flux = fichier.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024))
+                await flux.CopyToAsync(ms);
+            ms.Position = 0;
+
+            _etape = "Lecture des feuilles INVENTAIRE et MOUVEMENT (quelques secondes)…";
+            StateHasChanged();
+            (_inventaire, _mouvements) = await Task.Run(() => LecteurExcel.Lire(ms));
+            var u = await Courant.ObtenirAsync();
+            _rapport = new ImportateurParc().Construire(_inventaire, _mouvements, u.Signature).Rapport;
+        }
+        catch (Exception ex)
+        {
+            _erreur = $"Lecture impossible : {ex.Message}";
+        }
+        finally { _traitement = false; }
+    }
+
+    private async Task Importer()
+    {
+        if (_inventaire is null || _mouvements is null) return;
+        _traitement = true;
+        _etape = "Enregistrement…";
+        _erreur = null;
+        try
+        {
+            var u = await Courant.ObtenirAsync();
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _rapport = await new ImportateurParc().ImporterAsync(db, _inventaire, _mouvements, u.Signature);
+            _baseNonVide = true;
+            _nbMateriels = _rapport.Materiels;
+        }
+        catch (Exception ex) { _erreur = ex.Message; }
+        finally { _traitement = false; }
+    }
+}

@@ -1,0 +1,58 @@
+@page "/courriels"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject OptionsMessagerie Options
+
+<PageTitle>Courriels envoyés</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Courriels envoyés</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    @if (Options.Mode.Equals("Graph", StringComparison.OrdinalIgnoreCase))
+    {
+        <span>Envoi réel via Microsoft Graph depuis @Options.Expediteur.</span>
+    }
+    else
+    {
+        <span>Mode simulation : les courriels ne sont pas envoyés, ils sont seulement enregistrés ici.</span>
+    }
+</MudText>
+
+@if (_courriels is null)
+{
+    <Attente />
+}
+else if (_courriels.Count == 0)
+{
+    <MudText>Aucun courriel pour l'instant.</MudText>
+}
+else
+{
+    <MudExpansionPanels Elevation="0" Class="carte">
+        @foreach (var c in _courriels)
+        {
+            <MudExpansionPanel>
+                <TitleContent>
+                    <div class="d-flex flex-wrap align-center gap-2">
+                        <MudIcon Icon="@(c.Erreur is null ? Icons.Material.Outlined.MarkEmailRead : Icons.Material.Outlined.ErrorOutline)" Color="@(c.Erreur is null ? Color.Success : Color.Error)" Size="Size.Small" />
+                        <b>@c.Sujet</b>
+                        <span style="color:var(--mud-palette-text-secondary)">→ @c.Destinataire · @c.EnvoyeLe.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                        @if (c.Simule) { <MudChip T="string" Size="Size.Small">simulé</MudChip> }
+                    </div>
+                </TitleContent>
+                <ChildContent>
+                    @if (c.Erreur is not null) { <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@c.Erreur</MudAlert> }
+                    <div style="border:1px solid var(--mud-palette-lines-default);border-radius:6px;padding:12px;background:#fff">@((MarkupString)c.CorpsHtml)</div>
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
+@code {
+    private List<Courriel>? _courriels;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _courriels = await db.Courriels.AsNoTracking().OrderByDescending(c => c.EnvoyeLe).Take(200).ToListAsync();
+    }
+}

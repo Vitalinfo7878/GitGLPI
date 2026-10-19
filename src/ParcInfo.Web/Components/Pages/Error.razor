@@ -1,0 +1,23 @@
+@page "/Error"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@using System.Diagnostics
+
+<PageTitle>Erreur</PageTitle>
+
+<h1>Une erreur est survenue</h1>
+<p>Le traitement de votre demande a échoué. Réessayez ou contactez le service informatique.</p>
+@if (ShowRequestId)
+{
+    <p><strong>Identifiant de la requête :</strong> <code>@RequestId</code></p>
+}
+
+@code{
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

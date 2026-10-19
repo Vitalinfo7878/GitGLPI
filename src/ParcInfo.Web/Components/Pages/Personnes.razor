@@ -1,0 +1,81 @@
+@page "/personnes"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Personnes</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Parc personnes</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonAdd" Href="/personnes/0">Nouvelle personne</MudButton>
+</div>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Salariés équipés en propre. L'adresse mail (compte Microsoft) sert à la confirmation de réception et à « Mon matériel ».
+</MudText>
+
+<MudPaper Elevation="0" Class="carte pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Nom, adresse mail, service…"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" md="6" Class="d-flex align-center gap-4">
+            <MudCheckBox @bind-Value="_sansEmail" Label="Sans adresse mail" Dense="true" />
+            <MudCheckBox @bind-Value="_avecMateriel" Label="Avec matériel uniquement" Dense="true" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_personnes is null)
+{
+    <Attente />
+}
+else
+{
+    @if (_personnes.Count(p => p.Email is null && p.Materiels > 0) is > 0 and var n)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            @n personne(s) équipée(s) n'ont pas encore d'adresse mail : renseignez-la pour activer la confirmation de réception et « Mon matériel ».
+        </MudAlert>
+    }
+    <MudDataGrid T="Ligne" Items="Filtres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne">
+        <Columns>
+            <PropertyColumn Property="x => x.Nom" Title="Nom" CellStyle="font-weight:600" />
+            <PropertyColumn Property="x => x.Email" Title="Adresse mail" />
+            <PropertyColumn Property="x => x.Region" Title="Région / service" />
+            <PropertyColumn Property="x => x.Materiels" Title="Matériel" />
+            <TemplateColumn T="Ligne" Title="Actif" SortBy="x => x.Actif">
+                <CellTemplate>@(context.Item.Actif ? "" : "Inactif")</CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+    </MudDataGrid>
+}
+
+@code {
+    private sealed record Ligne(int Id, string Nom, string? Email, string? Region, int Materiels, bool Actif);
+
+    private List<Ligne>? _personnes;
+    private string? _recherche;
+    private bool _sansEmail;
+    private bool _avecMateriel = true;
+
+    private IEnumerable<Ligne> Filtres => (_personnes ?? [])
+        .Where(p => !_avecMateriel || p.Materiels > 0)
+        .Where(p => !_sansEmail || p.Email is null)
+        .Where(p => string.IsNullOrWhiteSpace(_recherche)
+            || $"{p.Nom} {p.Email} {p.Region}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _personnes = await db.Personnes.AsNoTracking()
+            .Select(p => new Ligne(p.Id, p.NomComplet, p.Email, p.Region!.Nom, p.Materiels.Count, p.Actif))
+            .ToListAsync();
+        _personnes = _personnes.OrderBy(p => p.Nom, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private void Ouvrir(DataGridRowClickEventArgs<Ligne> e) => Nav.NavigateTo($"/personnes/{e.Item.Id}");
+}

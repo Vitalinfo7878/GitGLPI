@@ -1,0 +1,17 @@
+<MudChip T="string" Size="Size.Small" Color="@Couleur(Statut)" Variant="Variant.Text" Class="ma-0">@Statut.Libelle()</MudChip>
+
+@code {
+    [Parameter, EditorRequired] public StatutMateriel Statut { get; set; }
+
+    public static Color Couleur(StatutMateriel s) => s switch
+    {
+        StatutMateriel.EnStock => Color.Info,
+        StatutMateriel.Attribue => Color.Success,
+        StatutMateriel.EnReparation => Color.Warning,
+        StatutMateriel.RenvoyeFournisseur => Color.Warning,
+        StatutMateriel.VolePerdu => Color.Error,
+        StatutMateriel.RebutEnAttente => Color.Dark,
+        StatutMateriel.Rebute => Color.Default,
+        _ => Color.Default,
+    };
+}

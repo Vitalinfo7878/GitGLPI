@@ -1,0 +1,12 @@
+@if (Statut != StatutReception.NonDemandee)
+{
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+             Color="@(Statut == StatutReception.Confirmee ? Color.Success : Color.Warning)"
+             Icon="@(Statut == StatutReception.Confirmee ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.HourglassTop)">
+        Réception @Statut.Libelle().ToLowerInvariant()
+    </MudChip>
+}
+
+@code {
+    [Parameter, EditorRequired] public StatutReception Statut { get; set; }
+}

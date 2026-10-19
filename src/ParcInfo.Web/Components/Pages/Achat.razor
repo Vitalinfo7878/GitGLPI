@@ -1,0 +1,90 @@
+@page "/achat"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject ServiceMouvements Service
+@inject UtilisateurCourant Courant
+
+<PageTitle>Réception d'achat</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Réception d'achat</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Enregistre le matériel reçu d'un fournisseur : il entre en stock et une fiche d'achat (FIS) est générée.
+</MudText>
+
+@if (_resultat is not null)
+{
+    <MudPaper Elevation="0" Class="carte pa-5">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="vertical-align:middle" /> Matériel entré en stock
+        </MudText>
+        <MudText Class="mb-3">Mouvements n° @string.Join(", ", _resultat.Numeros)</MudText>
+        @if (_resultat.Fiche is { } f)
+        {
+            <MudButton Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf">Fiche @f.Code</MudButton>
+        }
+        <div class="d-flex gap-2 mt-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => { _resultat = null; _d = new(); }">Nouvelle réception</MudButton>
+            <MudButton Href="/inventaire?statut=EnStock" Variant="Variant.Text">Voir le stock</MudButton>
+        </div>
+    </MudPaper>
+}
+else
+{
+    <MudPaper Elevation="0" Class="carte pa-4">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="3">
+                <MudDatePicker Date="@(_d.Date.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? d) => _d.Date = DateOnly.FromDateTime(d ?? DateTime.Today))"
+                               Label="Date de réception" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" />
+            </MudItem>
+            <MudItem xs="12" sm="3"><MudTextField @bind-Value="_d.Fournisseur" Label="Fournisseur" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3"><MudTextField @bind-Value="_d.DocumentReference" Label="Devis / bon de commande" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3"><MudTextField @bind-Value="_d.Commentaire" Label="Commentaire" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+
+            <MudItem xs="12"><MudText Typo="Typo.subtitle2" Class="mt-2">Matériel reçu</MudText></MudItem>
+            @foreach (var (m, i) in _d.Materiels.Select((m, i) => (m, i)))
+            {
+                <MudItem xs="12" sm="6" md="2">
+                    <MudSelect @bind-Value="m.Type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField @bind-Value="m.NumInterne" Label="N° interne" Placeholder="automatique" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="3"><MudTextField @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField @bind-Value="m.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField @bind-Value="m.NumFacture" Label="N° facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
+                    <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>
+                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => _d.Materiels.RemoveAt(i)" aria-label="Supprimer" />
+                </MudItem>
+            }
+            <MudItem xs="12">
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add" OnClick="() => _d.Materiels.Add(new())">Ajouter une ligne</MudButton>
+                <MudText Typo="Typo.caption" Class="d-block">N° interne vide = numéro suivant de la nomenclature (PC, PO, E, I).</MudText>
+            </MudItem>
+            @if (_erreur is not null)
+            {
+                <MudItem xs="12"><MudAlert Severity="Severity.Error">@_erreur</MudAlert></MudItem>
+            }
+            <MudItem xs="12" Class="d-flex justify-end">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="Valider" Disabled="_envoi">Entrer en stock et générer la fiche</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+@code {
+    private DemandeAchat _d = new();
+    private ResultatMouvement? _resultat;
+    private string? _erreur;
+    private bool _envoi;
+
+    private void Dupliquer(NouveauMateriel m) =>
+        _d.Materiels.Add(new NouveauMateriel { Type = m.Type, Modele = m.Modele, Configuration = m.Configuration, NumFacture = m.NumFacture });
+
+    private async Task Valider()
+    {
+        _erreur = null;
+        _envoi = true;
+        try { _resultat = await Service.ReceptionnerAchatAsync(_d, await Courant.ObtenirAsync()); }
+        catch (ErreurMetier ex) { _erreur = ex.Message; }
+        finally { _envoi = false; }
+    }
+}

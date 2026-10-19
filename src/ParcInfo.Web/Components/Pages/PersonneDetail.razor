@@ -1,0 +1,127 @@
+@page "/personnes/{Id:int}"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogues
+@inject NavigationManager Nav
+
+<PageTitle>@(_p?.NomComplet ?? "Personne")</PageTitle>
+
+@if (_p is null)
+{
+    <Attente />
+}
+else
+{
+    <MudBreadcrumbs Items="@([new("Personnes", "/personnes"), new(Id == 0 ? "Nouvelle personne" : _p.NomComplet, null, true)])" Class="px-0 pt-0" />
+    <MudText Typo="Typo.h4" Class="mb-4">@(Id == 0 ? "Nouvelle personne" : _p.NomComplet)</MudText>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="5">
+            <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                <EditForm Model="_p" OnValidSubmit="Enregistrer">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12"><MudTextField @bind-Value="_p.NomComplet" Label="Prénom NOM" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12"><MudTextField @bind-Value="_p.Email" Label="Adresse mail (compte Microsoft)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12">
+                            <MudSelect T="int?" @bind-Value="_p.RegionId" Label="Région / service" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                @foreach (var r in _regions) { <MudSelectItem T="int?" Value="r.Id">@r.Nom</MudSelectItem> }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12"><MudCheckBox @bind-Value="_p.Actif" Label="Personne active (proposée lors des attributions)" /></MudItem>
+                        <MudItem xs="12" Class="d-flex justify-end">
+                            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Enregistrer</MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </EditForm>
+            </MudPaper>
+
+            @if (Id != 0)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4">
+                    <MudText Typo="Typo.h6" Class="mb-1">Fusionner un doublon</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-3">
+                        Si cette personne existe en double (ex. « Gisela DA SILVA » / « Gisela DASILVA »), choisissez le doublon :
+                        son matériel et son historique seront rattachés ici, puis il sera supprimé.
+                    </MudText>
+                    <div class="d-flex gap-2 align-center">
+                        <MudAutocomplete T="Personne" @bind-Value="_doublon" SearchFunc="Chercher" ToStringFunc="@(p => p?.NomComplet ?? "")"
+                                         Label="Doublon à fusionner" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_doublon is null" OnClick="Fusionner">Fusionner</MudButton>
+                    </div>
+                </MudPaper>
+            }
+        </MudItem>
+        @if (Id != 0)
+        {
+            <MudItem xs="12" lg="7">
+                <ListeMateriel Titre="Matériel attribué" Materiels="_materiels" />
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Personne? _p;
+    private Personne? _doublon;
+    private List<Region> _regions = [];
+    private List<Materiel> _materiels = [];
+
+    protected override async Task OnParametersSetAsync() => await Charger();
+
+    private async Task Charger()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _regions = await db.Regions.OrderBy(r => r.Nom).ToListAsync();
+        _p = Id == 0 ? new Personne() : await db.Personnes.AsNoTracking().FirstOrDefaultAsync(p => p.Id == Id);
+        if (_p is null) { Nav.NavigateTo("/personnes"); return; }
+        _materiels = await db.Materiels.AsNoTracking().Where(m => m.PersonneId == Id).OrderBy(m => m.Type).ThenBy(m => m.NumInterne).ToListAsync();
+    }
+
+    private async Task<IEnumerable<Personne>> Chercher(string? texte, CancellationToken ct)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync(ct);
+        var q = db.Personnes.AsNoTracking().Where(p => p.Id != Id);
+        if (!string.IsNullOrWhiteSpace(texte)) q = q.Where(p => EF.Functions.Like(p.NomComplet, Recherche.Motif(texte)));
+        return await q.OrderBy(p => p.NomComplet).Take(20).ToListAsync(ct);
+    }
+
+    private async Task Enregistrer()
+    {
+        _p!.NomComplet = _p.NomComplet.Trim();
+        _p.Email = string.IsNullOrWhiteSpace(_p.Email) ? null : _p.Email.Trim().ToLowerInvariant();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Personnes.Update(_p);
+        var u = await Courant.ObtenirAsync();
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = Id == 0 ? "Personne créée" : "Personne modifiée", Details = _p.NomComplet });
+        await db.SaveChangesAsync();
+        Snackbar.Add("Personne enregistrée.", Severity.Success);
+        if (Id == 0) Nav.NavigateTo($"/personnes/{_p.Id}");
+    }
+
+    private async Task Fusionner()
+    {
+        var d = _doublon!;
+        var ok = await Dialogues.ShowMessageBoxAsync("Fusionner",
+            $"Rattacher le matériel et l'historique de « {d.NomComplet} » à « {_p!.NomComplet} », puis supprimer « {d.NomComplet} » ?",
+            yesText: "Fusionner", cancelText: "Annuler");
+        if (ok != true) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await db.Materiels.Where(m => m.PersonneId == d.Id).ExecuteUpdateAsync(s => s.SetProperty(m => m.PersonneId, Id));
+        await db.Mouvements.Where(m => m.DestinationPersonneId == d.Id).ExecuteUpdateAsync(s => s.SetProperty(m => m.DestinationPersonneId, Id));
+        var cible = await db.Personnes.FirstAsync(p => p.Id == Id);
+        cible.Email ??= d.Email;
+        cible.RegionId ??= d.RegionId;
+        await db.Personnes.Where(p => p.Id == d.Id).ExecuteDeleteAsync();
+        var u = await Courant.ObtenirAsync();
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Personnes fusionnées", Details = $"{d.NomComplet} → {cible.NomComplet}" });
+        await db.SaveChangesAsync();
+        Snackbar.Add($"« {d.NomComplet} » fusionné.", Severity.Success);
+        _doublon = null;
+        await Charger();
+    }
+}

@@ -1,0 +1,145 @@
+@page "/"
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject ServiceMouvements Mouvements
+@inject ISnackbar Snackbar
+
+<PageTitle>Accueil – Parc informatique</PageTitle>
+
+@if (_u is null)
+{
+    <Attente />
+}
+else if (!_u.EstGestionnaire)
+{
+    <MudText Typo="Typo.h4" Class="mb-1">Bonjour @_u.Nom</MudText>
+    <MudText Class="mb-6" Style="color:var(--mud-palette-text-secondary)">Retrouvez ici le matériel informatique qui vous est attribué.</MudText>
+    <MonMateriel EstPage="false" />
+}
+else
+{
+    <MudText Typo="Typo.h4" Class="mb-1">Tableau de bord</MudText>
+    <MudText Class="mb-6" Style="color:var(--mud-palette-text-secondary)">Vue d'ensemble du parc informatique.</MudText>
+
+    @if (_stats is null)
+    {
+        <Attente />
+    }
+    else
+    {
+        <MudGrid Spacing="3">
+            @foreach (var t in Enum.GetValues<TypeMateriel>())
+            {
+                <MudItem xs="6" md="3">
+                    <MudPaper Elevation="0" Class="carte pa-4">
+                        <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@t.Libelle() en service</MudText>
+                        <div class="chiffre">@_stats.EnService.GetValueOrDefault(t)</div>
+                        <MudText Typo="Typo.caption">@_stats.EnStock.GetValueOrDefault(t) en stock</MudText>
+                    </MudPaper>
+                </MudItem>
+            }
+            <MudItem xs="12" md="6">
+                <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                    <MudText Typo="Typo.h6" Class="mb-3">À traiter</MudText>
+                    <MudList T="string" Dense="true" ReadOnly="true">
+                        <MudListItem Icon="@Icons.Material.Outlined.HourglassTop" IconColor="Color.Warning">
+                            <b>@_attente.Count</b> réception(s) en attente de confirmation
+                        </MudListItem>
+                        <MudListItem Icon="@Icons.Material.Outlined.Autorenew" IconColor="Color.Primary" Href="/inventaire?filtre=achanger">
+                            <b>@_stats.AChanger</b> PC à changer
+                        </MudListItem>
+                        <MudListItem Icon="@Icons.Material.Outlined.Build" IconColor="Color.Warning" Href="/inventaire?statut=EnReparation">
+                            <b>@_stats.ParStatut.GetValueOrDefault(StatutMateriel.EnReparation)</b> en réparation
+                        </MudListItem>
+                        <MudListItem Icon="@Icons.Material.Outlined.DeleteOutline" IconColor="Color.Dark" Href="/inventaire?statut=RebutEnAttente">
+                            <b>@_stats.ParStatut.GetValueOrDefault(StatutMateriel.RebutEnAttente)</b> en attente de rebut
+                        </MudListItem>
+                    </MudList>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                    <MudText Typo="Typo.h6" Class="mb-3">Répartition</MudText>
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <tbody>
+                            <tr><td>Parc sites</td><td class="text-right"><b>@_stats.ParcSites</b></td></tr>
+                            <tr><td>Parc personnes</td><td class="text-right"><b>@_stats.ParcPersonnes</b></td></tr>
+                            @foreach (var s in _stats.ParStatut.OrderBy(k => k.Key))
+                            {
+                                <tr><td><ChipStatut Statut="s.Key" /></td><td class="text-right">@s.Value</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12">
+                <MudPaper Elevation="0" Class="carte pa-4">
+                    <MudText Typo="Typo.h6" Class="mb-3">Réceptions en attente</MudText>
+                    @if (_attente.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2">Aucune réception en attente.</MudText>
+                    }
+                    else
+                    {
+                        <MudTable Items="_attente" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm">
+                            <HeaderContent>
+                                <MudTh>Fiche</MudTh><MudTh>Destinataire</MudTh><MudTh>Matériel</MudTh><MudTh>Envoyée le</MudTh><MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Fiche">@context.Code</MudTd>
+                                <MudTd DataLabel="Destinataire">@context.DestinataireNom<br /><small>@context.DestinataireEmail</small></MudTd>
+                                <MudTd DataLabel="Matériel">@string.Join(", ", context.Mouvements.Select(m => m.Materiel.NumInterne))</MudTd>
+                                <MudTd DataLabel="Envoyée le">@context.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")
+                                    @if (context.DerniereRelanceLe is { } r) { <br /><small>relancée le @r.ToLocalTime().ToString("dd/MM")</small> }</MudTd>
+                                <MudTd><MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Send" OnClick="() => Relancer(context)">Relancer</MudButton></MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+}
+
+@code {
+    private Utilisateur? _u;
+    private Stats? _stats;
+    private List<Fiche> _attente = [];
+
+    private sealed record Stats(
+        Dictionary<TypeMateriel, int> EnService, Dictionary<TypeMateriel, int> EnStock, Dictionary<StatutMateriel, int> ParStatut,
+        int AChanger, int ParcSites, int ParcPersonnes);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        if (_u.EstGestionnaire) await Charger();
+    }
+
+    private async Task Charger()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var lignes = await db.Materiels.GroupBy(m => new { m.Type, m.Statut }).Select(g => new { g.Key.Type, g.Key.Statut, N = g.Count() }).ToListAsync();
+        _stats = new Stats(
+            lignes.Where(l => l.Statut == StatutMateriel.Attribue).ToDictionary(l => l.Type, l => l.N),
+            lignes.Where(l => l.Statut == StatutMateriel.EnStock).ToDictionary(l => l.Type, l => l.N),
+            lignes.GroupBy(l => l.Statut).ToDictionary(g => g.Key, g => g.Sum(l => l.N)),
+            await db.Materiels.CountAsync(m => m.AChanger && m.Statut == StatutMateriel.Attribue),
+            await db.Materiels.CountAsync(m => m.SiteId != null),
+            await db.Materiels.CountAsync(m => m.PersonneId != null));
+        _attente = await db.Fiches.Include(f => f.Mouvements).ThenInclude(m => m.Materiel)
+            .Where(f => f.StatutReception == StatutReception.EnAttente)
+            .OrderBy(f => f.CreeLe).AsSplitQuery().ToListAsync();
+    }
+
+    private async Task Relancer(Fiche f)
+    {
+        try
+        {
+            await Mouvements.RelancerAsync(f.Id, _u!);
+            Snackbar.Add($"Relance envoyée à {f.DestinataireEmail}.", Severity.Success);
+            await Charger();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+}

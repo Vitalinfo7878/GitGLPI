@@ -1,0 +1,22 @@
+<MudNavMenu Class="pt-2">
+    <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard">Accueil</MudNavLink>
+    <MudNavLink Href="/mon-materiel" Icon="@Icons.Material.Outlined.Person">Mon matériel</MudNavLink>
+    <AuthorizeView Policy="@Roles.PolitiqueGestion">
+        <MudDivider Class="my-2" />
+        <MudText Typo="Typo.overline" Class="px-4 menu-section">Gestion du parc</MudText>
+        <MudNavLink Href="/inventaire" Icon="@Icons.Material.Outlined.Inventory2">Inventaire</MudNavLink>
+        <MudNavLink Href="/mouvements" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.SwapHoriz">Mouvements</MudNavLink>
+        <MudNavLink Href="/mouvements/nouveau" Icon="@Icons.Material.Outlined.AddCircleOutline">Nouveau mouvement</MudNavLink>
+        <MudNavLink Href="/achat" Icon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudNavLink>
+        <MudNavLink Href="/fiches" Icon="@Icons.Material.Outlined.Description">Fiches</MudNavLink>
+        <MudDivider Class="my-2" />
+        <MudText Typo="Typo.overline" Class="px-4 menu-section">Parcs</MudText>
+        <MudNavLink Href="/sites" Icon="@Icons.Material.Outlined.Restaurant">Sites</MudNavLink>
+        <MudNavLink Href="/personnes" Icon="@Icons.Material.Outlined.Badge">Personnes</MudNavLink>
+        <MudDivider Class="my-2" />
+        <MudText Typo="Typo.overline" Class="px-4 menu-section">Administration</MudText>
+        <MudNavLink Href="/import" Icon="@Icons.Material.Outlined.UploadFile">Import Excel</MudNavLink>
+        <MudNavLink Href="/courriels" Icon="@Icons.Material.Outlined.Email">Courriels envoyés</MudNavLink>
+        <MudNavLink Href="/journal" Icon="@Icons.Material.Outlined.History">Journal</MudNavLink>
+    </AuthorizeView>
+</MudNavMenu>

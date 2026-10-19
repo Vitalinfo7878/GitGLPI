@@ -1,0 +1,131 @@
+@page "/fiches"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject ServiceMouvements Service
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+
+<PageTitle>Fiches</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Fiches</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Fiches d'attribution (FIA), de restitution (FIR), d'achat (FIS) et de mise au rebut (FIRE), générées automatiquement à chaque mouvement.
+</MudText>
+
+<MudPaper Elevation="0" Class="carte pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Code de fiche, destinataire, n° interne…"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudSelect T="TypeFiche?" @bind-Value="_type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var t in Enum.GetValues<TypeFiche>()) { <MudSelectItem T="TypeFiche?" Value="t">@t.Libelle()</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudSelect T="StatutReception?" @bind-Value="_reception" Label="Réception" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var s in Enum.GetValues<StatutReception>()) { <MudSelectItem T="StatutReception?" Value="s">@s.Libelle()</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_fiches is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Fiche" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" HorizontalScrollbar="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Code" Title="Fiche" CellStyle="font-weight:600;white-space:nowrap" />
+            <PropertyColumn Property="x => x.CreeLe" Title="Créée le" Format="dd/MM/yyyy" />
+            <TemplateColumn T="Fiche" Title="Type" SortBy="x => x.Type"><CellTemplate>@context.Item.Type.Libelle()</CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.DestinataireNom" Title="Destinataire" />
+            <TemplateColumn T="Fiche" Title="Matériel">
+                <CellTemplate>@string.Join(", ", context.Item.Mouvements.Select(m => m.Materiel.NumInterne))</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="Fiche" Title="Réception" SortBy="x => x.StatutReception">
+                <CellTemplate>
+                    <ChipReception Statut="context.Item.StatutReception" />
+                    @if (context.Item.StatutReception == StatutReception.Confirmee)
+                    {
+                        <div><small>@context.Item.ReceptionConfirmeePar, @context.Item.ReceptionConfirmeeLe?.ToLocalTime().ToString("dd/MM/yyyy")</small></div>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="Fiche" Title="" Sortable="false">
+                <CellTemplate>
+                    <div class="d-flex">
+                        <MudTooltip Text="Télécharger le PDF">
+                            <MudIconButton Icon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Href="@($"/fiches/{context.Item.IdPublic}/pdf")" Target="_blank" aria-label="PDF" />
+                        </MudTooltip>
+                        <MudTooltip Text="Régénérer le PDF">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" OnClick="() => Regenerer(context.Item)" aria-label="Régénérer" />
+                        </MudTooltip>
+                        @if (context.Item.StatutReception == StatutReception.EnAttente)
+                        {
+                            <MudTooltip Text="Relancer le destinataire par mail">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Send" Size="Size.Small" OnClick="() => Relancer(context.Item)" aria-label="Relancer" />
+                            </MudTooltip>
+                            <MudTooltip Text="Ouvrir la page de confirmation (pour confirmer à la place du destinataire)">
+                                <MudIconButton Icon="@Icons.Material.Outlined.HowToReg" Size="Size.Small" Href="@($"/reception/{context.Item.IdPublic}")" aria-label="Confirmer" />
+                            </MudTooltip>
+                        }
+                    </div>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Fiche" PageSizeOptions="[25, 50, 100]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+        <NoRecordsContent><MudText>Aucune fiche pour l'instant : elles sont créées par les mouvements saisis dans l'application.</MudText></NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    private List<Fiche>? _fiches;
+    private string? _recherche;
+    private TypeFiche? _type;
+    private StatutReception? _reception;
+
+    private IEnumerable<Fiche> Filtrees => (_fiches ?? [])
+        .Where(f => _type is null || f.Type == _type)
+        .Where(f => _reception is null || f.StatutReception == _reception)
+        .Where(f => string.IsNullOrWhiteSpace(_recherche)
+            || $"{f.Code} {f.DestinataireNom} {f.DestinataireEmail} {string.Join(' ', f.Mouvements.Select(m => m.Materiel.NumInterne))}"
+                .Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync() => await Charger();
+
+    private async Task Charger()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Le contenu PDF n'est pas chargé dans la liste
+        _fiches = await db.Fiches.AsNoTracking()
+            .Select(f => new Fiche
+            {
+                Id = f.Id, IdPublic = f.IdPublic, Code = f.Code, Type = f.Type, CreeLe = f.CreeLe, DestinataireNom = f.DestinataireNom,
+                DestinataireEmail = f.DestinataireEmail, StatutReception = f.StatutReception, ReceptionConfirmeePar = f.ReceptionConfirmeePar,
+                ReceptionConfirmeeLe = f.ReceptionConfirmeeLe,
+                Mouvements = f.Mouvements.Select(m => new Mouvement { Numero = m.Numero, Materiel = new Materiel { NumInterne = m.Materiel.NumInterne } }).ToList(),
+            })
+            .OrderByDescending(f => f.CreeLe).ToListAsync();
+    }
+
+    private async Task Regenerer(Fiche f)
+    {
+        await Service.RegenererPdfAsync(f.Id);
+        Snackbar.Add($"PDF {f.Code} régénéré.", Severity.Success);
+    }
+
+    private async Task Relancer(Fiche f)
+    {
+        try
+        {
+            await Service.RelancerAsync(f.Id, await Courant.ObtenirAsync());
+            Snackbar.Add($"Relance envoyée à {f.DestinataireEmail}.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+}

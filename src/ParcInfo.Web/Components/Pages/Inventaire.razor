@@ -1,0 +1,205 @@
+@page "/inventaire"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Inventaire</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Inventaire</MudText>
+    <MudSpacer />
+    <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
+    <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
+               Disabled="_selection.Count == 0" OnClick="NouveauMouvement">
+        Mouvement@(_selection.Count > 0 ? $" ({_selection.Count})" : "")
+    </MudButton>
+</div>
+
+<MudPaper Elevation="0" Class="carte pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="4">
+            <MudTextField T="string" Value="_recherche" ValueChanged="Rechercher" Immediate="true" DebounceInterval="250"
+                          Placeholder="N° interne, modèle, n° série, site, personne, compte Microsoft…" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
+        </MudItem>
+        <MudItem xs="6" md="2">
+            <MudSelect T="string" Value="_parc" ValueChanged="v => Filtrer(() => _parc = v)" Label="Parc" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem Value="@("")">Tous</MudSelectItem>
+                <MudSelectItem Value="@("sites")">Parc sites</MudSelectItem>
+                <MudSelectItem Value="@("personnes")">Parc personnes</MudSelectItem>
+                <MudSelectItem Value="@("aucun")">Sans détenteur</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="6" md="2">
+            <MudSelect T="TypeMateriel?" Value="_type" ValueChanged="v => Filtrer(() => _type = v)" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var t in Enum.GetValues<TypeMateriel>())
+                {
+                    <MudSelectItem T="TypeMateriel?" Value="t">@t.Libelle()</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="6" md="2">
+            <MudSelect T="StatutMateriel?" Value="_statut" ValueChanged="v => Filtrer(() => _statut = v)" Label="Statut" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var s in Enum.GetValues<StatutMateriel>())
+                {
+                    <MudSelectItem T="StatutMateriel?" Value="s">@s.Libelle()</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="6" md="2">
+            <MudSelect T="string" Value="_region" ValueChanged="v => Filtrer(() => _region = v)" Label="Région / service" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var r in _regions)
+                {
+                    <MudSelectItem Value="r">@r</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" Class="d-flex flex-wrap align-center gap-4 pt-0">
+            <MudCheckBox T="bool" Value="_aChanger" ValueChanged="v => Filtrer(() => _aChanger = v)" Label="PC à changer" Dense="true" />
+            <MudCheckBox T="bool" Value="_masquerRebut" ValueChanged="v => Filtrer(() => _masquerRebut = v)" Label="Masquer le matériel rebuté" Dense="true" />
+            <MudSpacer />
+            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@_filtres.Count matériel(s)</MudText>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_tous is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Ligne" Items="_filtres" MultiSelection="true" @bind-SelectedItems="_selection" Hover="true" Dense="true"
+                 Elevation="0" Class="carte" RowClick="Ouvrir" RowClass="lien-ligne"
+                 RowsPerPage="50" SortMode="SortMode.Single" HorizontalScrollbar="true">
+        <Columns>
+            <SelectColumn T="Ligne" />
+            <PropertyColumn Property="x => x.NumInterne" Title="N° interne" CellStyle="font-weight:600;white-space:nowrap" />
+            <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
+            <PropertyColumn Property="x => x.Modele" Title="Modèle" />
+            <PropertyColumn Property="x => x.NumSerie" Title="N° série" />
+            <TemplateColumn T="Ligne" Title="Site / personne" SortBy="x => x.Detenteur">
+                <CellTemplate>
+                    @if (context.Item.Parc == TypeDetenteur.Site)
+                    {
+                        <MudIcon Icon="@Icons.Material.Outlined.Restaurant" Size="Size.Small" Class="mr-1" Style="vertical-align:middle" />
+                    }
+                    else if (context.Item.Parc == TypeDetenteur.Personne)
+                    {
+                        <MudIcon Icon="@Icons.Material.Outlined.Person" Size="Size.Small" Class="mr-1" Style="vertical-align:middle" />
+                    }
+                    @context.Item.Detenteur
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.Region" Title="Région / service" />
+            <TemplateColumn T="Ligne" Title="Statut" SortBy="x => x.Statut">
+                <CellTemplate><ChipStatut Statut="context.Item.Statut" /></CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.ProfilMicrosoft" Title="Profil Microsoft" />
+            <PropertyColumn Property="x => x.VersionWindows" Title="Windows" />
+            <PropertyColumn Property="x => x.Note" Title="Note /5" />
+            <PropertyColumn Property="x => x.Annee" Title="Année" />
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :"
+                              InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+        <NoRecordsContent><MudText>Aucun matériel ne correspond aux filtres.</MudText></NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "statut")] public string? StatutQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "filtre")] public string? FiltreQuery { get; set; }
+
+    private sealed record Ligne(
+        int Id, string NumInterne, TypeMateriel Type, string TypeLibelle, string? Modele, string? NumSerie, TypeDetenteur Parc,
+        string Detenteur, string? Region, StatutMateriel Statut, string? ProfilMicrosoft, string? VersionWindows, int? Note,
+        int? Annee, bool AChanger, string Recherche);
+
+    private List<Ligne>? _tous;
+    private List<Ligne> _filtres = [];
+    private HashSet<Ligne> _selection = [];
+    private List<string> _regions = [];
+
+    private string? _recherche;
+    private string _parc = "";
+    private TypeMateriel? _type;
+    private StatutMateriel? _statut;
+    private string? _region;
+    private bool _aChanger;
+    private bool _masquerRebut = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Enum.TryParse<StatutMateriel>(StatutQuery, out var s)) { _statut = s; _masquerRebut = false; }
+        if (FiltreQuery == "achanger") _aChanger = true;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var materiels = await db.Materiels.AsNoTracking()
+            .Select(m => new
+            {
+                m.Id, m.NumInterne, m.Type, m.Modele, m.NumSerie, m.SiteId, m.PersonneId,
+                SiteCode = m.Site!.Code, SiteNom = m.Site.Nom, SiteRegion = m.Site.Region!.Nom, Personne = m.Personne!.NomComplet,
+                Region = m.Region!.Nom, m.Statut, m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger,
+            })
+            .ToListAsync();
+
+        _tous = materiels.Select(m =>
+        {
+            var parc = m.SiteId != null ? TypeDetenteur.Site : m.PersonneId != null ? TypeDetenteur.Personne : TypeDetenteur.Aucun;
+            var detenteur = parc switch
+            {
+                TypeDetenteur.Site => string.IsNullOrEmpty(m.SiteNom) ? $"Site {m.SiteCode}" : $"{m.SiteCode} – {m.SiteNom}",
+                TypeDetenteur.Personne => m.Personne ?? "",
+                _ => "",
+            };
+            var region = m.Region ?? m.SiteRegion;
+            var recherche = Normaliser($"{m.NumInterne} {m.Modele} {m.NumSerie} {detenteur} {m.ProfilMicrosoft} {region}");
+            return new Ligne(m.Id, m.NumInterne, m.Type, m.Type.Libelle(), m.Modele, m.NumSerie, parc, detenteur, region, m.Statut,
+                m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger, recherche);
+        }).OrderBy(l => l.NumInterne).ToList();
+        _regions = _tous.Select(l => l.Region).OfType<string>().Distinct().Order().ToList();
+        Appliquer();
+    }
+
+    private static string Normaliser(string s) => ParcInfo.Web.Import.Normalisation.SansAccents(s).ToLowerInvariant();
+
+    private void Rechercher(string? texte) => Filtrer(() => _recherche = texte);
+
+    private void Filtrer(Action changement)
+    {
+        changement();
+        Appliquer();
+    }
+
+    private void Appliquer()
+    {
+        if (_tous is null) return;
+        IEnumerable<Ligne> q = _tous;
+        if (!string.IsNullOrWhiteSpace(_recherche))
+        {
+            var mots = Normaliser(_recherche).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            q = q.Where(l => mots.All(l.Recherche.Contains));
+        }
+        q = _parc switch
+        {
+            "sites" => q.Where(l => l.Parc == TypeDetenteur.Site),
+            "personnes" => q.Where(l => l.Parc == TypeDetenteur.Personne),
+            "aucun" => q.Where(l => l.Parc == TypeDetenteur.Aucun),
+            _ => q,
+        };
+        if (_type is { } t) q = q.Where(l => l.Type == t);
+        if (_statut is { } s) q = q.Where(l => l.Statut == s);
+        else if (_masquerRebut) q = q.Where(l => l.Statut != StatutMateriel.Rebute);
+        if (_region is not null) q = q.Where(l => l.Region == _region);
+        if (_aChanger) q = q.Where(l => l.AChanger);
+        _filtres = q.ToList();
+    }
+
+    private void Ouvrir(DataGridRowClickEventArgs<Ligne> e) => Nav.NavigateTo($"/materiels/{e.Item.Id}");
+
+    private void NouveauMouvement() =>
+        Nav.NavigateTo($"/mouvements/nouveau?ids={string.Join(',', _selection.Select(l => l.Id))}");
+}

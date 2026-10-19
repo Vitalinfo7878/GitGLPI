@@ -1,0 +1,242 @@
+@page "/materiels/{Id:int}"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@(_m?.NumInterne ?? "Matériel")</PageTitle>
+
+@if (_m is null)
+{
+    @if (_introuvable) { <MudAlert Severity="Severity.Error">Matériel introuvable.</MudAlert> } else { <Attente /> }
+}
+else
+{
+    <MudBreadcrumbs Items="_fil" Class="px-0 pt-0" />
+    <div class="d-flex flex-wrap align-center gap-3 mb-4">
+        <MudText Typo="Typo.h4">@_m.NumInterne</MudText>
+        <ChipStatut Statut="_m.Statut" />
+        @if (_m.AChanger) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">À changer</MudChip> }
+        <MudSpacer />
+        @if (!_edition)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="Editer">Modifier</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
+                       Href="@($"/mouvements/nouveau?ids={_m.Id}")">Nouveau mouvement</MudButton>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                @if (_edition && _form is not null)
+                {
+                    <EditForm Model="_form" OnValidSubmit="Enregistrer">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.NumInterne" Label="N° interne" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudSelect @bind-Value="_form.Type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                    @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudSelect T="int?" @bind-Value="_form.RegionId" Label="Région / service" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                    @foreach (var r in _regions) { <MudSelectItem T="int?" Value="r.Id">@r.Nom</MudSelectItem> }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="6" sm="3"><MudNumericField @bind-Value="_form.AnneeAcquisition" Label="Année" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" /></MudItem>
+                            <MudItem xs="6" sm="3"><MudDatePicker Date="@(_form.DateMiseEnPlace?.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? d) => _form.DateMiseEnPlace = d is null ? null : DateOnly.FromDateTime(d.Value))" Label="Mise en place" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" Clearable="true" /></MudItem>
+                            @if (_form.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable)
+                            {
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.Configuration" Label="Configuration (processeur + RAM)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.ProfilMicrosoft" Label="Profil Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.LicenceMicrosoft" Label="Licence Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.MotDePasseSession" Label="Mot de passe de session" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_form.VersionWindows" Label="Version Windows" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_form.EditionWindows" Label="Édition (Pro / Famille)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudNumericField @bind-Value="_form.Note" Label="Note /5" Min="0" Max="5" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_form.CleOffice" Label="Clé Office" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" Class="d-flex flex-wrap gap-4">
+                                    <MudCheckBox T="bool?" @bind-Value="_form.OfficeEnDur" TriState="true" Label="Office en dur" />
+                                    <MudCheckBox T="bool?" @bind-Value="_form.ConnexionAdmin" TriState="true" Label="Connexion administrateur" />
+                                    <MudCheckBox T="bool?" @bind-Value="_form.Labtech" TriState="true" Label="Labtech" />
+                                    <MudCheckBox T="bool" @bind-Value="_form.AChanger" Label="À changer" />
+                                </MudItem>
+                            }
+                            <MudItem xs="6"><MudTextField @bind-Value="_form.NumImmo" Label="N° immobilisation" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="6"><MudTextField @bind-Value="_form.NumFacture" Label="N° de facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12"><MudTextField @bind-Value="_form.Commentaire" Label="Commentaire" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" Class="d-flex gap-2 justify-end">
+                                <MudButton OnClick="() => _edition = false">Annuler</MudButton>
+                                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Enregistrer</MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    </EditForm>
+                }
+                else
+                {
+                    <MudGrid Spacing="0">
+                        <MudItem xs="12" sm="6">
+                            <dl class="champ-lecture">
+                                <Champ Libelle="Type" Valeur="@_m.Type.Libelle()" />
+                                <Champ Libelle="Modèle" Valeur="@_m.Modele" />
+                                <Champ Libelle="N° de série" Valeur="@_m.NumSerie" />
+                                <Champ Libelle="Attribué à">
+                                    @if (_m.Site is { } s) { <MudLink Href="@($"/sites/{s.Id}")">@s.Libelle</MudLink> }
+                                    else if (_m.Personne is { } p) { <MudLink Href="@($"/personnes/{p.Id}")">@p.NomComplet</MudLink> }
+                                    else { <span>—</span> }
+                                </Champ>
+                                <Champ Libelle="Région / service" Valeur="@(_m.Region?.Nom ?? _m.Site?.Region?.Nom)" />
+                                <Champ Libelle="Année d'acquisition" Valeur="@_m.AnneeAcquisition?.ToString()" />
+                                <Champ Libelle="Date de mise en place" Valeur="@_m.DateMiseEnPlace?.ToString("dd/MM/yyyy")" />
+                                <Champ Libelle="N° immobilisation" Valeur="@_m.NumImmo" />
+                                <Champ Libelle="N° de facture" Valeur="@_m.NumFacture" />
+                            </dl>
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            @if (_m.EstUnPc)
+                            {
+                                <dl class="champ-lecture">
+                                    <Champ Libelle="Configuration" Valeur="@_m.Configuration" />
+                                    <Champ Libelle="Profil Microsoft" Valeur="@_m.ProfilMicrosoft" />
+                                    <Champ Libelle="Licence Microsoft" Valeur="@_m.LicenceMicrosoft" />
+                                    <Champ Libelle="Windows" Valeur="@(string.Join(" ", new[] { _m.VersionWindows, _m.EditionWindows }.Where(x => x != null)))" />
+                                    <Champ Libelle="Mot de passe de session">
+                                        @if (_m.MotDePasseSession is null) { <span>—</span> }
+                                        else if (_mdpVisible) { <span class="mot-de-passe">@_m.MotDePasseSession</span> }
+                                        else { <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Visibility" OnClick="AfficherMotDePasse" Class="pa-0">Afficher</MudButton> }
+                                    </Champ>
+                                    <Champ Libelle="Office en dur / admin local / Labtech" Valeur="@($"{OuiNon(_m.OfficeEnDur)} / {OuiNon(_m.ConnexionAdmin)} / {OuiNon(_m.Labtech)}")" />
+                                    <Champ Libelle="Note /5" Valeur="@_m.Note?.ToString()" />
+                                    <Champ Libelle="Clé Office" Valeur="@_m.CleOffice" />
+                                </dl>
+                            }
+                        </MudItem>
+                        <MudItem xs="12">
+                            <dl class="champ-lecture"><Champ Libelle="Commentaire" Valeur="@_m.Commentaire" /></dl>
+                        </MudItem>
+                    </MudGrid>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Historique</MudText>
+                @if (_m.Mouvements.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">Aucun mouvement enregistré.</MudText>
+                }
+                <MudTimeline TimelinePosition="TimelinePosition.Start" Class="pt-0">
+                    @foreach (var mv in _m.Mouvements.OrderByDescending(x => x.Date ?? DateOnly.MinValue).ThenByDescending(x => x.Numero))
+                    {
+                        <MudTimelineItem Size="Size.Small" Color="@ChipStatut.Couleur(RegleMouvement.Pour(mv.Type).StatutResultant)">
+                            <MudText Typo="Typo.subtitle2">@mv.Type.Libelle() <small style="color:var(--mud-palette-text-secondary)">n° @mv.Numero</small></MudText>
+                            <MudText Typo="Typo.body2">
+                                @mv.Date?.ToString("dd/MM/yyyy")
+                                @if (!string.IsNullOrEmpty(mv.Expediteur)) { <span> · de @mv.Expediteur</span> }
+                                @if (!string.IsNullOrEmpty(mv.DestinationLibelle)) { <span> · vers <b>@mv.DestinationLibelle</b></span> }
+                            </MudText>
+                            @if (mv.Fiche is { } f)
+                            {
+                                <div class="d-flex align-center gap-2 mt-1">
+                                    <MudLink Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Typo="Typo.body2">
+                                        <MudIcon Icon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Style="vertical-align:middle" /> @f.Code
+                                    </MudLink>
+                                    <ChipReception Statut="f.StatutReception" />
+                                </div>
+                            }
+                            @if (mv.DateReception is { } dr) { <MudText Typo="Typo.caption">Reçu le @dr.ToString("dd/MM/yyyy")</MudText> }
+                            @if (!string.IsNullOrEmpty(mv.Commentaire)) { <MudText Typo="Typo.caption" Class="d-block">@mv.Commentaire</MudText> }
+                        </MudTimelineItem>
+                    }
+                </MudTimeline>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Materiel? _m;
+    private Materiel? _form;
+    private bool _edition;
+    private bool _introuvable;
+    private bool _mdpVisible;
+    private List<Region> _regions = [];
+    private List<BreadcrumbItem> _fil = [];
+
+    protected override async Task OnParametersSetAsync() => await Charger();
+
+    private async Task Charger()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _m = await db.Materiels.AsNoTracking()
+            .Include(m => m.Site).ThenInclude(s => s!.Region).Include(m => m.Personne).Include(m => m.Region)
+            .Include(m => m.Mouvements).ThenInclude(x => x.Fiche)
+            .Include(m => m.Mouvements).ThenInclude(x => x.DestinationSite)
+            .Include(m => m.Mouvements).ThenInclude(x => x.DestinationPersonne)
+            .AsSplitQuery().FirstOrDefaultAsync(m => m.Id == Id);
+        _introuvable = _m is null;
+        _regions = await db.Regions.OrderBy(r => r.Nom).ToListAsync();
+        if (_m != null)
+            _fil = [new("Inventaire", "/inventaire"), new(_m.NumInterne, null, true)];
+    }
+
+    private static string OuiNon(bool? b) => b switch { true => "oui", false => "non", null => "?" };
+
+    private void Editer()
+    {
+        _form = new Materiel
+        {
+            NumInterne = _m!.NumInterne, Type = _m.Type, Modele = _m.Modele, NumSerie = _m.NumSerie, RegionId = _m.RegionId,
+            AnneeAcquisition = _m.AnneeAcquisition, DateMiseEnPlace = _m.DateMiseEnPlace, Configuration = _m.Configuration,
+            ProfilMicrosoft = _m.ProfilMicrosoft, LicenceMicrosoft = _m.LicenceMicrosoft, MotDePasseSession = _m.MotDePasseSession,
+            VersionWindows = _m.VersionWindows, EditionWindows = _m.EditionWindows, Note = _m.Note, CleOffice = _m.CleOffice,
+            OfficeEnDur = _m.OfficeEnDur, ConnexionAdmin = _m.ConnexionAdmin, Labtech = _m.Labtech, AChanger = _m.AChanger,
+            NumImmo = _m.NumImmo, NumFacture = _m.NumFacture, Commentaire = _m.Commentaire,
+        };
+        _edition = true;
+    }
+
+    private async Task Enregistrer()
+    {
+        var f = _form!;
+        var num = f.NumInterne.Trim().ToUpperInvariant();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (await db.Materiels.AnyAsync(m => m.NumInterne == num && m.Id != Id))
+        {
+            Snackbar.Add($"Le numéro interne {num} est déjà utilisé.", Severity.Error);
+            return;
+        }
+        var m = await db.Materiels.FirstAsync(x => x.Id == Id);
+        var avant = m.NumInterne;
+        m.NumInterne = num; m.Type = f.Type; m.Modele = f.Modele; m.NumSerie = f.NumSerie; m.RegionId = f.RegionId;
+        m.AnneeAcquisition = f.AnneeAcquisition; m.DateMiseEnPlace = f.DateMiseEnPlace; m.Configuration = f.Configuration;
+        m.ProfilMicrosoft = f.ProfilMicrosoft; m.LicenceMicrosoft = f.LicenceMicrosoft; m.MotDePasseSession = f.MotDePasseSession;
+        m.VersionWindows = f.VersionWindows; m.EditionWindows = f.EditionWindows; m.Note = f.Note; m.CleOffice = f.CleOffice;
+        m.OfficeEnDur = f.OfficeEnDur; m.ConnexionAdmin = f.ConnexionAdmin; m.Labtech = f.Labtech; m.AChanger = f.AChanger;
+        m.NumImmo = f.NumImmo; m.NumFacture = f.NumFacture; m.Commentaire = f.Commentaire;
+        m.ModifieLe = DateTime.UtcNow;
+        var u = await Courant.ObtenirAsync();
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Matériel modifié", MaterielId = Id,
+            Details = avant == num ? num : $"{avant} renommé {num}" });
+        await db.SaveChangesAsync();
+        _edition = false;
+        Snackbar.Add("Modifications enregistrées.", Severity.Success);
+        await Charger();
+    }
+
+    private async Task AfficherMotDePasse()
+    {
+        _mdpVisible = true;
+        var u = await Courant.ObtenirAsync();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Mot de passe affiché", MaterielId = Id, Details = _m!.NumInterne });
+        await db.SaveChangesAsync();
+    }
+}

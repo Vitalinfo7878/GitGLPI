@@ -1,0 +1,120 @@
+@page "/mouvements"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Mouvements</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Mouvements</MudText>
+    <MudSpacer />
+    <MudButton Href="/export/mouvements.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
+    <MudButton Href="/mouvements/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">Nouveau mouvement</MudButton>
+</div>
+
+<MudPaper Elevation="0" Class="carte pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="5">
+            <MudTextField T="string" Value="_recherche" ValueChanged="v => { _recherche = v; Appliquer(); }" Immediate="true" DebounceInterval="250"
+                          Placeholder="N° de mouvement, n° interne, destination, expéditeur, fiche…" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudSelect T="TypeMouvement?" Value="_type" ValueChanged="v => { _type = v; Appliquer(); }" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var t in Enum.GetValues<TypeMouvement>()) { <MudSelectItem T="TypeMouvement?" Value="t">@t.Libelle()</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="6" md="2">
+            <MudSelect T="int?" Value="_annee" ValueChanged="v => { _annee = v; Appliquer(); }" Label="Année" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var a in _annees) { <MudSelectItem T="int?" Value="a">@a</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="2" Class="d-flex align-center justify-end">
+            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@_filtres.Count mouvement(s)</MudText>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_tous is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Ligne" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
+                 RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Numero" Title="N°" />
+            <PropertyColumn Property="x => x.Date" Title="Date" Format="dd/MM/yyyy" />
+            <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
+            <PropertyColumn Property="x => x.NumInterne" Title="N° interne" CellStyle="font-weight:600" />
+            <PropertyColumn Property="x => x.Materiel" Title="Matériel" />
+            <PropertyColumn Property="x => x.Expediteur" Title="Expéditeur" />
+            <PropertyColumn Property="x => x.Destination" Title="Destination" />
+            <PropertyColumn Property="x => x.Region" Title="Région" />
+            <TemplateColumn T="Ligne" Title="Fiche" SortBy="x => x.Fiche">
+                <CellTemplate>
+                    @if (context.Item.FicheId is { } f)
+                    {
+                        <MudLink Href="@($"/fiches/{f}/pdf")" Target="_blank" @onclick:stopPropagation="true">@context.Item.Fiche</MudLink>
+                        <ChipReception Statut="context.Item.Reception" />
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+    </MudDataGrid>
+}
+
+@code {
+    private sealed record Ligne(int Numero, DateTime? Date, TypeMouvement Type, string TypeLibelle, int MaterielId, string NumInterne, string Materiel,
+        string? Expediteur, string Destination, string? Region, Guid? FicheId, string? Fiche, StatutReception Reception, string Recherche);
+
+    private List<Ligne>? _tous;
+    private List<Ligne> _filtres = [];
+    private List<int> _annees = [];
+    private string? _recherche;
+    private TypeMouvement? _type;
+    private int? _annee;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var mvts = await db.Mouvements.AsNoTracking()
+            .Select(m => new
+            {
+                m.Numero, m.Date, m.Type, m.MaterielId, m.Materiel.NumInterne, MType = m.Materiel.Type, m.Materiel.Modele, m.Expediteur,
+                SiteCode = m.DestinationSite!.Code, SiteNom = m.DestinationSite.Nom, Personne = m.DestinationPersonne!.NomComplet, m.DestinationLibre,
+                m.Region, FicheId = (Guid?)m.Fiche!.IdPublic, Fiche = m.Fiche.Code, Reception = (StatutReception?)m.Fiche.StatutReception,
+            })
+            .OrderByDescending(m => m.Numero).ToListAsync();
+        _tous = mvts.Select(m =>
+        {
+            var dest = m.SiteCode is not null ? (string.IsNullOrEmpty(m.SiteNom) ? $"Site {m.SiteCode}" : $"{m.SiteCode} – {m.SiteNom}") : m.Personne ?? m.DestinationLibre ?? "";
+            var materiel = $"{m.MType.Libelle()} {m.Modele}";
+            var r = ParcInfo.Web.Import.Normalisation.SansAccents($"{m.Numero} {m.NumInterne} {materiel} {m.Expediteur} {dest} {m.Region} {m.Fiche}").ToLowerInvariant();
+            return new Ligne(m.Numero, m.Date?.ToDateTime(TimeOnly.MinValue), m.Type, m.Type.Libelle(), m.MaterielId, m.NumInterne, materiel,
+                m.Expediteur, dest, m.Region, m.FicheId, m.Fiche, m.Reception ?? StatutReception.NonDemandee, r);
+        }).ToList();
+        _annees = _tous.Where(l => l.Date != null).Select(l => l.Date!.Value.Year).Distinct().OrderDescending().ToList();
+        Appliquer();
+    }
+
+    private void Appliquer()
+    {
+        if (_tous is null) return;
+        IEnumerable<Ligne> q = _tous;
+        if (!string.IsNullOrWhiteSpace(_recherche))
+        {
+            var mots = ParcInfo.Web.Import.Normalisation.SansAccents(_recherche).ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            q = q.Where(l => mots.All(l.Recherche.Contains));
+        }
+        if (_type is { } t) q = q.Where(l => l.Type == t);
+        if (_annee is { } a) q = q.Where(l => l.Date?.Year == a);
+        _filtres = q.ToList();
+    }
+
+    private void Ouvrir(DataGridRowClickEventArgs<Ligne> e) => Nav.NavigateTo($"/materiels/{e.Item.MaterielId}");
+}

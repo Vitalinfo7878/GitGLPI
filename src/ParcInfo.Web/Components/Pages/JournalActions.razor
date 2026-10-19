@@ -1,0 +1,49 @@
+@page "/journal"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+
+<PageTitle>Journal</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Journal</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">Qui a fait quoi : mouvements, modifications, affichages de mot de passe, import.</MudText>
+
+@if (_lignes is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Journal" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50">
+        <ToolBarContent>
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Filtrer (utilisateur, action, n° interne…)"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Clearable="true" />
+        </ToolBarContent>
+        <Columns>
+            <TemplateColumn T="Journal" Title="Date" SortBy="x => x.Date"><CellTemplate>@context.Item.Date.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.Utilisateur" Title="Utilisateur" />
+            <PropertyColumn Property="x => x.Action" Title="Action" />
+            <TemplateColumn T="Journal" Title="Détails">
+                <CellTemplate>
+                    @if (context.Item.MaterielId is { } id) { <MudLink Href="@($"/materiels/{id}")">@context.Item.Details</MudLink> }
+                    else { @context.Item.Details }
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Journal" PageSizeOptions="[50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+    </MudDataGrid>
+}
+
+@code {
+    private List<Journal>? _lignes;
+    private string? _recherche;
+
+    private IEnumerable<Journal> Filtrees => (_lignes ?? []).Where(j => string.IsNullOrWhiteSpace(_recherche)
+        || $"{j.Utilisateur} {j.Action} {j.Details}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _lignes = await db.Journal.AsNoTracking().OrderByDescending(j => j.Date).Take(2000).ToListAsync();
+    }
+}
