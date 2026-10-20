@@ -2,6 +2,7 @@
 @inject ServiceDemandes Service
 @inject UtilisateurCourant Courant
 @inject OptionsDemandes Options
+@inject IJSRuntime JS
 
 <PageTitle>Demande informatique</PageTitle>
 
@@ -125,6 +126,7 @@
     private FormulaireDemande _f = new();
     private Dictionary<string, string> _erreurs = [];
     private bool _envoi;
+    private bool _allerErreur;
     private ResultatDemande? _resultat;
     private Utilisateur? _u;
 
@@ -150,11 +152,20 @@
     private async Task Envoyer()
     {
         _erreurs = _f.Valider();
-        if (_erreurs.Count > 0) return;
+        _allerErreur = _erreurs.Count > 0;
+        if (_allerErreur) return;
         _envoi = true;
         try { _resultat = await Service.CreerAsync(_f, _u!); }
-        catch (ErreurFormulaire ex) { _erreurs = ex.Erreurs; }
+        catch (ErreurFormulaire ex) { _erreurs = ex.Erreurs; _allerErreur = true; }
         finally { _envoi = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Après affichage des erreurs, remonter jusqu'à la première question en rouge
+        if (!_allerErreur) return;
+        _allerErreur = false;
+        await JS.InvokeVoidAsync("parcInfo.allerPremiereErreur");
     }
 
     private void Nouvelle()
