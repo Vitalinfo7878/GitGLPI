@@ -1,0 +1,133 @@
+@page "/tickets/analyse"
+@attribute [Authorize(Policy = Roles.PolitiqueTickets)]
+@inject ServiceTickets Service
+@using System.Globalization
+
+<PageTitle>Analyse des tickets</PageTitle>
+<MudBreadcrumbs Items="@([new("Tickets", "/tickets"), new("Analyse", null, true)])" Class="px-0 pt-0" />
+<div class="d-flex flex-wrap align-center gap-3 mb-4">
+    <MudText Typo="Typo.h4">Analyse des tickets</MudText>
+    <MudSpacer />
+    <MudToggleGroup T="string" Value="_periode" ValueChanged="ChangerPeriode" Color="Color.Primary" Size="Size.Small">
+        <MudToggleItem Value="@("30")" Text="30 jours" />
+        <MudToggleItem Value="@("90")" Text="3 mois" />
+        <MudToggleItem Value="@("365")" Text="12 mois" />
+        <MudToggleItem Value="@("tout")" Text="Tout" />
+    </MudToggleGroup>
+</div>
+
+@if (_a is null)
+{
+    <Attente />
+}
+else
+{
+    <MudGrid Spacing="3">
+        @foreach (var (libelle, valeur, detail) in Tuiles())
+        {
+            <MudItem xs="6" md="4" lg="3">
+                <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                    <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@libelle</MudText>
+                    <div class="chiffre">@valeur</div>
+                    @if (detail is not null) { <MudText Typo="Typo.caption">@detail</MudText> }
+                </MudPaper>
+            </MudItem>
+        }
+
+        <MudItem xs="12">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.h6" Class="mb-1">Tickets créés et résolus par mois</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mb-2">12 derniers mois, quelle que soit la période choisie.</MudText>
+                <div class="legende">
+                    <span><i style="background:var(--serie-1)"></i>Créés</span>
+                    <span><i style="background:var(--serie-2)"></i>Résolus</span>
+                </div>
+                @{ var max = Math.Max(1, _a.ParMois.Max(m => Math.Max(m.Crees, m.Resolus))); }
+                <div class="mois" role="table" aria-label="Tickets créés et résolus par mois">
+                    @foreach (var m in _a.ParMois)
+                    {
+                        <div class="mois-colonne" role="row" title="@($"{NomMois(m.Debut)} : {m.Crees} créé(s), {m.Resolus} résolu(s)")">
+                            <div class="mois-barres">
+                                <span role="cell" aria-label="@($"{m.Crees} créés")" style="height:@Pourcent(m.Crees, max);background:var(--serie-1)"></span>
+                                <span role="cell" aria-label="@($"{m.Resolus} résolus")" style="height:@Pourcent(m.Resolus, max);background:var(--serie-2)"></span>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="mois-libelles">
+                    @foreach (var m in _a.ParMois) { <span>@NomMois(m.Debut)</span> }
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                <MudText Typo="Typo.h6" Class="mb-3">Par type de problème</MudText>
+                <Barres Donnees="_a.ParCategorie" Titre="Tickets par type de problème" AfficherPrecision="true" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                <MudText Typo="Typo.h6" Class="mb-3">Causes identifiées</MudText>
+                <Barres Donnees="_a.ParCause" Titre="Causes des tickets résolus" Vide="Aucun ticket résolu sur la période." />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                <MudText Typo="Typo.h6" Class="mb-3">Comment les problèmes sont résolus</MudText>
+                <Barres Donnees="_a.ParMode" Titre="Modes de résolution" Vide="Aucun ticket résolu sur la période." />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
+                <MudText Typo="Typo.h6" Class="mb-3">Sites et services les plus concernés</MudText>
+                <Barres Donnees="_a.ParLieu" Titre="Tickets par site ou service (10 premiers)" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.h6" Class="mb-1">Matériels à problèmes répétés</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mb-3">Matériels ayant fait l'objet d'au moins 2 tickets : candidats à un remplacement.</MudText>
+                <Barres Donnees="_a.MaterielsRecurrents" Titre="Matériels avec plusieurs tickets" Vide="Aucun matériel avec plusieurs tickets sur la période." />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private AnalyseTickets? _a;
+    private string _periode = "90";
+
+    protected override Task OnInitializedAsync() => Charger();
+
+    private async Task ChangerPeriode(string p)
+    {
+        _periode = p;
+        await Charger();
+    }
+
+    private async Task Charger()
+    {
+        DateTime? depuis = int.TryParse(_periode, out var jours) ? DateTime.UtcNow.AddDays(-jours) : null;
+        _a = await Service.AnalyserAsync(depuis);
+    }
+
+    private IEnumerable<(string Libelle, string Valeur, string? Detail)> Tuiles()
+    {
+        var a = _a!;
+        yield return ("Tickets ouverts", a.Ouverts.ToString(), "à ce jour");
+        yield return ("Tickets créés", a.Crees.ToString(), $"{a.Resolus} résolu(s) sur la période");
+        yield return ("Délai de prise en charge", Duree.Texte(a.PriseEnChargeMoyenne), "en moyenne");
+        yield return ("Délai de résolution", Duree.Texte(a.ResolutionMediane), a.ResolutionMoyenne is null ? "médian" : $"médian · moyen {Duree.Texte(a.ResolutionMoyenne)}");
+        yield return ("Temps passé", Duree.Minutes(a.TempsPasseTotalMinutes), "saisi sur les tickets");
+        yield return ("Satisfaction", a.SatisfactionMoyenne is { } s ? $"{s:0.0} / 5" : "–", $"{a.NbNotes} avis");
+        yield return ("Résolus à distance", Taux(a.TauxADistance), "prise en main ou téléphone");
+        yield return ("Réouvertures", Taux(a.TauxReouverture), "problème qui persistait après résolution");
+    }
+
+    private static string Taux(double? t) => t is { } v ? v.ToString("P0", CultureInfo.CurrentCulture) : "–";
+
+    private static string Pourcent(int n, int max) => (100.0 * n / max).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+
+    private static string NomMois(DateOnly d) => d.ToString("MMM yy", CultureInfo.CurrentCulture);
+}

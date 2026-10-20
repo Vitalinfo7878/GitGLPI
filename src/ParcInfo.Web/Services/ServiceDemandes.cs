@@ -72,7 +72,7 @@ public sealed class FormulaireDemande
         return e;
     }
 
-    private static bool EmailValide(string s) =>
+    internal static bool EmailValide(string s) =>
         MailAddress.TryCreate(s.Trim(), out var a) && a.Address.Equals(s.Trim(), StringComparison.OrdinalIgnoreCase) && a.Host.Contains('.');
 
     /// <summary>Objets dans l'ordre du formulaire, « Autre » remplacé par la précision saisie.</summary>

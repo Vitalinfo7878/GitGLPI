@@ -17,7 +17,14 @@ else if (!_u.EstGestionnaire)
     <div class="d-flex flex-wrap gap-2 mb-6">
         <MudButton Href="/demandes/nouvelle" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AddShoppingCart">Faire une demande de matériel</MudButton>
         <MudButton Href="/mes-demandes" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ListAlt">Suivre mes demandes</MudButton>
+        <MudButton Href="/tickets/nouveau" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ReportProblem">Signaler un problème</MudButton>
     </div>
+    @if (_u.EstAdminTickets && _ticketsOuverts > 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-6">
+            <b>@_ticketsOuverts</b> ticket(s) ouvert(s), dont <b>@_ticketsNouveaux</b> à prendre en charge. <MudLink Href="/tickets">Voir les tickets</MudLink>
+        </MudAlert>
+    }
     @if (_u.EstValideur && _demandesAValider > 0)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-6">
@@ -54,6 +61,9 @@ else
                     <MudList T="string" Dense="true" ReadOnly="true">
                         <MudListItem Icon="@Icons.Material.Outlined.FactCheck" IconColor="Color.Warning" Href="/demandes">
                             <b>@_demandesAValider</b> demande(s) à valider, <b>@_demandesATraiter</b> à traiter
+                        </MudListItem>
+                        <MudListItem Icon="@Icons.Material.Outlined.ConfirmationNumber" IconColor="Color.Warning" Href="/tickets">
+                            <b>@_ticketsOuverts</b> ticket(s) ouvert(s), dont <b>@_ticketsNouveaux</b> à prendre en charge
                         </MudListItem>
                         <MudListItem Icon="@Icons.Material.Outlined.HourglassTop" IconColor="Color.Warning">
                             <b>@_attente.Count</b> réception(s) en attente de confirmation
@@ -120,6 +130,7 @@ else
     private Stats? _stats;
     private List<Fiche> _attente = [];
     private int _demandesAValider, _demandesATraiter;
+    private int _ticketsOuverts, _ticketsNouveaux;
 
     private sealed record Stats(
         Dictionary<TypeMateriel, int> EnService, Dictionary<TypeMateriel, int> EnStock, Dictionary<StatutMateriel, int> ParStatut,
@@ -129,10 +140,11 @@ else
     {
         _u = await Courant.ObtenirAsync();
         if (_u.EstGestionnaire) await Charger();
-        else if (_u.EstValideur)
+        else if (_u.EstValideur || _u.EstAdminTickets)
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-            _demandesAValider = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.EnAttente);
+            if (_u.EstValideur) _demandesAValider = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.EnAttente);
+            if (_u.EstAdminTickets) await CompterTickets(db);
         }
     }
 
@@ -150,9 +162,16 @@ else
         _demandesAValider = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.EnAttente);
         _demandesATraiter = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.Validee
             && d.StatutRealisation != StatutRealisation.Realisee && d.StatutRealisation != StatutRealisation.Annulee);
+        await CompterTickets(db);
         _attente = await db.Fiches.Include(f => f.Mouvements).ThenInclude(m => m.Materiel)
             .Where(f => f.StatutReception == StatutReception.EnAttente)
             .OrderBy(f => f.CreeLe).AsSplitQuery().ToListAsync();
+    }
+
+    private async Task CompterTickets(ParcDbContext db)
+    {
+        _ticketsOuverts = await db.Tickets.CountAsync(t => t.Statut != StatutTicket.Resolu && t.Statut != StatutTicket.Clos);
+        _ticketsNouveaux = await db.Tickets.CountAsync(t => t.Statut == StatutTicket.Nouveau);
     }
 
     private async Task Relancer(Fiche f)

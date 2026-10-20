@@ -88,6 +88,7 @@ builder.Services.AddTransient<IClaimsTransformation, AjoutRolesConfigures>();
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Roles.PolitiqueGestion, p => p.RequireRole(Roles.Gestionnaire))
     .AddPolicy(Roles.PolitiqueValidation, p => p.RequireRole(Roles.Gestionnaire, Roles.Valideur))
+    .AddPolicy(Roles.PolitiqueTickets, p => p.RequireRole(Roles.Gestionnaire, Roles.AdminTickets))
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 builder.Services.AddCascadingAuthenticationState();
 
@@ -107,6 +108,7 @@ builder.Services.AddSingleton<GenerateurFiche>();
 builder.Services.AddScoped<ServiceNotifications>();
 builder.Services.AddScoped<ServiceMouvements>();
 builder.Services.AddScoped<ServiceDemandes>();
+builder.Services.AddScoped<ServiceTickets>();
 builder.Services.AddScoped<UtilisateurCourant>();
 builder.Services.AddMudServices();
 

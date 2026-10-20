@@ -155,6 +155,25 @@ else
                     }
                 </MudTimeline>
             </MudPaper>
+
+            <MudPaper Elevation="0" Class="carte pa-4 mt-3">
+                <MudText Typo="Typo.h6" Class="mb-2">Tickets (@_tickets.Count)</MudText>
+                @if (_tickets.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">Aucun ticket sur ce matériel.</MudText>
+                }
+                <MudStack Spacing="1">
+                    @foreach (var t in _tickets)
+                    {
+                        <div class="d-flex flex-wrap align-center gap-2">
+                            <MudLink Href="@($"/tickets/{t.Id}")" Typo="Typo.body2"><b>n° @t.Numero</b> – @t.Titre</MudLink>
+                            <ChipTicket Statut="t.Statut" />
+                            <MudSpacer />
+                            <MudText Typo="Typo.caption">@t.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")</MudText>
+                        </div>
+                    }
+                </MudStack>
+            </MudPaper>
         </MudItem>
     </MudGrid>
 }
@@ -163,6 +182,7 @@ else
     [Parameter] public int Id { get; set; }
 
     private Materiel? _m;
+    private List<Ticket> _tickets = [];
     private Materiel? _form;
     private bool _edition;
     private bool _introuvable;
@@ -183,6 +203,7 @@ else
             .AsSplitQuery().FirstOrDefaultAsync(m => m.Id == Id);
         _introuvable = _m is null;
         _regions = await db.Regions.OrderBy(r => r.Nom).ToListAsync();
+        _tickets = await db.Tickets.AsNoTracking().Where(t => t.MaterielId == Id).OrderByDescending(t => t.Numero).ToListAsync();
         if (_m != null)
             _fil = [new("Inventaire", "/inventaire"), new(_m.NumInterne, null, true)];
     }

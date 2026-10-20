@@ -1,0 +1,32 @@
+@* Graphique en barres horizontales (une seule série) : libellé, barre proportionnelle, nombre. Survol : détail. *@
+@if (Donnees.Count == 0)
+{
+    <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@Vide</MudText>
+}
+else
+{
+    var max = Donnees.Max(b => b.Nombre);
+    <div class="barres" role="table" aria-label="@Titre">
+        @foreach (var b in Donnees)
+        {
+            <div class="barre-ligne" role="row" title="@($"{b.Libelle} : {b.Nombre} ticket(s){(b.Precision is null ? "" : $", {b.Precision}")}")">
+                <span class="barre-libelle" role="cell">@b.Libelle</span>
+                <span class="barre-piste" role="cell" aria-hidden="true">
+                    <span class="graph-barre" style="width:@((100.0 * b.Nombre / Math.Max(max, 1)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                </span>
+                <span class="barre-valeur" role="cell">@b.Nombre</span>
+            </div>
+            @if (AfficherPrecision && b.Precision is not null)
+            {
+                <div class="barre-precision">@b.Precision</div>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public List<Barre> Donnees { get; set; } = [];
+    [Parameter] public string Titre { get; set; } = "";
+    [Parameter] public string Vide { get; set; } = "Pas encore de données.";
+    [Parameter] public bool AfficherPrecision { get; set; }
+}

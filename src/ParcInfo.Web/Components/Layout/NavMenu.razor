@@ -3,6 +3,14 @@
     <MudNavLink Href="/mon-materiel" Icon="@Icons.Material.Outlined.Person">Mon matériel</MudNavLink>
     <MudNavLink Href="/demandes/nouvelle" Icon="@Icons.Material.Outlined.AddShoppingCart">Faire une demande</MudNavLink>
     <MudNavLink Href="/mes-demandes" Icon="@Icons.Material.Outlined.ListAlt">Mes demandes</MudNavLink>
+    <MudNavLink Href="/tickets/nouveau" Icon="@Icons.Material.Outlined.ReportProblem">Signaler un problème</MudNavLink>
+    <MudNavLink Href="/mes-tickets" Icon="@Icons.Material.Outlined.SupportAgent">Mes tickets</MudNavLink>
+    <AuthorizeView Policy="@Roles.PolitiqueTickets">
+        <MudDivider Class="my-2" />
+        <MudText Typo="Typo.overline" Class="px-4 menu-section">Tickets</MudText>
+        <MudNavLink Href="/tickets" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.ConfirmationNumber">Tickets à traiter</MudNavLink>
+        <MudNavLink Href="/tickets/analyse" Icon="@Icons.Material.Outlined.Insights">Analyse des tickets</MudNavLink>
+    </AuthorizeView>
     <AuthorizeView Policy="@Roles.PolitiqueValidation">
         <MudDivider Class="my-2" />
         <MudText Typo="Typo.overline" Class="px-4 menu-section">Demandes</MudText>

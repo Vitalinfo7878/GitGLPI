@@ -1,0 +1,32 @@
+@* Statut d'un ticket, ou sa priorité avec Priorite renseigné. *@
+@if (Priorite is { } p)
+{
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0" Color="@CouleurPriorite(p)"
+             Icon="@(p >= PrioriteTicket.Haute ? Icons.Material.Filled.PriorityHigh : null)">@p.Libelle()</MudChip>
+}
+else if (Statut is { } s)
+{
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0" Color="@CouleurStatut(s)">@s.Libelle()</MudChip>
+}
+
+@code {
+    [Parameter] public StatutTicket? Statut { get; set; }
+    [Parameter] public PrioriteTicket? Priorite { get; set; }
+
+    public static Color CouleurStatut(StatutTicket s) => s switch
+    {
+        StatutTicket.Nouveau => Color.Warning,
+        StatutTicket.EnCours => Color.Info,
+        StatutTicket.AttenteDemandeur or StatutTicket.AttenteTiers => Color.Secondary,
+        StatutTicket.Resolu => Color.Success,
+        _ => Color.Default,
+    };
+
+    public static Color CouleurPriorite(PrioriteTicket p) => p switch
+    {
+        PrioriteTicket.Critique => Color.Error,
+        PrioriteTicket.Haute => Color.Warning,
+        PrioriteTicket.Normale => Color.Info,
+        _ => Color.Default,
+    };
+}

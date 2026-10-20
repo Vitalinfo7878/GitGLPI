@@ -15,6 +15,8 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<Courriel> Courriels => Set<Courriel>();
     public DbSet<Journal> Journal => Set<Journal>();
     public DbSet<Demande> Demandes => Set<Demande>();
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
     /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -91,6 +93,28 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.CommentaireInformatique).HasMaxLength(4000);
             e.Ignore(x => x.ListeObjets);
             e.Ignore(x => x.StatutLibelle);
+        });
+
+        b.Entity<Ticket>(e =>
+        {
+            e.HasIndex(x => x.Numero).IsUnique();
+            e.HasIndex(x => x.Statut);
+            e.HasIndex(x => x.SaisiePar);
+            e.HasIndex(x => x.DemandeurEmail);
+            e.HasIndex(x => x.CreeLe);
+            e.Property(x => x.Description).HasMaxLength(4000);
+            e.Property(x => x.DejaEssaye).HasMaxLength(2000);
+            e.Property(x => x.Diagnostic).HasMaxLength(4000);
+            e.Property(x => x.Solution).HasMaxLength(4000);
+            e.Property(x => x.SatisfactionCommentaire).HasMaxLength(2000);
+            e.HasOne(x => x.Materiel).WithMany().HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.SetNull);
+            e.Ignore(x => x.EstOuvert);
+        });
+
+        b.Entity<TicketMessage>(e =>
+        {
+            e.Property(x => x.Texte).HasMaxLength(4000);
+            e.HasOne(x => x.Ticket).WithMany(t => t.Messages).HasForeignKey(x => x.TicketId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Courriel>(e => e.Property(x => x.CorpsHtml).Metadata.SetMaxLength(null));

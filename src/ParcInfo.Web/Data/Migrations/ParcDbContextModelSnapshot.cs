@@ -632,6 +632,200 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("Sites");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.Ticket", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AssigneA")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Categorie")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Cause")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("ClosLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreeLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DejaEssaye")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("DemandeurEmail")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("DemandeurNom")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("DemandeurTelephone")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Diagnostic")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Disponibilites")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Impact")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Lieu")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<int?>("MaterielId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MaterielReference")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("ModeResolution")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("ModifieLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("NbReouvertures")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Numero")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Portee")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Priorite")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("PrisEnChargeLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ResoluLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SaisiePar")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("SatisfactionCommentaire")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("SatisfactionNote")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Solution")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Statut")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int?>("TempsPasseMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Titre")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreeLe");
+
+                    b.HasIndex("DemandeurEmail");
+
+                    b.HasIndex("MaterielId");
+
+                    b.HasIndex("Numero")
+                        .IsUnique();
+
+                    b.HasIndex("SaisiePar");
+
+                    b.HasIndex("Statut");
+
+                    b.ToTable("Tickets");
+                });
+
+            modelBuilder.Entity("ParcInfo.Web.Domain.TicketMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Auteur")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("AuteurEmail")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Interne")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("Systeme")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Texte")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<int>("TicketId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("MessagesTickets");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Materiel", b =>
                 {
                     b.HasOne("ParcInfo.Web.Domain.Personne", "Personne")
@@ -706,6 +900,27 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Navigation("Region");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.Ticket", b =>
+                {
+                    b.HasOne("ParcInfo.Web.Domain.Materiel", "Materiel")
+                        .WithMany()
+                        .HasForeignKey("MaterielId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Materiel");
+                });
+
+            modelBuilder.Entity("ParcInfo.Web.Domain.TicketMessage", b =>
+                {
+                    b.HasOne("ParcInfo.Web.Domain.Ticket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Fiche", b =>
                 {
                     b.Navigation("Mouvements");
@@ -724,6 +939,11 @@ namespace ParcInfo.Web.Data.Migrations
             modelBuilder.Entity("ParcInfo.Web.Domain.Site", b =>
                 {
                     b.Navigation("Materiels");
+                });
+
+            modelBuilder.Entity("ParcInfo.Web.Domain.Ticket", b =>
+                {
+                    b.Navigation("Messages");
                 });
 #pragma warning restore 612, 618
         }

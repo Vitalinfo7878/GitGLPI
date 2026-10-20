@@ -1,0 +1,92 @@
+@page "/tickets"
+@attribute [Authorize(Policy = Roles.PolitiqueTickets)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject NavigationManager Nav
+
+<PageTitle>Tickets</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Tickets</MudText>
+    <MudSpacer />
+    <MudButton Href="/tickets/analyse" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Insights">Analyse</MudButton>
+    <MudButton Href="/tickets/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">Nouveau ticket</MudButton>
+</div>
+
+@if (_tickets is null)
+{
+    <Attente />
+}
+else
+{
+    <MudPaper Elevation="0" Class="carte pa-3 mb-3">
+        <div class="d-flex flex-wrap align-center gap-3">
+            <MudToggleGroup T="string" @bind-Value="_vue" Color="Color.Primary" Size="Size.Small">
+                <MudToggleItem Value="@("nouveaux")" Text="@($"À prendre en charge ({_tickets.Count(t => t.Statut == StatutTicket.Nouveau)})")" />
+                <MudToggleItem Value="@("ouverts")" Text="@($"Ouverts ({_tickets.Count(t => t.EstOuvert)})")" />
+                <MudToggleItem Value="@("moi")" Text="@($"Mes tickets ({_tickets.Count(t => t.EstOuvert && EstAMoi(t))})")" />
+                <MudToggleItem Value="@("tous")" Text="@($"Tous ({_tickets.Count})")" />
+            </MudToggleGroup>
+            <MudSelect T="CategorieTicket?" @bind-Value="_categorie" Label="Catégorie" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="min-width:220px">
+                @foreach (var c in Enum.GetValues<CategorieTicket>()) { <MudSelectItem T="CategorieTicket?" Value="c">@c.Libelle()</MudSelectItem> }
+            </MudSelect>
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="N°, demandeur, lieu, titre, matériel…"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true"
+                          Style="min-width:260px" />
+        </div>
+    </MudPaper>
+
+    <MudDataGrid T="Ticket" Items="Filtres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Numero" Title="N°" CellStyle="font-weight:600" />
+            <TemplateColumn T="Ticket" Title="Ouvert le" SortBy="x => x.CreeLe"><CellTemplate>@context.Item.CreeLe.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</CellTemplate></TemplateColumn>
+            <TemplateColumn T="Ticket" Title="Priorité" SortBy="x => x.Priorite"><CellTemplate><ChipTicket Priorite="context.Item.Priorite" /></CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.Titre" Title="Problème" />
+            <TemplateColumn T="Ticket" Title="Catégorie" SortBy="x => x.Categorie"><CellTemplate>@context.Item.Categorie.Libelle()</CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.DemandeurNom" Title="Demandeur" />
+            <PropertyColumn Property="x => x.Lieu" Title="Lieu" />
+            <PropertyColumn Property="x => x.MaterielReference" Title="Matériel" />
+            <PropertyColumn Property="x => x.AssigneA" Title="Pris en charge par" />
+            <TemplateColumn T="Ticket" Title="Statut" SortBy="x => x.Statut"><CellTemplate><ChipTicket Statut="context.Item.Statut" /></CellTemplate></TemplateColumn>
+            <TemplateColumn T="Ticket" Title="Âge" SortBy="x => x.CreeLe">
+                <CellTemplate>@(context.Item.EstOuvert ? Duree.Texte(DateTime.UtcNow - context.Item.CreeLe) : "")</CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Ticket" PageSizeOptions="[25, 50, 100]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+        <NoRecordsContent><MudText>Aucun ticket.</MudText></NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    private List<Ticket>? _tickets;
+    private Utilisateur? _u;
+    private string _vue = "ouverts";
+    private CategorieTicket? _categorie;
+    private string? _recherche;
+
+    private bool EstAMoi(Ticket t) => t.AssigneA is not null && string.Equals(t.AssigneA, _u?.Nom, StringComparison.OrdinalIgnoreCase);
+
+    private IEnumerable<Ticket> Filtres => (_vue switch
+        {
+            "nouveaux" => _tickets!.Where(t => t.Statut == StatutTicket.Nouveau),
+            "ouverts" => _tickets!.Where(t => t.EstOuvert),
+            "moi" => _tickets!.Where(t => t.EstOuvert && EstAMoi(t)),
+            _ => _tickets!,
+        })
+        .Where(t => _categorie is null || t.Categorie == _categorie)
+        .Where(t => string.IsNullOrWhiteSpace(_recherche)
+            || $"{t.Numero} {t.DemandeurNom} {t.DemandeurEmail} {t.Lieu} {t.Titre} {t.Description} {t.MaterielReference} {t.AssigneA}"
+                .Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(t => t.EstOuvert).ThenByDescending(t => t.EstOuvert ? (int)t.Priorite : 0).ThenByDescending(t => t.Numero);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _tickets = await db.Tickets.AsNoTracking().OrderByDescending(t => t.Numero).ToListAsync();
+        if (_tickets.Any(t => t.Statut == StatutTicket.Nouveau)) _vue = "nouveaux";
+    }
+
+    private void Ouvrir(DataGridRowClickEventArgs<Ticket> e) => Nav.NavigateTo($"/tickets/{e.Item.Id}");
+}

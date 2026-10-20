@@ -1,0 +1,182 @@
+@page "/tickets/nouveau"
+@inject ServiceTickets Service
+@inject UtilisateurCourant Courant
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject IJSRuntime JS
+
+<PageTitle>Signaler un problème</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="px-0">
+    <MudText Typo="Typo.h4" Class="mb-3">Signaler un problème</MudText>
+
+    @if (_cree is not null)
+    {
+        <MudPaper Elevation="0" Class="carte pa-6">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="vertical-align:middle" />
+                Ticket n° @_cree.Numero enregistré
+            </MudText>
+            <MudText Class="mb-2">Le service informatique a reçu votre ticket. Suivez son avancement et échangez avec nous depuis « Mes tickets ».</MudText>
+            <div class="d-flex flex-wrap gap-2 mt-4">
+                <MudButton Href="@($"/tickets/{_cree.Id}")" Variant="Variant.Filled" Color="Color.Primary">Voir mon ticket</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="Nouveau">Signaler un autre problème</MudButton>
+            </div>
+        </MudPaper>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4" Icon="@Icons.Material.Outlined.Info">
+            Pour une panne, un bug ou une question. Pour du <b>nouveau matériel</b> ou une <b>création de compte</b>, utilisez plutôt
+            <MudLink Href="/demandes/nouvelle">« Faire une demande »</MudLink>. En cas d'urgence bloquante, appelez aussi le 01 86 70 07 62.
+        </MudAlert>
+
+        <MudText Typo="Typo.body2" Class="mb-3" Style="color:var(--mud-palette-error)">* Obligatoire</MudText>
+
+        <MudPaper Elevation="0" Class="carte pa-5">
+            <MudStack Spacing="5">
+                <Question Numero="1" Libelle="Quel type de problème ?" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.Categorie))">
+                    <MudRadioGroup T="CategorieTicket?" @bind-Value="_f.Categorie">
+                        <div class="d-flex flex-wrap" style="column-gap:12px">
+                            @foreach (var c in Enum.GetValues<CategorieTicket>())
+                            {
+                                <MudRadio T="CategorieTicket?" Value="c" Dense="true" Style="min-width:250px">@c.Libelle()</MudRadio>
+                            }
+                        </div>
+                    </MudRadioGroup>
+                </Question>
+
+                <Question Numero="2" Libelle="Résumez le problème en une phrase" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.Titre))">
+                    <MudTextField @bind-Value="_f.Titre" MaxLength="150" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. L'imprimante du bureau n'imprime plus" />
+                </Question>
+
+                <Question Numero="3" Libelle="Décrivez le problème" Obligatoire="true" Aide="Que se passe-t-il ? Depuis quand ? Message d'erreur affiché ?"
+                          Erreur="@Err(nameof(FormulaireTicket.Description))">
+                    <MudTextField @bind-Value="_f.Description" MaxLength="FormulaireTicket.LongueurDescription" Counter="FormulaireTicket.LongueurDescription"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Lines="5" Sizing="InputSizing.Auto" Placeholder="Entrez votre réponse" />
+                </Question>
+
+                <Question Numero="4" Libelle="Quel est l'impact sur votre travail ?" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.Impact))">
+                    <MudRadioGroup T="ImpactTicket?" @bind-Value="_f.Impact">
+                        <MudStack Spacing="0">
+                            @foreach (var i in Enum.GetValues<ImpactTicket>()) { <MudRadio T="ImpactTicket?" Value="i" Dense="true">@i.Libelle()</MudRadio> }
+                        </MudStack>
+                    </MudRadioGroup>
+                </Question>
+
+                <Question Numero="5" Libelle="Qui est concerné ?" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.Portee))">
+                    <MudRadioGroup T="PorteeTicket?" @bind-Value="_f.Portee">
+                        <MudStack Spacing="0">
+                            @foreach (var p in Enum.GetValues<PorteeTicket>()) { <MudRadio T="PorteeTicket?" Value="p" Dense="true">@p.Libelle()</MudRadio> }
+                        </MudStack>
+                    </MudRadioGroup>
+                </Question>
+
+                <Question Numero="6" Libelle="Matériel concerné" Aide="Numéro inscrit sur l'étiquette (ex. PC0123), si le problème touche un appareil."
+                          Erreur="@Err(nameof(FormulaireTicket.MaterielReference))">
+                    @if (_mesMateriels.Count > 0)
+                    {
+                        <div class="d-flex flex-wrap gap-1 mb-2">
+                            @foreach (var m in _mesMateriels)
+                            {
+                                <MudChip T="string" Size="Size.Small" Class="ml-0" OnClick="() => _f.MaterielReference = m.NumInterne"
+                                         Color="@(string.Equals(_f.MaterielReference, m.NumInterne, StringComparison.OrdinalIgnoreCase) ? Color.Primary : Color.Default)">
+                                    @m.NumInterne – @m.Type.Libelle() @m.Modele
+                                </MudChip>
+                            }
+                        </div>
+                    }
+                    <div style="max-width:260px">
+                        <MudTextField @bind-Value="_f.MaterielReference" MaxLength="60" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="N° d'étiquette" Clearable="true" />
+                    </div>
+                </Question>
+
+                <Question Numero="7" Libelle="Qu'avez-vous déjà essayé ?" Aide="Redémarrage, autre prise, autre poste… (facultatif)" Erreur="@Err(nameof(FormulaireTicket.DejaEssaye))">
+                    <MudTextField @bind-Value="_f.DejaEssaye" MaxLength="2000" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" Sizing="InputSizing.Auto" Placeholder="Entrez votre réponse" />
+                </Question>
+
+                <Question Numero="8" Libelle="Site ou service concerné (nom + numéro du site)" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.Lieu))">
+                    <MudTextField @bind-Value="_f.Lieu" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. EHPAD … – Site 087, ou Siège – Comptabilité" />
+                </Question>
+
+                <Question Numero="9" Libelle="Nom / Prénom" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.DemandeurNom))">
+                    <MudTextField @bind-Value="_f.DemandeurNom" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </Question>
+
+                <Question Numero="10" Libelle="Mail" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.DemandeurEmail))">
+                    <MudTextField @bind-Value="_f.DemandeurEmail" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
+                </Question>
+
+                <Question Numero="11" Libelle="Téléphone pour vous joindre" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.DemandeurTelephone))">
+                    <MudTextField @bind-Value="_f.DemandeurTelephone" MaxLength="50" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Telephone" Placeholder="06 12 34 56 78" />
+                </Question>
+
+                <Question Numero="12" Libelle="Quand peut-on vous joindre ou intervenir ?" Erreur="@Err(nameof(FormulaireTicket.Disponibilites))">
+                    <MudTextField @bind-Value="_f.Disponibilites" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. tous les matins avant 11 h" />
+                </Question>
+
+                @if (_erreurs.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">Certaines réponses obligatoires sont manquantes ou incorrectes : vérifiez les questions signalées en rouge.</MudAlert>
+                }
+                <div class="d-flex justify-end">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="Envoyer" Disabled="_envoi" StartIcon="@Icons.Material.Filled.Send">Envoyer</MudButton>
+                </div>
+            </MudStack>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private FormulaireTicket _f = new();
+    private Dictionary<string, string> _erreurs = [];
+    private bool _envoi;
+    private bool _allerErreur;
+    private Ticket? _cree;
+    private Utilisateur? _u;
+    private List<Materiel> _mesMateriels = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        var adresses = _u.ToutesAdresses;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _mesMateriels = await db.Materiels.AsNoTracking()
+            .Where(m => m.Statut == StatutMateriel.Attribue && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
+            .OrderBy(m => m.NumInterne).ToListAsync();
+        Prerenseigner();
+    }
+
+    private void Prerenseigner()
+    {
+        _f = new FormulaireTicket { DemandeurNom = _u?.Nom, DemandeurEmail = _u?.Email };
+        if (_mesMateriels.Count == 1) _f.MaterielReference = _mesMateriels[0].NumInterne;
+        _erreurs = [];
+    }
+
+    private string? Err(string champ) => _erreurs.GetValueOrDefault(champ);
+
+    private async Task Envoyer()
+    {
+        _erreurs = _f.Valider();
+        _allerErreur = _erreurs.Count > 0;
+        if (_allerErreur) return;
+        _envoi = true;
+        try { _cree = await Service.CreerAsync(_f, _u!); }
+        catch (ErreurFormulaire ex) { _erreurs = ex.Erreurs; _allerErreur = true; }
+        finally { _envoi = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Après affichage des erreurs, remonter jusqu'à la première question en rouge
+        if (!_allerErreur) return;
+        _allerErreur = false;
+        await JS.InvokeVoidAsync("parcInfo.allerPremiereErreur");
+    }
+
+    private void Nouveau()
+    {
+        _cree = null;
+        Prerenseigner();
+    }
+}

@@ -13,6 +13,9 @@ public static class Roles
     public const string PolitiqueGestion = "Gestion";
     /// <summary>Accès à la liste des demandes et à leur validation : gestionnaires et valideurs.</summary>
     public const string PolitiqueValidation = "Validation";
+    /// <summary>Administration des tickets : gestionnaires et comptes listés dans « Tickets:Administrateurs ».</summary>
+    public const string AdminTickets = "AdminTickets";
+    public const string PolitiqueTickets = "Tickets";
 }
 
 /// <summary>Utilisateur connecté (compte Microsoft 365 / Entra ID, en SSO).</summary>
@@ -26,6 +29,9 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
     /// </summary>
     public IReadOnlyList<string> Adresses { get; init; } = [];
 
+    /// <summary>Accès à l'administration des tickets (traitement, notes internes, analyse).</summary>
+    public bool EstAdminTickets { get; init; }
+
     public static Utilisateur Depuis(ClaimsPrincipal p)
     {
         var adresses = new[] { "email", ClaimTypes.Email, "preferred_username", ClaimTypes.Upn, "upn" }
@@ -37,7 +43,11 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
         var email = adresses.FirstOrDefault() ?? p.Identity?.Name?.ToLowerInvariant() ?? "";
         var nom = p.FindFirst("name")?.Value ?? p.FindFirst(ClaimTypes.Name)?.Value ?? email;
         var gestionnaire = p.IsInRole(Roles.Gestionnaire);
-        return new Utilisateur(nom, email, gestionnaire, gestionnaire || p.IsInRole(Roles.Valideur)) { Adresses = adresses };
+        return new Utilisateur(nom, email, gestionnaire, gestionnaire || p.IsInRole(Roles.Valideur))
+        {
+            Adresses = adresses,
+            EstAdminTickets = gestionnaire || p.IsInRole(Roles.AdminTickets),
+        };
     }
 
     public string Signature => $"{Nom} <{Email}>";
@@ -64,7 +74,7 @@ public sealed class UtilisateurCourant(AuthenticationStateProvider auth)
 /// ou le nom long de .NET, selon la correspondance appliquée à la connexion), puis
 /// donne les rôles aux adresses listées dans la configuration :
 /// « Authentification:Gestionnaires » → Gestionnaire (pratique avant d'avoir configuré les rôles d'application Entra ID),
-/// « Demandes:Valideurs » → Valideur.
+/// « Demandes:Valideurs » → Valideur, « Tickets:Administrateurs » → AdminTickets.
 /// </summary>
 public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransformation
 {
@@ -72,6 +82,8 @@ public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransfo
         config.GetSection("Authentification:Gestionnaires").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _valideurs = new(
         config.GetSection("Demandes:Valideurs").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _adminTickets = new(
+        config.GetSection("Tickets:Administrateurs").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
 
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
@@ -82,6 +94,7 @@ public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransfo
             var u = Utilisateur.Depuis(principal);
             Ajouter(id, principal, Roles.Gestionnaire, u.ToutesAdresses.Any(_gestionnaires.Contains));
             Ajouter(id, principal, Roles.Valideur, u.ToutesAdresses.Any(_valideurs.Contains));
+            Ajouter(id, principal, Roles.AdminTickets, u.ToutesAdresses.Any(_adminTickets.Contains));
         }
         return Task.FromResult(principal);
     }

@@ -1,0 +1,57 @@
+@page "/mes-tickets"
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+
+<PageTitle>Mes tickets</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Mes tickets</MudText>
+    <MudSpacer />
+    <MudButton Href="/tickets/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ReportProblem">Signaler un problème</MudButton>
+</div>
+
+@if (_tickets is null)
+{
+    <Attente />
+}
+else if (_tickets.Count == 0)
+{
+    <MudPaper Elevation="0" Class="carte pa-6">
+        <MudText>Vous n'avez signalé aucun problème pour l'instant.</MudText>
+    </MudPaper>
+}
+else
+{
+    <MudStack Spacing="2">
+        @foreach (var t in _tickets)
+        {
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <a href="@($"/tickets/{t.Id}")" style="color:inherit;text-decoration:none;display:block">
+                    <div class="d-flex flex-wrap align-center gap-2">
+                        <MudText Typo="Typo.h6">N° @t.Numero</MudText>
+                        <ChipTicket Statut="t.Statut" />
+                        @if (t.Statut == StatutTicket.Resolu)
+                        {
+                            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-success)">À confirmer de votre part</MudText>
+                        }
+                        <MudSpacer />
+                        <MudText Typo="Typo.caption">@t.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")</MudText>
+                    </div>
+                    <MudText Typo="Typo.body2">@t.Titre · @t.Categorie.Libelle()</MudText>
+                </a>
+            </MudPaper>
+        }
+    </MudStack>
+}
+
+@code {
+    private List<Ticket>? _tickets;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var adresses = (await Courant.ObtenirAsync()).ToutesAdresses;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _tickets = await db.Tickets.AsNoTracking()
+            .Where(t => adresses.Contains(t.SaisiePar) || adresses.Contains(t.DemandeurEmail))
+            .OrderByDescending(t => t.Numero).ToListAsync();
+    }
+}
