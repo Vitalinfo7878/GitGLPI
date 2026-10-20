@@ -37,6 +37,12 @@ BOITE_ENVOI="informatique@vitalrest.com"
 # --- GitHub ---
 DEPOT_GITHUB="Vitalinfo7878/GitGLPI"
 ENVIRONNEMENT_GITHUB="production"
+# Noms sous lesquels GitHub se présente à Azure : format classique, et format avec les identifiants numériques
+# du compte et du dépôt (utilisé par GitHub pour ce dépôt)
+SUJETS_GITHUB=(
+    "repo:$DEPOT_GITHUB:environment:$ENVIRONNEMENT_GITHUB"
+    "repo:Vitalinfo7878@344823626/GitGLPI@1425810904:environment:$ENVIRONNEMENT_GITHUB"
+)
 
 # --- Fonctions utilitaires ---
 etape() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }

@@ -178,11 +178,13 @@ etape "6. Identité du déploiement GitHub ($IDENTITE_GITHUB)"
 reessayer az identity create -g "$GROUPE" -n "$IDENTITE_GITHUB" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
 PRINCIPAL_GITHUB=$(az identity show -g "$GROUPE" -n "$IDENTITE_GITHUB" --query principalId -o tsv)
 CLIENT_GITHUB=$(az identity show -g "$GROUPE" -n "$IDENTITE_GITHUB" --query clientId -o tsv)
-SUJET="repo:$DEPOT_GITHUB:environment:$ENVIRONNEMENT_GITHUB"
-if [[ -z "$(az identity federated-credential list -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --query "[?subject=='$SUJET'].name" -o tsv)" ]]; then
-    reessayer az identity federated-credential create -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --name github-production \
-        --issuer https://token.actions.githubusercontent.com --subject "$SUJET" --audiences api://AzureADTokenExchange -o none
-fi
+for i in "${!SUJETS_GITHUB[@]}"; do
+    SUJET="${SUJETS_GITHUB[$i]}"
+    if [[ -z "$(az identity federated-credential list -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --query "[?subject=='$SUJET'].name" -o tsv)" ]]; then
+        reessayer az identity federated-credential create -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --name "github-production-$((i + 1))" \
+            --issuer https://token.actions.githubusercontent.com --subject "$SUJET" --audiences api://AzureADTokenExchange -o none
+    fi
+done
 info "confiance accordée au dépôt $DEPOT_GITHUB (environnement GitHub « $ENVIRONNEMENT_GITHUB » uniquement)"
 # Droits : publier dans NOTRE registre, mettre à jour NOTRE application, s'y rattacher à l'environnement (sans le modifier)
 reessayer attribuer_role "$PRINCIPAL_GITHUB" ServicePrincipal "AcrPush" "$ID_REGISTRE"
