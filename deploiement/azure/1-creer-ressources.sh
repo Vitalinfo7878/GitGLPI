@@ -45,12 +45,16 @@ if az acr repository show -n "$REGISTRE" --image "$IMAGE_PSQL" -o none 2>/dev/nu
     info "outil psql déjà présent dans le registre"
 else
     for source in "${SOURCES_PSQL[@]}"; do
-        if az acr import -n "$REGISTRE" --source "$source" --image "$IMAGE_PSQL" -o none 2>/dev/null; then
+        if az acr import -n "$REGISTRE" --source "$source" --image "$IMAGE_PSQL" -o none; then
             info "outil psql copié depuis $source"; break
+        fi
+        # La copie peut avoir abouti malgré une erreur d'attente côté outil : on vérifie avant de passer à la source suivante
+        if az acr repository show -n "$REGISTRE" --image "$IMAGE_PSQL" -o none 2>/dev/null; then
+            info "outil psql présent dans le registre"; break
         fi
         info "copie impossible depuis $source, source suivante…"
     done
-    az acr repository show -n "$REGISTRE" --image "$IMAGE_PSQL" -o none 2>/dev/null \
+    reessayer az acr repository show -n "$REGISTRE" --image "$IMAGE_PSQL" -o none \
         || erreur "impossible de copier l'image PostgreSQL dans le registre : relancez le script dans quelques minutes."
 fi
 
@@ -120,10 +124,13 @@ properties:
         resources: { cpu: 0.25, memory: 0.5Gi }
 EOF
 az containerapp job delete -g "$GROUPE" -n "$TACHE_INIT" -y -o none 2>/dev/null || true
-reessayer az containerapp job create -g "$GROUPE" -n "$TACHE_INIT" --yaml "$YAML_TACHE" -o none \
+reessayer az containerapp job create -g "$GROUPE" -n "$TACHE_INIT" --yaml "$YAML_TACHE" -o none --only-show-errors \
     || erreur "création de la tâche impossible (droit de rattachement à $ENVIRONNEMENT manquant ? relancez 0-preparer-acces.sh)."
 rm -f "$YAML_TACHE"
-EXECUTION=$(az containerapp job start -g "$GROUPE" -n "$TACHE_INIT" --query name -o tsv)
+EXECUTION=$(reessayer az containerapp job start -g "$GROUPE" -n "$TACHE_INIT" --query name -o tsv --only-show-errors) \
+    || erreur "lancement de la tâche impossible. Vous pouvez la lancer à la main : portail Azure > $GROUPE > $TACHE_INIT > « Exécuter maintenant »,
+    puis relancer ce script une fois l'exécution réussie."
+[[ -n "$EXECUTION" ]] || erreur "lancement de la tâche : aucun identifiant d'exécution reçu."
 info "tâche lancée ($EXECUTION), attente du résultat…"
 STATUT=""
 for _ in $(seq 1 60); do

@@ -84,7 +84,8 @@ reessayer() {
     local essai
     for essai in $(seq 1 20); do
         "$@" && return 0
-        info "droits pas encore actifs, nouvel essai dans 15 s ($essai/20)…"
+        # Sur la sortie d'erreur : la commande réessayée peut être utilisée dans $(…) pour récupérer son résultat
+        info "droits pas encore actifs, nouvel essai dans 15 s ($essai/20)…" >&2
         sleep 15
     done
     return 1
