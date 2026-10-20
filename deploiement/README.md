@@ -34,6 +34,15 @@ bash 1-creer-ressources.sh
 ```
 
 Le script affiche un récapitulatif et demande confirmation, puis le mot de passe administrateur PostgreSQL (saisie masquée, jamais enregistrée en clair).
+
+**Où trouver le mot de passe administrateur PostgreSQL ?** Azure l'exige à la création du serveur ; s'il a été généré automatiquement
+(Bicep, Terraform…), il est en général rangé dans le coffre `kv-vital-pilot-94eed4`. Le script peut le lire directement, sans l'afficher :
+
+```bash
+MDP_ADMIN_PG=$(az keyvault secret show --vault-name kv-vital-pilot-94eed4 -n <nom-du-secret> --query value -o tsv) bash 1-creer-ressources.sh
+```
+
+Ne réinitialisez pas ce mot de passe sans l'accord de votre collègue : si ses applications utilisent le compte administrateur, elles cesseraient de fonctionner.
 À la fin, il affiche **trois valeurs à copier dans GitHub** (étape 3).
 
 Si le dépôt est privé, Cloud Shell demandera de vous identifier sur GitHub : utilisez un *personal access token* en guise de mot de passe,

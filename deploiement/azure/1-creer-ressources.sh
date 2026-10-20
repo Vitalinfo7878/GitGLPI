@@ -60,8 +60,14 @@ ADMIN_PG=$(az postgres flexible-server show -g "$GROUPE" -n "$SERVEUR_PG" --quer
 etape "3. Compte PostgreSQL « $BASE » (n'a accès qu'à sa base)"
 info "Le serveur n'est joignable que depuis le réseau privé : le compte est créé par une tâche"
 info "temporaire lancée dans l'environnement Container Apps, puis supprimée."
-info "Il faut le mot de passe de l'administrateur PostgreSQL « $ADMIN_PG » (demandez-le à votre collègue)."
-read -r -s -p "    Mot de passe de $ADMIN_PG : " MDP_ADMIN_PG; echo
+# Le mot de passe administrateur peut être fourni par la variable MDP_ADMIN_PG (par exemple lu dans le coffre à secrets) :
+#   MDP_ADMIN_PG=$(az keyvault secret show --vault-name <coffre> -n <secret> --query value -o tsv) bash 1-creer-ressources.sh
+if [[ -z "${MDP_ADMIN_PG:-}" ]]; then
+    info "Il faut le mot de passe de l'administrateur PostgreSQL « $ADMIN_PG » (voir deploiement/README.md)."
+    read -r -s -p "    Mot de passe de $ADMIN_PG : " MDP_ADMIN_PG; echo
+else
+    info "mot de passe administrateur fourni par la variable MDP_ADMIN_PG"
+fi
 [[ -n "$MDP_ADMIN_PG" ]] || erreur "mot de passe vide."
 MDP_PARC=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 32)
 
