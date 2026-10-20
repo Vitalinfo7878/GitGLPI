@@ -25,8 +25,13 @@ var chaine = config.GetConnectionString("Parc") ?? "Data Source=parc.db";
 builder.Services.AddDbContextFactory<ParcDbContext>(o =>
 {
     if (fournisseur.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
-        // Pas de chiffrement Kerberos (GSS) : connexion par mot de passe + TLS, la bibliothèque Kerberos n'est pas dans l'image
-        o.UseNpgsql(new Npgsql.NpgsqlConnectionStringBuilder(chaine) { GssEncryptionMode = Npgsql.GssEncryptionMode.Disable }.ConnectionString,
+        // Tables dans le schéma de l'application (voir InitialisationBase.SchemaPostgres).
+        // Pas de chiffrement Kerberos (GSS) : connexion par mot de passe + TLS, la bibliothèque Kerberos n'est pas dans l'image.
+        o.UseNpgsql(new Npgsql.NpgsqlConnectionStringBuilder(chaine)
+            {
+                SearchPath = InitialisationBase.SchemaPostgres,
+                GssEncryptionMode = Npgsql.GssEncryptionMode.Disable,
+            }.ConnectionString,
             n => n.EnableRetryOnFailure());
     else
         o.UseSqlite(chaine);
