@@ -29,13 +29,13 @@ etape "1. Registre d'images ($REGISTRE)"
 if az acr show -n "$REGISTRE" -o none 2>/dev/null; then
     info "le registre existe déjà"
 else
-    az acr create -g "$GROUPE" -n "$REGISTRE" --sku Basic --admin-enabled false --tags "${ETIQUETTES[@]}" -o none
+    reessayer az acr create -g "$GROUPE" -n "$REGISTRE" --sku Basic --admin-enabled false --tags "${ETIQUETTES[@]}" -o none
     info "registre créé (formule Basic)"
 fi
 ID_REGISTRE=$(az acr show -n "$REGISTRE" --query id -o tsv)
 
 etape "2. Identité de l'application ($IDENTITE_APP)"
-az identity create -g "$GROUPE" -n "$IDENTITE_APP" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
+reessayer az identity create -g "$GROUPE" -n "$IDENTITE_APP" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
 ID_IDENTITE_APP=$(az identity show -g "$GROUPE" -n "$IDENTITE_APP" --query id -o tsv)
 PRINCIPAL_APP=$(az identity show -g "$GROUPE" -n "$IDENTITE_APP" --query principalId -o tsv)
 reessayer attribuer_role "$PRINCIPAL_APP" ServicePrincipal "AcrPull" "$ID_REGISTRE"
@@ -63,7 +63,7 @@ etape "3. Base PostgreSQL « $BASE » sur $SERVEUR_PG"
 if az postgres flexible-server db show -g "$GROUPE_VP" -s "$SERVEUR_PG" -n "$BASE" -o none 2>/dev/null; then
     info "la base existe déjà"
 else
-    az postgres flexible-server db create -g "$GROUPE_VP" -s "$SERVEUR_PG" -n "$BASE" -o none
+    reessayer az postgres flexible-server db create -g "$GROUPE_VP" -s "$SERVEUR_PG" -n "$BASE" -o none
     info "base créée (les autres bases du serveur ne sont pas touchées)"
 fi
 HOTE_PG=$(az postgres flexible-server show -g "$GROUPE_VP" -n "$SERVEUR_PG" --query fullyQualifiedDomainName -o tsv)
@@ -144,7 +144,7 @@ if [[ "$STATUT" != "Succeeded" ]]; then
     Cause fréquente : mot de passe administrateur incorrect. La tâche est conservée pour le diagnostic ;
     relancez simplement ce script une fois le problème corrigé."
 fi
-az containerapp job delete -g "$GROUPE" -n "$TACHE_INIT" -y -o none
+reessayer az containerapp job delete -g "$GROUPE" -n "$TACHE_INIT" -y -o none
 info "compte « $BASE » prêt, tâche temporaire supprimée"
 CHAINE_PG="Host=$HOTE_PG;Database=$BASE;Username=$BASE;Password=$MDP_PARC;SSL Mode=Require"
 
@@ -158,12 +158,12 @@ VARIABLES=(
     "Authentification__ModeDemo=false"
 )
 if az containerapp show -g "$GROUPE" -n "$APPLICATION" -o none 2>/dev/null; then
-    az containerapp secret set -g "$GROUPE" -n "$APPLICATION" --secrets "connexion-pg=$CHAINE_PG" -o none
-    az containerapp update -g "$GROUPE" -n "$APPLICATION" --set-env-vars "${VARIABLES[@]}" -o none
+    reessayer az containerapp secret set -g "$GROUPE" -n "$APPLICATION" --secrets "connexion-pg=$CHAINE_PG" -o none
+    reessayer az containerapp update -g "$GROUPE" -n "$APPLICATION" --set-env-vars "${VARIABLES[@]}" -o none
     info "application existante mise à jour (nouveau mot de passe de base enregistré)"
 else
     # Image provisoire de Microsoft : la vraie image sera publiée par le déploiement GitHub
-    az containerapp create -g "$GROUPE" -n "$APPLICATION" --environment "$ID_ENV" \
+    reessayer az containerapp create -g "$GROUPE" -n "$APPLICATION" --environment "$ID_ENV" \
         --image mcr.microsoft.com/k8se/quickstart:latest --ingress external --target-port 80 \
         --min-replicas 1 --max-replicas 1 --cpu 0.5 --memory 1.0Gi \
         --user-assigned "$ID_IDENTITE_APP" --registry-server "$SERVEUR_REGISTRE" --registry-identity "$ID_IDENTITE_APP" \
@@ -175,12 +175,12 @@ ID_APPLICATION=$(az containerapp show -g "$GROUPE" -n "$APPLICATION" --query id 
 
 # ---------------------------------------------------------------------------
 etape "6. Identité du déploiement GitHub ($IDENTITE_GITHUB)"
-az identity create -g "$GROUPE" -n "$IDENTITE_GITHUB" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
+reessayer az identity create -g "$GROUPE" -n "$IDENTITE_GITHUB" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
 PRINCIPAL_GITHUB=$(az identity show -g "$GROUPE" -n "$IDENTITE_GITHUB" --query principalId -o tsv)
 CLIENT_GITHUB=$(az identity show -g "$GROUPE" -n "$IDENTITE_GITHUB" --query clientId -o tsv)
 SUJET="repo:$DEPOT_GITHUB:environment:$ENVIRONNEMENT_GITHUB"
 if [[ -z "$(az identity federated-credential list -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --query "[?subject=='$SUJET'].name" -o tsv)" ]]; then
-    az identity federated-credential create -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --name github-production \
+    reessayer az identity federated-credential create -g "$GROUPE" --identity-name "$IDENTITE_GITHUB" --name github-production \
         --issuer https://token.actions.githubusercontent.com --subject "$SUJET" --audiences api://AzureADTokenExchange -o none
 fi
 info "confiance accordée au dépôt $DEPOT_GITHUB (environnement GitHub « $ENVIRONNEMENT_GITHUB » uniquement)"
