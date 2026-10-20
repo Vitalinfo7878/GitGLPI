@@ -6,7 +6,7 @@
 <div class="d-flex flex-wrap align-center gap-2 mb-4">
     <MudText Typo="Typo.h4">Mes tickets</MudText>
     <MudSpacer />
-    <MudButton Href="/tickets/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ReportProblem">Signaler un problème</MudButton>
+    <MudButton Href="/tickets/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ReportProblem">Créer un ticket</MudButton>
 </div>
 
 @if (_tickets is null)
@@ -16,7 +16,7 @@
 else if (_tickets.Count == 0)
 {
     <MudPaper Elevation="0" Class="carte pa-6">
-        <MudText>Vous n'avez signalé aucun problème pour l'instant.</MudText>
+        <MudText>Vous n'avez créé aucun ticket pour l'instant.</MudText>
     </MudPaper>
 }
 else

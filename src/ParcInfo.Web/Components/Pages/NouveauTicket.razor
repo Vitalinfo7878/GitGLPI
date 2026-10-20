@@ -4,10 +4,10 @@
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject IJSRuntime JS
 
-<PageTitle>Signaler un problème</PageTitle>
+<PageTitle>Créer un ticket</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="px-0">
-    <MudText Typo="Typo.h4" Class="mb-3">Signaler un problème</MudText>
+    <MudText Typo="Typo.h4" Class="mb-3">Créer un ticket</MudText>
 
     @if (_cree is not null)
     {
@@ -19,7 +19,7 @@
             <MudText Class="mb-2">Le service informatique a reçu votre ticket. Suivez son avancement et échangez avec nous depuis « Mes tickets ».</MudText>
             <div class="d-flex flex-wrap gap-2 mt-4">
                 <MudButton Href="@($"/tickets/{_cree.Id}")" Variant="Variant.Filled" Color="Color.Primary">Voir mon ticket</MudButton>
-                <MudButton Variant="Variant.Text" OnClick="Nouveau">Signaler un autre problème</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="Nouveau">Créer un autre ticket</MudButton>
             </div>
         </MudPaper>
     }

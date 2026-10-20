@@ -5,7 +5,7 @@ using ParcInfo.Web.Domain;
 
 namespace ParcInfo.Web.Services;
 
-/// <summary>Réponses au formulaire « Signaler un problème ».</summary>
+/// <summary>Réponses au formulaire « Créer un ticket ».</summary>
 public sealed class FormulaireTicket
 {
     public const int LongueurDescription = 4000;
