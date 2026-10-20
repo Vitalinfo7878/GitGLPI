@@ -60,7 +60,9 @@ public sealed class UtilisateurCourant(AuthenticationStateProvider auth)
 }
 
 /// <summary>
-/// Donne les rôles aux adresses listées dans la configuration :
+/// Reconnaît les rôles d'application Entra ID quel que soit le nom de revendication reçu (« roles », « role »
+/// ou le nom long de .NET, selon la correspondance appliquée à la connexion), puis
+/// donne les rôles aux adresses listées dans la configuration :
 /// « Authentification:Gestionnaires » → Gestionnaire (pratique avant d'avoir configuré les rôles d'application Entra ID),
 /// « Demandes:Valideurs » → Valideur.
 /// </summary>
@@ -75,12 +77,16 @@ public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransfo
     {
         if (principal.Identity is ClaimsIdentity { IsAuthenticated: true } id)
         {
+            foreach (var role in TypesRole.SelectMany(t => principal.FindAll(t)).Select(c => c.Value).ToList())
+                Ajouter(id, principal, role, true);
             var u = Utilisateur.Depuis(principal);
             Ajouter(id, principal, Roles.Gestionnaire, u.ToutesAdresses.Any(_gestionnaires.Contains));
             Ajouter(id, principal, Roles.Valideur, u.ToutesAdresses.Any(_valideurs.Contains));
         }
         return Task.FromResult(principal);
     }
+
+    private static readonly string[] TypesRole = ["roles", "role", ClaimTypes.Role];
 
     private static void Ajouter(ClaimsIdentity id, ClaimsPrincipal p, string role, bool condition)
     {

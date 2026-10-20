@@ -35,4 +35,17 @@ public class UtilisateurTests
         Assert.True(Utilisateur.Depuis(t).EstValideur);
         Assert.False(Utilisateur.Depuis(t).EstGestionnaire);
     }
+
+    [Theory]
+    [InlineData("roles")]
+    [InlineData(ClaimTypes.Role)]
+    public async Task Role_Entra_reconnu_quel_que_soit_le_nom_de_revendication(string type)
+    {
+        // Identité construite comme à la connexion Entra ID : rôles attendus sous « roles »
+        var p = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("preferred_username", "informatique@vitalrest.com"), new Claim(type, "Gestionnaire")],
+            "test", "name", "roles"));
+        var t = await new AjoutRolesConfigures(new ConfigurationBuilder().Build()).TransformAsync(p);
+        Assert.True(Utilisateur.Depuis(t).EstGestionnaire);
+    }
 }

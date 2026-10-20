@@ -29,6 +29,23 @@ public static class PointsDAcces
             return Results.File(fiche.Pdf, "application/pdf", $"{fiche.Code}.pdf");
         });
 
+        // Contrôle de la connexion : informations reçues de Microsoft pour le compte connecté (rôles, adresses)
+        app.MapGet("/connexion/infos", (ClaimsPrincipal user) =>
+        {
+            var u = Utilisateur.Depuis(user);
+            var lignes = new List<string>
+            {
+                $"Nom          : {u.Nom}",
+                $"Adresses     : {string.Join(", ", u.ToutesAdresses)}",
+                $"Gestionnaire : {(u.EstGestionnaire ? "oui" : "non")}",
+                $"Valideur     : {(u.EstValideur ? "oui" : "non")}",
+                "",
+                "Informations reçues :",
+            };
+            lignes.AddRange(user.Claims.Select(c => $"  {c.Type} = {c.Value}"));
+            return Results.Text(string.Join('\n', lignes), "text/plain; charset=utf-8");
+        });
+
         app.MapGet("/export/inventaire.xlsx", async (IDbContextFactory<ParcDbContext> f) =>
         {
             await using var db = await f.CreateDbContextAsync();
