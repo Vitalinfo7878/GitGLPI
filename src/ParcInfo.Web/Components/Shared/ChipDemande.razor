@@ -1,0 +1,17 @@
+<MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@Couleur" Class="ma-0">@Demande.StatutLibelle</MudChip>
+
+@code {
+    [Parameter, EditorRequired] public Demande Demande { get; set; } = null!;
+
+    private Color Couleur => Demande.StatutValidation switch
+    {
+        StatutValidation.EnAttente => Color.Warning,
+        StatutValidation.Refusee => Color.Error,
+        _ => Demande.StatutRealisation switch
+        {
+            StatutRealisation.Realisee => Color.Success,
+            StatutRealisation.Annulee => Color.Default,
+            _ => Color.Info,
+        },
+    };
+}

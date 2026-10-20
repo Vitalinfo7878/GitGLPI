@@ -16,3 +16,7 @@
     left: 0; padding: .6rem 1.25rem .7rem 1.25rem; position: fixed; width: 100%; z-index: 2000;
 }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }
+
+.question { padding-left: 12px; border-left: 3px solid transparent; }
+.question-erreur { border-left-color: var(--mud-palette-error); }
+.question-numero { color: var(--mud-palette-text-secondary); }

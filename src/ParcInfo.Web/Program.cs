@@ -51,9 +51,10 @@ else
     throw new InvalidOperationException(
         "Authentification non configurée : renseignez la section AzureAd (TenantId, ClientId, ClientSecret) ou activez Authentification:ModeDemo.");
 }
-builder.Services.AddTransient<IClaimsTransformation, AjoutRoleGestionnaire>();
+builder.Services.AddTransient<IClaimsTransformation, AjoutRolesConfigures>();
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Roles.PolitiqueGestion, p => p.RequireRole(Roles.Gestionnaire))
+    .AddPolicy(Roles.PolitiqueValidation, p => p.RequireRole(Roles.Gestionnaire, Roles.Valideur))
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 builder.Services.AddCascadingAuthenticationState();
 
@@ -65,10 +66,14 @@ if (messagerie.Mode.Equals("Graph", StringComparison.OrdinalIgnoreCase))
 else
     builder.Services.AddSingleton<IEnvoiCourriel, EnvoiCourrielSimule>();
 
+// --- Demandes ---
+builder.Services.AddSingleton(config.GetSection("Demandes").Get<OptionsDemandes>() ?? new OptionsDemandes());
+
 // --- Services métier ---
 builder.Services.AddSingleton<GenerateurFiche>();
 builder.Services.AddScoped<ServiceNotifications>();
 builder.Services.AddScoped<ServiceMouvements>();
+builder.Services.AddScoped<ServiceDemandes>();
 builder.Services.AddScoped<UtilisateurCourant>();
 builder.Services.AddMudServices();
 

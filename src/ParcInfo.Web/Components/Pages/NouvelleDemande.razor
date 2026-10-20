@@ -1,0 +1,176 @@
+@page "/demandes/nouvelle"
+@inject ServiceDemandes Service
+@inject UtilisateurCourant Courant
+@inject OptionsDemandes Options
+@inject IJSRuntime JS
+
+<PageTitle>Demande informatique</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="px-0">
+    <MudText Typo="Typo.h4" Class="mb-3">Demande informatique</MudText>
+
+    @if (_resultat is not null)
+    {
+        <MudPaper Elevation="0" Class="carte pa-6">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="vertical-align:middle" />
+                Demande n° @_resultat.Demande.Numero envoyée
+            </MudText>
+            <MudText Class="mb-2">Votre demande a été transmise pour validation. Vous recevrez un mail de confirmation, puis un mail dès qu'une décision sera prise.</MudText>
+            @if (_resultat.AvertissementCourriel is { } a)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">La demande est enregistrée, mais un courriel n'a pas pu partir : @a</MudAlert>
+            }
+            <div class="d-flex flex-wrap gap-2 mt-4">
+                <MudButton Href="@($"/demandes/{_resultat.Demande.IdPublic}")" Variant="Variant.Filled" Color="Color.Primary">Voir ma demande</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="Nouvelle">Faire une autre demande</MudButton>
+            </div>
+        </MudPaper>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4" Icon="@Icons.Material.Outlined.Info">
+            <b>Attention :</b>
+            <ul class="mt-1 mb-0 pl-4">
+                <li>Formulaire destiné uniquement aux demandes de matériel et de création de compte de messagerie.</li>
+                @if (Options.Valideurs.Length > 0)
+                {
+                    <li>La validation de vos demandes est effectuée par @string.Join(", ", Options.Valideurs).</li>
+                }
+                <li>Pour toute autre demande, contactez le 01 86 70 07 62 ou envoyez un mail à <a href="mailto:informatique@vitalrest.com">informatique@vitalrest.com</a>.</li>
+                <li>Pour la création de comptes ADORIA : veuillez contacter le Service Achat qui en a la charge.</li>
+                <li>Les demandes incomplètes ne pourront pas être prises en compte de manière prioritaire.</li>
+            </ul>
+        </MudAlert>
+
+        <MudText Typo="Typo.body2" Class="mb-3" Style="color:var(--mud-palette-error)">* Obligatoire</MudText>
+
+        <MudPaper Elevation="0" Class="carte pa-5">
+            <MudStack Spacing="5">
+                <Question Numero="1" Libelle="Nom / Prénom du demandeur :" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurNom))">
+                    <MudTextField @bind-Value="_f.DemandeurNom" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Entrez votre réponse" />
+                </Question>
+
+                <Question Numero="2" Libelle="Quel est l'objet de votre demande ?" Obligatoire="true" Aide="Plusieurs réponses possibles."
+                          Erreur="@(Err(nameof(FormulaireDemande.Objets)) ?? Err(nameof(FormulaireDemande.ObjetAutre)))">
+                    @foreach (var choix in Demande.ChoixObjet)
+                    {
+                        <MudCheckBox T="bool" Value="_f.Objets.Contains(choix)" ValueChanged="v => Cocher(choix, v)" Label="@choix" Dense="true" />
+                    }
+                    <div class="d-flex align-center flex-wrap">
+                        <MudCheckBox T="bool" Value="_f.Objets.Contains(FormulaireDemande.Autre)" ValueChanged="v => Cocher(FormulaireDemande.Autre, v)" Label="Autre" Dense="true" />
+                        <MudTextField @bind-Value="_f.ObjetAutre" Placeholder="Précisez" Variant="Variant.Text" Margin="Margin.Dense" Class="ml-2" Style="max-width:320px"
+                                      OnKeyUp="@(() => { if (!string.IsNullOrWhiteSpace(_f.ObjetAutre)) _f.Objets.Add(FormulaireDemande.Autre); })" />
+                    </div>
+                </Question>
+
+                <Question Numero="3" Libelle="Votre demande concerne :" Obligatoire="true"
+                          Erreur="@(Err(nameof(FormulaireDemande.Concerne)) ?? Err(nameof(FormulaireDemande.ConcerneAutre)))">
+                    <MudRadioGroup T="string" @bind-Value="_f.Concerne">
+                        <MudStack Spacing="0">
+                            @foreach (var choix in Demande.ChoixConcerne)
+                            {
+                                <MudRadio T="string" Value="choix" Dense="true">@choix</MudRadio>
+                            }
+                            <div class="d-flex align-center flex-wrap">
+                                <MudRadio T="string" Value="FormulaireDemande.Autre" Dense="true">Autre</MudRadio>
+                                <MudTextField @bind-Value="_f.ConcerneAutre" Placeholder="Précisez" Variant="Variant.Text" Margin="Margin.Dense" Class="ml-2" Style="max-width:320px"
+                                              OnKeyUp="@(() => { if (!string.IsNullOrWhiteSpace(_f.ConcerneAutre)) _f.Concerne = FormulaireDemande.Autre; })" />
+                            </div>
+                        </MudStack>
+                    </MudRadioGroup>
+                </Question>
+
+                <Question Numero="4" Libelle="Adresse mail à créer si besoin (facultatif)" Erreur="@Err(nameof(FormulaireDemande.AdresseMailACreer))">
+                    <MudTextField @bind-Value="_f.AdresseMailACreer" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="prenom.nom@vitalrest.com" InputType="InputType.Email" />
+                </Question>
+
+                <Question Numero="5" Libelle="Raison de votre demande :" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.Raison))">
+                    <MudTextField @bind-Value="_f.Raison" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="4" Sizing="InputSizing.Auto" Placeholder="Entrez votre réponse" />
+                </Question>
+
+                <Question Numero="6" Libelle="Adresse de livraison (adresse complète + numéro du site)" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.AdresseLivraison))">
+                    <MudTextField @bind-Value="_f.AdresseLivraison" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. EHPAD … – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles" />
+                </Question>
+
+                <Question Numero="7" Libelle="À qui doit être adressée la livraison ?">
+                    <MudTextField @bind-Value="_f.DestinataireLivraison" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Entrez votre réponse" />
+                </Question>
+
+                <Question Numero="8" Libelle="Mail du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurEmail))">
+                    <MudTextField @bind-Value="_f.DemandeurEmail" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
+                </Question>
+
+                <Question Numero="9" Libelle="Téléphone du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurTelephone))">
+                    <MudTextField @bind-Value="_f.DemandeurTelephone" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Telephone" Placeholder="06 12 34 56 78" />
+                </Question>
+
+                <Question Numero="10" Libelle="Échéance souhaitée" Erreur="@Err(nameof(FormulaireDemande.Echeance))">
+                    <MudDatePicker @bind-Date="_f.Echeance" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" Placeholder="jj/mm/aaaa"
+                                   MinDate="DateTime.Today" Clearable="true" Style="max-width:260px" />
+                </Question>
+
+                @if (_erreurs.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">Certaines réponses obligatoires sont manquantes ou incorrectes : vérifiez les questions signalées en rouge.</MudAlert>
+                }
+                <div class="d-flex justify-end">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="Envoyer" Disabled="_envoi" StartIcon="@Icons.Material.Filled.Send">Envoyer</MudButton>
+                </div>
+            </MudStack>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private FormulaireDemande _f = new();
+    private Dictionary<string, string> _erreurs = [];
+    private bool _envoi;
+    private bool _allerErreur;
+    private ResultatDemande? _resultat;
+    private Utilisateur? _u;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        Prerenseigner();
+    }
+
+    private void Prerenseigner()
+    {
+        _f = new FormulaireDemande { DemandeurNom = _u?.Nom, DemandeurEmail = _u?.Email };
+        _erreurs = [];
+    }
+
+    private string? Err(string champ) => _erreurs.GetValueOrDefault(champ);
+
+    private void Cocher(string choix, bool coche)
+    {
+        if (coche) _f.Objets.Add(choix); else _f.Objets.Remove(choix);
+    }
+
+    private async Task Envoyer()
+    {
+        _erreurs = _f.Valider();
+        _allerErreur = _erreurs.Count > 0;
+        if (_allerErreur) return;
+        _envoi = true;
+        try { _resultat = await Service.CreerAsync(_f, _u!); }
+        catch (ErreurFormulaire ex) { _erreurs = ex.Erreurs; _allerErreur = true; }
+        finally { _envoi = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Après affichage des erreurs, remonter jusqu'à la première question en rouge
+        if (!_allerErreur) return;
+        _allerErreur = false;
+        await JS.InvokeVoidAsync("parcInfo.allerPremiereErreur");
+    }
+
+    private void Nouvelle()
+    {
+        _resultat = null;
+        Prerenseigner();
+    }
+}

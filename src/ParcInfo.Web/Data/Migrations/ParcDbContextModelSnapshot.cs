@@ -60,6 +60,131 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("Courriels");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.Demande", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AdresseLivraison")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("AdresseMailACreer")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("CommentaireDecision")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("CommentaireInformatique")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Concerne")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTime>("CreeLe")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DecisionLe")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DecisionPar")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("DecisionParEmail")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("DemandeurEmail")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("DemandeurNom")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("DemandeurTelephone")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("DestinataireLivraison")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateOnly?>("Echeance")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("IdPublic")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ModifieLe")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Numero")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Objets")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("Priorite")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("Raison")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime?>("RealiseeLe")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SaisiePar")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("StatutRealisation")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("StatutValidation")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DemandeurEmail");
+
+                    b.HasIndex("IdPublic")
+                        .IsUnique();
+
+                    b.HasIndex("Numero")
+                        .IsUnique();
+
+                    b.HasIndex("SaisiePar");
+
+                    b.HasIndex("StatutValidation");
+
+                    b.ToTable("Demandes");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Fiche", b =>
                 {
                     b.Property<int>("Id")
