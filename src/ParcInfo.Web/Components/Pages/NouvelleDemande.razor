@@ -48,7 +48,7 @@
         <MudPaper Elevation="0" Class="carte pa-5">
             <MudStack Spacing="5">
                 <Question Numero="1" Libelle="Nom / Prénom du demandeur :" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurNom))">
-                    <MudTextField @bind-Value="_f.DemandeurNom" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Entrez votre réponse" />
+                    <MudTextField @bind-Value="_f.DemandeurNom" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Entrez votre réponse" />
                 </Question>
 
                 <Question Numero="2" Libelle="Quel est l'objet de votre demande ?" Obligatoire="true" Aide="Plusieurs réponses possibles."
@@ -59,7 +59,7 @@
                     }
                     <div class="d-flex align-center flex-wrap">
                         <MudCheckBox T="bool" Value="_f.Objets.Contains(FormulaireDemande.Autre)" ValueChanged="v => Cocher(FormulaireDemande.Autre, v)" Label="Autre" Dense="true" />
-                        <MudTextField @bind-Value="_f.ObjetAutre" Placeholder="Précisez" Variant="Variant.Text" Margin="Margin.Dense" Class="ml-2" Style="max-width:320px"
+                        <MudTextField @bind-Value="_f.ObjetAutre" MaxLength="200" Placeholder="Précisez" Variant="Variant.Text" Margin="Margin.Dense" Class="ml-2" Style="max-width:320px"
                                       OnKeyUp="@(() => { if (!string.IsNullOrWhiteSpace(_f.ObjetAutre)) _f.Objets.Add(FormulaireDemande.Autre); })" />
                     </div>
                 </Question>
@@ -74,7 +74,7 @@
                             }
                             <div class="d-flex align-center flex-wrap">
                                 <MudRadio T="string" Value="FormulaireDemande.Autre" Dense="true">Autre</MudRadio>
-                                <MudTextField @bind-Value="_f.ConcerneAutre" Placeholder="Précisez" Variant="Variant.Text" Margin="Margin.Dense" Class="ml-2" Style="max-width:320px"
+                                <MudTextField @bind-Value="_f.ConcerneAutre" MaxLength="200" Placeholder="Précisez" Variant="Variant.Text" Margin="Margin.Dense" Class="ml-2" Style="max-width:320px"
                                               OnKeyUp="@(() => { if (!string.IsNullOrWhiteSpace(_f.ConcerneAutre)) _f.Concerne = FormulaireDemande.Autre; })" />
                             </div>
                         </MudStack>
@@ -82,32 +82,34 @@
                 </Question>
 
                 <Question Numero="4" Libelle="Adresse mail à créer si besoin (facultatif)" Erreur="@Err(nameof(FormulaireDemande.AdresseMailACreer))">
-                    <MudTextField @bind-Value="_f.AdresseMailACreer" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="prenom.nom@vitalrest.com" InputType="InputType.Email" />
+                    <MudTextField @bind-Value="_f.AdresseMailACreer" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="prenom.nom@vitalrest.com" InputType="InputType.Email" />
                 </Question>
 
                 <Question Numero="5" Libelle="Raison de votre demande :" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.Raison))">
-                    <MudTextField @bind-Value="_f.Raison" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="4" Sizing="InputSizing.Auto" Placeholder="Entrez votre réponse" />
+                    <MudTextField @bind-Value="_f.Raison" MaxLength="FormulaireDemande.LongueurRaison" Counter="FormulaireDemande.LongueurRaison" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="4" Sizing="InputSizing.Auto" Placeholder="Entrez votre réponse" />
                 </Question>
 
                 <Question Numero="6" Libelle="Adresse de livraison (adresse complète + numéro du site)" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.AdresseLivraison))">
-                    <MudTextField @bind-Value="_f.AdresseLivraison" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. EHPAD … – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles" />
+                    <MudTextField @bind-Value="_f.AdresseLivraison" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. EHPAD … – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles" />
                 </Question>
 
                 <Question Numero="7" Libelle="À qui doit être adressée la livraison ?">
-                    <MudTextField @bind-Value="_f.DestinataireLivraison" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Entrez votre réponse" />
+                    <MudTextField @bind-Value="_f.DestinataireLivraison" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Entrez votre réponse" />
                 </Question>
 
                 <Question Numero="8" Libelle="Mail du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurEmail))">
-                    <MudTextField @bind-Value="_f.DemandeurEmail" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
+                    <MudTextField @bind-Value="_f.DemandeurEmail" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
                 </Question>
 
                 <Question Numero="9" Libelle="Téléphone du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurTelephone))">
-                    <MudTextField @bind-Value="_f.DemandeurTelephone" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Telephone" Placeholder="06 12 34 56 78" />
+                    <MudTextField @bind-Value="_f.DemandeurTelephone" MaxLength="50" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Telephone" Placeholder="06 12 34 56 78" />
                 </Question>
 
                 <Question Numero="10" Libelle="Échéance souhaitée" Erreur="@Err(nameof(FormulaireDemande.Echeance))">
-                    <MudDatePicker @bind-Date="_f.Echeance" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" Placeholder="jj/mm/aaaa"
-                                   MinDate="DateTime.Today" Clearable="true" Style="max-width:260px" />
+                    <div style="max-width:260px">
+                        <MudDatePicker @bind-Date="_f.Echeance" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" Placeholder="jj/mm/aaaa"
+                                   MinDate="DateTime.Today" Clearable="true" />
+                    </div>
                 </Question>
 
                 @if (_erreurs.Count > 0)

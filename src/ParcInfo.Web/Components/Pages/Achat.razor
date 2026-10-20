@@ -34,9 +34,9 @@ else
                 <MudDatePicker Date="@(_d.Date.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? d) => _d.Date = DateOnly.FromDateTime(d ?? DateTime.Today))"
                                Label="Date de réception" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" />
             </MudItem>
-            <MudItem xs="12" sm="3"><MudTextField @bind-Value="_d.Fournisseur" Label="Fournisseur" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-            <MudItem xs="12" sm="3"><MudTextField @bind-Value="_d.DocumentReference" Label="Devis / bon de commande" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-            <MudItem xs="12" sm="3"><MudTextField @bind-Value="_d.Commentaire" Label="Commentaire" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Fournisseur" Label="Fournisseur" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.DocumentReference" Label="Devis / bon de commande" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Commentaire" Label="Commentaire" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
 
             <MudItem xs="12"><MudText Typo="Typo.subtitle2" Class="mt-2">Matériel reçu</MudText></MudItem>
             @foreach (var (m, i) in _d.Materiels.Select((m, i) => (m, i)))
@@ -46,10 +46,10 @@ else
                         @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField @bind-Value="m.NumInterne" Label="N° interne" Placeholder="automatique" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="3"><MudTextField @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField @bind-Value="m.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField @bind-Value="m.NumFacture" Label="N° facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumInterne" Label="N° interne" Placeholder="automatique" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="3"><MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
                     <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>
                     <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => _d.Materiels.RemoveAt(i)" aria-label="Supprimer" />

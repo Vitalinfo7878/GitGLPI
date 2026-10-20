@@ -73,7 +73,7 @@ else
                         </MudToggleGroup>
                         @if (_choix is not null)
                         {
-                            <MudTextField @bind-Value="_commentaire" Label="@(_choix == "refuser" ? "Motif du refus (obligatoire, transmis au demandeur)" : "Commentaire (facultatif, transmis au demandeur)")"
+                            <MudTextField @bind-Value="_commentaire" MaxLength="2000" Label="@(_choix == "refuser" ? "Motif du refus (obligatoire, transmis au demandeur)" : "Commentaire (facultatif, transmis au demandeur)")"
                                           Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" />
                             <MudButton Class="mt-3" Variant="Variant.Filled" Color="@(_choix == "refuser" ? Color.Error : Color.Success)" OnClick="Decider" Disabled="_envoi" FullWidth="true">
                                 @(_choix == "refuser" ? "Confirmer le refus" : "Confirmer la validation")
@@ -117,7 +117,7 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <MudTextField @bind-Value="_commentaireInfo" Label="Commentaire du service informatique" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                <MudTextField @bind-Value="_commentaireInfo" MaxLength="4000" Label="Commentaire du service informatique" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
                                               HelperText="Visible par le demandeur ; joint au mail envoyé quand la demande passe à « Réalisée »." />
                             </MudItem>
                             <MudItem xs="12" Class="d-flex flex-wrap gap-2 justify-space-between">

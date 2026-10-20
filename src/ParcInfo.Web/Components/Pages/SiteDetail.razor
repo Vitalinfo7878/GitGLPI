@@ -21,17 +21,17 @@ else
             <MudPaper Elevation="0" Class="carte pa-4">
                 <EditForm Model="_site" OnValidSubmit="Enregistrer">
                     <MudGrid Spacing="2">
-                        <MudItem xs="5"><MudTextField @bind-Value="_site.Code" Label="Code" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                        <MudItem xs="7"><MudTextField @bind-Value="_site.Nom" Label="Nom" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="5"><MudTextField MaxLength="400" @bind-Value="_site.Code" Label="Code" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="7"><MudTextField MaxLength="400" @bind-Value="_site.Nom" Label="Nom" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                         <MudItem xs="12">
                             <MudSelect T="int?" @bind-Value="_site.RegionId" Label="Région" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                                 @foreach (var r in _regions) { <MudSelectItem T="int?" Value="r.Id">@r.Nom</MudSelectItem> }
                             </MudSelect>
                         </MudItem>
-                        <MudItem xs="7"><MudTextField @bind-Value="_site.Responsable" Label="Responsable" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                        <MudItem xs="5"><MudTextField @bind-Value="_site.Telephone" Label="Téléphone" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                        <MudItem xs="12"><MudTextField @bind-Value="_site.Email" Label="Adresse mail du site" HelperText="Reçoit les demandes de confirmation de réception" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                        <MudItem xs="12"><MudTextField @bind-Value="_site.Adresse" Label="Adresse postale" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="7"><MudTextField MaxLength="400" @bind-Value="_site.Responsable" Label="Responsable" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="5"><MudTextField MaxLength="400" @bind-Value="_site.Telephone" Label="Téléphone" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12"><MudTextField MaxLength="400" @bind-Value="_site.Email" Label="Adresse mail du site" HelperText="Reçoit les demandes de confirmation de réception" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12"><MudTextField MaxLength="400" @bind-Value="_site.Adresse" Label="Adresse postale" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                         <MudItem xs="12"><MudCheckBox @bind-Value="_site.Actif" Label="Site actif" /></MudItem>
                         <MudItem xs="12" Class="d-flex justify-end">
                             <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Enregistrer</MudButton>

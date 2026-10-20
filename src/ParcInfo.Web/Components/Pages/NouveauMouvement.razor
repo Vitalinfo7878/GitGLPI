@@ -98,8 +98,8 @@ else
                                 @if (_nouvellePersonne)
                                 {
                                     <div class="d-flex flex-wrap gap-2 align-center">
-                                        <MudTextField @bind-Value="_npNom" Label="Prénom NOM" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                        <MudTextField @bind-Value="_npEmail" Label="Adresse mail" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudTextField MaxLength="400" @bind-Value="_npNom" Label="Prénom NOM" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudTextField MaxLength="400" @bind-Value="_npEmail" Label="Adresse mail" Variant="Variant.Outlined" Margin="Margin.Dense" />
                                         <MudButton Variant="Variant.Outlined" OnClick="CreerPersonne">Créer</MudButton>
                                     </div>
                                 }
@@ -109,18 +109,18 @@ else
                     else
                     {
                         <MudItem xs="12" sm="6">
-                            <MudTextField @bind-Value="_d.DestinationLibre" Label="@LibelleDestinationLibre" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudTextField MaxLength="400" @bind-Value="_d.DestinationLibre" Label="@LibelleDestinationLibre" Variant="Variant.Outlined" Margin="Margin.Dense" />
                         </MudItem>
                     }
                     <MudItem xs="12" sm="6">
-                        <MudTextField @bind-Value="_d.Expediteur" Label="Expéditeur" Variant="Variant.Outlined" Margin="Margin.Dense"
+                        <MudTextField MaxLength="400" @bind-Value="_d.Expediteur" Label="Expéditeur" Variant="Variant.Outlined" Margin="Margin.Dense"
                                       HelperText="@(_d.Type == TypeMouvement.Restitution ? "Vide = détenteur actuel" : null)" />
                     </MudItem>
                     <MudItem xs="12" sm="6">
-                        <MudTextField @bind-Value="_d.DocumentReference" Label="Document de référence (devis, bon, fiche retour…)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudTextField MaxLength="400" @bind-Value="_d.DocumentReference" Label="Document de référence (devis, bon, fiche retour…)" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     </MudItem>
                     <MudItem xs="12">
-                        <MudTextField @bind-Value="_d.Commentaire" Label="@(_d.Type == TypeMouvement.MiseAuRebut ? "Raison de la mise au rebut" : "Commentaire")" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudTextField @bind-Value="_d.Commentaire" MaxLength="2000" Label="@(_d.Type == TypeMouvement.MiseAuRebut ? "Raison de la mise au rebut" : "Commentaire")" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     </MudItem>
 
                     @if (_d.Type == TypeMouvement.Attribution)
@@ -129,7 +129,7 @@ else
                             <MudCheckBox @bind-Value="_d.DemanderConfirmation" Label="Demander au destinataire de confirmer la réception par mail" />
                             @if (_d.DemanderConfirmation)
                             {
-                                <MudTextField @bind-Value="_d.EmailDestinataire" Label="Adresse mail du destinataire" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                <MudTextField MaxLength="400" @bind-Value="_d.EmailDestinataire" Label="Adresse mail du destinataire" Variant="Variant.Outlined" Margin="Margin.Dense"
                                               HelperText="Le destinataire recevra un lien ; le mot de passe de session s'affichera après sa confirmation." />
                             }
                         </MudItem>
@@ -229,10 +229,10 @@ else
     private async Task<IEnumerable<Materiel>> ChercherMateriel(string? texte, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(texte)) return [];
-        var t = Recherche.Motif(texte);
+        var t = Recherche.Texte(texte);
         await using var db = await DbFactory.CreateDbContextAsync(ct);
         return await db.Materiels.AsNoTracking().Include(m => m.Site).Include(m => m.Personne)
-            .Where(m => EF.Functions.Like(m.NumInterne, t) || EF.Functions.Like(m.NumSerie, t) || EF.Functions.Like(m.Modele, t))
+            .Where(m => m.NumInterne.ToLower().Contains(t) || (m.NumSerie != null && m.NumSerie.ToLower().Contains(t)) || (m.Modele != null && m.Modele.ToLower().Contains(t)))
             .OrderBy(m => m.NumInterne).Take(20).ToListAsync(ct);
     }
 
@@ -246,7 +246,11 @@ else
     {
         await using var db = await DbFactory.CreateDbContextAsync(ct);
         var q = db.Sites.AsNoTracking().Where(s => s.Actif);
-        if (!string.IsNullOrWhiteSpace(texte)) q = q.Where(s => EF.Functions.Like(s.Code, Recherche.Motif(texte)) || EF.Functions.Like(s.Nom, Recherche.Motif(texte)));
+        if (!string.IsNullOrWhiteSpace(texte))
+        {
+            var t = Recherche.Texte(texte);
+            q = q.Where(s => s.Code.ToLower().Contains(t) || (s.Nom != null && s.Nom.ToLower().Contains(t)));
+        }
         return await q.OrderBy(s => s.Code).Take(30).ToListAsync(ct);
     }
 
@@ -254,7 +258,11 @@ else
     {
         await using var db = await DbFactory.CreateDbContextAsync(ct);
         var q = db.Personnes.AsNoTracking().Where(p => p.Actif);
-        if (!string.IsNullOrWhiteSpace(texte)) q = q.Where(p => EF.Functions.Like(p.NomComplet, Recherche.Motif(texte)) || EF.Functions.Like(p.Email, Recherche.Motif(texte)));
+        if (!string.IsNullOrWhiteSpace(texte))
+        {
+            var t = Recherche.Texte(texte);
+            q = q.Where(p => p.NomComplet.ToLower().Contains(t) || (p.Email != null && p.Email.ToLower().Contains(t)));
+        }
         return await q.OrderBy(p => p.NomComplet).Take(30).ToListAsync(ct);
     }
 

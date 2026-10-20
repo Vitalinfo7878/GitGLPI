@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ParcInfo.Web.Data;
@@ -9,8 +8,7 @@ namespace ParcInfo.Tests;
 
 public sealed class ServiceDemandesTests : IDisposable
 {
-    private readonly SqliteConnection _connexion = new("Data Source=:memory:");
-    private readonly Fabrique _fabrique;
+    private readonly BaseDeTest _fabrique = new();
     private readonly ServiceDemandes _service;
     private readonly OptionsDemandes _options = new()
     {
@@ -25,15 +23,12 @@ public sealed class ServiceDemandesTests : IDisposable
 
     public ServiceDemandesTests()
     {
-        _connexion.Open();
-        _fabrique = new Fabrique(new DbContextOptionsBuilder<ParcDbContext>().UseSqlite(_connexion).Options);
-        using (var db = _fabrique.CreateDbContext()) db.Database.EnsureCreated();
         var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique,
             new OptionsMessagerie { UrlApplication = "https://parc.test" }, NullLogger<ServiceNotifications>.Instance);
         _service = new ServiceDemandes(_fabrique, notifications, _options, NullLogger<ServiceDemandes>.Instance);
     }
 
-    public void Dispose() => _connexion.Dispose();
+    public void Dispose() => _fabrique.Dispose();
 
     private static FormulaireDemande Complet() => new()
     {
@@ -72,6 +67,17 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Contains("AdresseMailACreer", e.Keys);
         Assert.Contains("DemandeurTelephone", e.Keys);
         Assert.Contains("Echeance", e.Keys);
+    }
+
+    [Fact]
+    public void Reponses_trop_longues_refusees()
+    {
+        var f = Complet();
+        f.AdresseLivraison = new string('x', 401);
+        f.Raison = new string('x', FormulaireDemande.LongueurRaison + 1);
+        var e = f.Valider();
+        Assert.Contains("AdresseLivraison", e.Keys);
+        Assert.Contains("Raison", e.Keys);
     }
 
     [Fact]
@@ -174,8 +180,4 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.False(ServiceDemandes.PeutVoir(new Utilisateur("Autre", "autre@vitalrest.com", false), d));
     }
 
-    private sealed class Fabrique(DbContextOptions<ParcDbContext> options) : IDbContextFactory<ParcDbContext>
-    {
-        public ParcDbContext CreateDbContext() => new(options);
-    }
 }

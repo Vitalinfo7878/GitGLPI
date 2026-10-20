@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
@@ -13,26 +16,51 @@ using ParcInfo.Web.Services;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
-// --- Base de données : SQLite en local, Azure SQL en production ---
+// Dates, nombres et calendriers en français, quelle que soit la langue du serveur (conteneur Linux en anglais)
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.GetCultureInfo("fr-FR");
+
+// --- Base de données : SQLite en local, PostgreSQL en production ---
 var fournisseur = config["BaseDeDonnees:Fournisseur"] ?? "Sqlite";
 var chaine = config.GetConnectionString("Parc") ?? "Data Source=parc.db";
 builder.Services.AddDbContextFactory<ParcDbContext>(o =>
 {
-    if (fournisseur.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
-        o.UseSqlServer(chaine, s => s.EnableRetryOnFailure());
+    if (fournisseur.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
+        // Pas de chiffrement Kerberos (GSS) : connexion par mot de passe + TLS, la bibliothèque Kerberos n'est pas dans l'image
+        o.UseNpgsql(new Npgsql.NpgsqlConnectionStringBuilder(chaine) { GssEncryptionMode = Npgsql.GssEncryptionMode.Disable }.ConnectionString,
+            n => n.EnableRetryOnFailure());
     else
         o.UseSqlite(chaine);
 });
+// Clés de chiffrement des cookies (session SSO, formulaires) conservées en base :
+// sans cela, chaque redémarrage du conteneur déconnecterait tout le monde.
+builder.Services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<ParcDbContext>>().CreateDbContext());
+builder.Services.AddDataProtection()
+    .SetApplicationName("ParcInfo")
+    .PersistKeysToDbContext<ParcDbContext>();
 
-// --- Authentification : Entra ID (comptes Microsoft 365) ou mode démo local ---
+// Derrière l'entrée HTTPS d'Azure Container Apps, l'application reçoit du HTTP : on fait confiance aux en-têtes
+// X-Forwarded-* pour connaître le schéma réel (https), indispensable à l'adresse de retour de la connexion Microsoft.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    o.KnownIPNetworks.Clear();
+    o.KnownProxies.Clear();
+});
+
+// --- Authentification : SSO Entra ID (comptes Microsoft 365) ou mode démo local ---
+// Le mode démo n'est jamais actif quand Entra ID est configuré.
 var entraConfigure = !string.IsNullOrWhiteSpace(config["AzureAd:ClientId"]);
 var modeDemo = !entraConfigure && (builder.Environment.IsDevelopment() || config.GetValue<bool>("Authentification:ModeDemo"));
 if (entraConfigure)
 {
     builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
         .AddMicrosoftIdentityWebApp(config.GetSection("AzureAd"));
-    builder.Services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme,
-        o => o.TokenValidationParameters.RoleClaimType = "roles");
+    builder.Services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, o =>
+    {
+        o.TokenValidationParameters.RoleClaimType = "roles";
+        // Demande l'adresse mail en plus de l'identifiant de connexion (voir Utilisateur.Adresses)
+        o.Scope.Add("email");
+    });
     builder.Services.Configure<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme,
         o => o.AccessDeniedPath = "/acces-refuse");
     builder.Services.AddControllersWithViews().AddMicrosoftIdentityUI();
@@ -83,7 +111,12 @@ builder.Services.AddRazorComponents()
 
 var app = builder.Build();
 
+if (modeDemo && !app.Environment.IsDevelopment())
+    app.Logger.LogWarning("MODE DÉMO ACTIF hors développement : n'importe qui peut se connecter. Configurez AzureAd pour activer le SSO.");
+
 await InitialisationBase.AppliquerAsync(app.Services, fournisseur);
+
+app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -98,6 +131,12 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapStaticAssets().AllowAnonymous();
+// Sonde de santé pour Azure Container Apps (vérifie aussi l'accès à la base)
+app.MapGet("/sante", async (IDbContextFactory<ParcDbContext> f) =>
+{
+    await using var db = await f.CreateDbContextAsync();
+    return await db.Database.CanConnectAsync() ? Results.Ok("ok") : Results.StatusCode(503);
+}).AllowAnonymous();
 if (entraConfigure) app.MapControllers();
 if (modeDemo) app.MapConnexionDemo();
 app.MapPointsDAcces();

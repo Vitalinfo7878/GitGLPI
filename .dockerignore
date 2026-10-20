@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/*.db
+**/*.db-*
+**/*.xlsx
+**/*.xlsm
+.git/
+.github/
+tests/
+publication/

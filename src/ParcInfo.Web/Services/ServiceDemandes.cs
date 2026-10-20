@@ -21,6 +21,7 @@ public sealed class FormulaireDemande
 {
     public const string Autre = "Autre";
     public const string MessageObligatoire = "Cette question est obligatoire.";
+    public const int LongueurRaison = 4000;
 
     public string? DemandeurNom { get; set; }
     public HashSet<string> Objets { get; set; } = [];
@@ -60,6 +61,14 @@ public sealed class FormulaireDemande
         if (!e.ContainsKey(nameof(DemandeurTelephone)) && Regex.Replace(DemandeurTelephone!, @"\D", "").Length < 10)
             e[nameof(DemandeurTelephone)] = "Numéro de téléphone incomplet (10 chiffres minimum).";
         if (Echeance is { } d && d.Date < DateTime.Today) e[nameof(Echeance)] = "L'échéance ne peut pas être dans le passé.";
+        foreach (var (champ, valeur, max) in new (string, string?, int)[]
+        {
+            (nameof(DemandeurNom), DemandeurNom, 200), (nameof(ObjetAutre), ObjetAutre, 200), (nameof(ConcerneAutre), ConcerneAutre, 200),
+            (nameof(AdresseMailACreer), AdresseMailACreer, 200), (nameof(Raison), Raison, LongueurRaison),
+            (nameof(AdresseLivraison), AdresseLivraison, 400), (nameof(DestinataireLivraison), DestinataireLivraison, 200),
+            (nameof(DemandeurEmail), DemandeurEmail, 200), (nameof(DemandeurTelephone), DemandeurTelephone, 50),
+        })
+            if (valeur?.Trim().Length > max && !e.ContainsKey(champ)) e[champ] = $"Réponse trop longue ({max} caractères maximum).";
         return e;
     }
 

@@ -132,7 +132,7 @@ public sealed class ServiceMouvements(
             throw new ErreurMetier("Choisissez le site ou la personne destinataire.");
 
         // Une attribution confirmée électroniquement n'est possible que sur une destination unique avec une adresse mail.
-        var emailDestinataire = Vide(d.EmailDestinataire) ?? personne?.Email ?? site?.Email;
+        var emailDestinataire = (Vide(d.EmailDestinataire) ?? personne?.Email ?? site?.Email)?.ToLowerInvariant();
         var demanderConfirmation = d.Type == TypeMouvement.Attribution && d.DemanderConfirmation;
         if (demanderConfirmation && emailDestinataire is null)
             throw new ErreurMetier("Aucune adresse mail pour ce destinataire : renseignez-la ou décochez la confirmation de réception.");
