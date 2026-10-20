@@ -31,8 +31,8 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
       - name: Tests (SQLite)
@@ -51,7 +51,7 @@ jobs:
       contents: read
       id-token: write   # connexion à Azure sans mot de passe (identité id-parc-github)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Connexion à Azure
         uses: azure/login@v2
