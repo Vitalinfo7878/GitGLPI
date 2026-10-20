@@ -22,17 +22,19 @@ public enum StatutMateriel
 }
 
 /// <summary>
-/// Types de mouvement. Les libellés « Excel » sont ceux de la colonne « Type de mouvement » du classeur historique.
+/// Types de mouvement. Les libellés reprennent ceux de la colonne « Type de mouvement » du classeur historique.
+/// Seuls Achat, Entrée, Sortie et Mise au rebut sont saisis (voir RegleMouvement.TypesSaisissables) ;
+/// les types initiaux viennent de l'import, les autres sont conservés pour la compatibilité des données.
 /// </summary>
 public enum TypeMouvement
 {
     /// <summary>Matériel déjà en place lors de la création de l'inventaire.</summary>
-    [Display(Name = "Sortie initiale")] SortieInitiale,
+    [Display(Name = "Sortie initiale (inventaire)")] SortieInitiale,
     /// <summary>Matériel déjà en stock lors de la création de l'inventaire.</summary>
-    [Display(Name = "Entrée initiale (SI)")] EntreeInitiale,
-    [Display(Name = "Achat / réception fournisseur")] Achat,
-    [Display(Name = "Attribution (sortie)")] Attribution,
-    [Display(Name = "Restitution (entrée)")] Restitution,
+    [Display(Name = "Entrée initiale (inventaire)")] EntreeInitiale,
+    [Display(Name = "Achat")] Achat,
+    [Display(Name = "Sortie (attribution)")] Attribution,
+    [Display(Name = "Entrée (dans le SI)")] Restitution,
     [Display(Name = "Envoi en réparation")] EnvoiReparation,
     [Display(Name = "Retour de réparation")] RetourReparation,
     [Display(Name = "Renvoi fournisseur")] RenvoiFournisseur,

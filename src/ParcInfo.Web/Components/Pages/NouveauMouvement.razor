@@ -52,6 +52,15 @@ else
                                        Label="Date" Variant="Variant.Outlined" DateFormat="dd/MM/yyyy" />
                     </MudItem>
 
+                    @if (_d.Type == TypeMouvement.Achat)
+                    {
+                        <MudItem xs="12">
+                            <MudAlert Severity="Severity.Info" Dense="true">
+                                Nouveau matériel ? Passez par la <MudLink Href="/achat">réception d'achat</MudLink> : elle crée le matériel et son mouvement « Achat ».
+                                Ici, l'achat s'enregistre pour un matériel déjà en stock.
+                            </MudAlert>
+                        </MudItem>
+                    }
                     <MudItem xs="12">
                         <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">Matériel</MudText>
                         <MudAutocomplete T="Materiel" @ref="_recherche" SearchFunc="ChercherMateriel" ValueChanged="AjouterMateriel" ToStringFunc="@(m => m?.NumInterne ?? "")"
@@ -178,8 +187,7 @@ else
     private bool _envoi;
     private ResultatMouvement? _resultat;
 
-    private string LibelleDestinationLibre => _d.Type is TypeMouvement.EnvoiReparation or TypeMouvement.RenvoiFournisseur
-        ? "Fournisseur / réparateur" : "Destination";
+    private string LibelleDestinationLibre => _d.Type == TypeMouvement.Achat ? "Destination (stock)" : "Destination";
 
     protected override async Task OnInitializedAsync()
     {

@@ -21,7 +21,7 @@
         </MudItem>
         <MudItem xs="6" md="3">
             <MudSelect T="TypeMouvement?" Value="_type" ValueChanged="v => { _type = v; Appliquer(); }" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
-                @foreach (var t in Enum.GetValues<TypeMouvement>()) { <MudSelectItem T="TypeMouvement?" Value="t">@t.Libelle()</MudSelectItem> }
+                @foreach (var t in RegleMouvement.TypesUtilises) { <MudSelectItem T="TypeMouvement?" Value="t">@t.Libelle()</MudSelectItem> }
             </MudSelect>
         </MudItem>
         <MudItem xs="6" md="2">

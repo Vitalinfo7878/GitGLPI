@@ -23,8 +23,10 @@ public sealed record RegleMouvement(
         new RegleMouvement(TypeMouvement.Achat, StatutMateriel.EnStock, false, TypeFiche.Achat, [StatutMateriel.EnStock], null, ServiceInformatique),
         new RegleMouvement(TypeMouvement.Attribution, StatutMateriel.Attribue, true, TypeFiche.Attribution,
             [StatutMateriel.EnStock, StatutMateriel.Attribue], ServiceInformatique, null),
+        // Entrée dans le SI : retour en stock depuis n'importe quel statut hors stock (y compris statuts repris de l'import)
         new RegleMouvement(TypeMouvement.Restitution, StatutMateriel.EnStock, false, TypeFiche.Restitution,
-            [StatutMateriel.Attribue, StatutMateriel.VolePerdu], null, ServiceInformatique),
+            [StatutMateriel.Attribue, StatutMateriel.EnReparation, StatutMateriel.RenvoyeFournisseur, StatutMateriel.VolePerdu,
+             StatutMateriel.RebutEnAttente], null, ServiceInformatique),
         new RegleMouvement(TypeMouvement.EnvoiReparation, StatutMateriel.EnReparation, false, null,
             [StatutMateriel.EnStock, StatutMateriel.Attribue], ServiceInformatique, null),
         new RegleMouvement(TypeMouvement.RetourReparation, StatutMateriel.EnStock, false, null,
@@ -35,18 +37,23 @@ public sealed record RegleMouvement(
             [StatutMateriel.EnStock, StatutMateriel.Attribue], null, null),
         new RegleMouvement(TypeMouvement.RebutEnAttente, StatutMateriel.RebutEnAttente, false, null,
             [StatutMateriel.EnStock, StatutMateriel.Attribue, StatutMateriel.EnReparation], null, "REBUT"),
+        // Mise au rebut directe, sans étape « en attente »
         new RegleMouvement(TypeMouvement.MiseAuRebut, StatutMateriel.Rebute, false, TypeFiche.MiseAuRebut,
-            [StatutMateriel.EnStock, StatutMateriel.Attribue, StatutMateriel.EnReparation, StatutMateriel.RebutEnAttente], null, "REBUT"),
+            Tous.Except([StatutMateriel.Rebute]).ToArray(), null, "REBUT"),
     }.ToDictionary(r => r.Type);
 
     public static RegleMouvement Pour(TypeMouvement type) => Regles[type];
 
-    /// <summary>Types proposés dans l'écran « Nouveau mouvement » (hors types réservés à l'import et à la réception d'achat).</summary>
+    /// <summary>
+    /// Types proposés dans l'écran « Nouveau mouvement ». L'achat d'un nouveau matériel passe par la réception d'achat,
+    /// qui crée le matériel et son mouvement « Achat ».
+    /// </summary>
     public static IReadOnlyList<TypeMouvement> TypesSaisissables { get; } =
-    [
-        TypeMouvement.Attribution, TypeMouvement.Restitution, TypeMouvement.EnvoiReparation, TypeMouvement.RetourReparation,
-        TypeMouvement.RenvoiFournisseur, TypeMouvement.VolPerte, TypeMouvement.RebutEnAttente, TypeMouvement.MiseAuRebut,
-    ];
+        [TypeMouvement.Achat, TypeMouvement.Restitution, TypeMouvement.Attribution, TypeMouvement.MiseAuRebut];
+
+    /// <summary>Types utilisés dans les filtres : types saisissables et types initiaux de l'import.</summary>
+    public static IReadOnlyList<TypeMouvement> TypesUtilises { get; } =
+        [.. TypesSaisissables, TypeMouvement.EntreeInitiale, TypeMouvement.SortieInitiale];
 
     public bool EstAutorisePour(StatutMateriel statut) => StatutsAutorises.Contains(statut);
 

@@ -86,7 +86,7 @@ public sealed class ServiceMouvementsTests : IDisposable
     {
         var (pc, _, _) = Donnees();
         var ex = await Assert.ThrowsAsync<ErreurMetier>(() =>
-            _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.RetourReparation, MaterielIds = [pc] }, Informatique));
+            _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique));
         Assert.Contains("PC0001", ex.Message);
     }
 
