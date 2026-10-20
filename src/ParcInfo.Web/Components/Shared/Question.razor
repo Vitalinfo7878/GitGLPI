@@ -1,0 +1,24 @@
+@* Une question du formulaire, présentée comme dans Microsoft Forms (numéro, libellé, astérisque si obligatoire). *@
+<div class="question @(Erreur is null ? "" : "question-erreur")">
+    <MudText Typo="Typo.subtitle1" Class="mb-1">
+        <span class="question-numero">@Numero.</span> @Libelle
+        @if (Obligatoire) { <span style="color:var(--mud-palette-error)"> *</span> }
+    </MudText>
+    @if (Aide is not null) { <MudText Typo="Typo.caption" Class="d-block mb-1">@Aide</MudText> }
+    @ChildContent
+    @if (Erreur is not null)
+    {
+        <MudText Typo="Typo.body2" Class="mt-1" Style="color:var(--mud-palette-error)">
+            <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" Style="vertical-align:middle" /> @Erreur
+        </MudText>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int Numero { get; set; }
+    [Parameter, EditorRequired] public string Libelle { get; set; } = "";
+    [Parameter] public bool Obligatoire { get; set; }
+    [Parameter] public string? Aide { get; set; }
+    [Parameter] public string? Erreur { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -8,11 +8,15 @@ public static class Roles
 {
     /// <summary>Rôle d'application Entra ID donnant accès à la gestion du parc (équipe informatique).</summary>
     public const string Gestionnaire = "Gestionnaire";
+    /// <summary>Rôle donnant le droit de valider ou refuser les demandes (en plus des gestionnaires).</summary>
+    public const string Valideur = "Valideur";
     public const string PolitiqueGestion = "Gestion";
+    /// <summary>Accès à la liste des demandes et à leur validation : gestionnaires et valideurs.</summary>
+    public const string PolitiqueValidation = "Validation";
 }
 
 /// <summary>Utilisateur connecté (compte Microsoft 365 / Entra ID).</summary>
-public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire)
+public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire, bool EstValideur = false)
 {
     public static Utilisateur Depuis(ClaimsPrincipal p)
     {
@@ -22,7 +26,8 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire)
             ?? p.Identity?.Name
             ?? "";
         var nom = p.FindFirst("name")?.Value ?? p.FindFirst(ClaimTypes.Name)?.Value ?? email;
-        return new Utilisateur(nom, email.ToLowerInvariant(), p.IsInRole(Roles.Gestionnaire));
+        var gestionnaire = p.IsInRole(Roles.Gestionnaire);
+        return new Utilisateur(nom, email.ToLowerInvariant(), gestionnaire, gestionnaire || p.IsInRole(Roles.Valideur));
     }
 
     public string Signature => $"{Nom} <{Email}>";
@@ -41,22 +46,30 @@ public sealed class UtilisateurCourant(AuthenticationStateProvider auth)
 }
 
 /// <summary>
-/// Donne le rôle Gestionnaire aux adresses listées dans « Authentification:Gestionnaires »
-/// (pratique pour démarrer avant d'avoir configuré les rôles d'application dans Entra ID).
+/// Donne les rôles aux adresses listées dans la configuration :
+/// « Authentification:Gestionnaires » → Gestionnaire (pratique avant d'avoir configuré les rôles d'application Entra ID),
+/// « Demandes:Valideurs » → Valideur.
 /// </summary>
-public sealed class AjoutRoleGestionnaire(IConfiguration config) : IClaimsTransformation
+public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransformation
 {
-    private readonly HashSet<string> _emails = new(
+    private readonly HashSet<string> _gestionnaires = new(
         config.GetSection("Authentification:Gestionnaires").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _valideurs = new(
+        config.GetSection("Demandes:Valideurs").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
 
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
-        if (principal.Identity is ClaimsIdentity { IsAuthenticated: true } id && !principal.IsInRole(Roles.Gestionnaire))
+        if (principal.Identity is ClaimsIdentity { IsAuthenticated: true } id)
         {
             var email = Utilisateur.Depuis(principal).Email;
-            if (_emails.Contains(email))
-                id.AddClaim(new Claim(id.RoleClaimType, Roles.Gestionnaire));
+            Ajouter(id, principal, Roles.Gestionnaire, _gestionnaires.Contains(email));
+            Ajouter(id, principal, Roles.Valideur, _valideurs.Contains(email));
         }
         return Task.FromResult(principal);
+    }
+
+    private static void Ajouter(ClaimsIdentity id, ClaimsPrincipal p, string role, bool condition)
+    {
+        if (condition && !p.IsInRole(role)) id.AddClaim(new Claim(id.RoleClaimType, role));
     }
 }

@@ -13,7 +13,17 @@
 else if (!_u.EstGestionnaire)
 {
     <MudText Typo="Typo.h4" Class="mb-1">Bonjour @_u.Nom</MudText>
-    <MudText Class="mb-6" Style="color:var(--mud-palette-text-secondary)">Retrouvez ici le matériel informatique qui vous est attribué.</MudText>
+    <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">Retrouvez ici le matériel informatique qui vous est attribué.</MudText>
+    <div class="d-flex flex-wrap gap-2 mb-6">
+        <MudButton Href="/demandes/nouvelle" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AddShoppingCart">Faire une demande de matériel</MudButton>
+        <MudButton Href="/mes-demandes" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ListAlt">Suivre mes demandes</MudButton>
+    </div>
+    @if (_u.EstValideur && _demandesAValider > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-6">
+            <b>@_demandesAValider</b> demande(s) attendent votre validation. <MudLink Href="/demandes">Voir les demandes</MudLink>
+        </MudAlert>
+    }
     <MonMateriel EstPage="false" />
 }
 else
@@ -42,6 +52,9 @@ else
                 <MudPaper Elevation="0" Class="carte pa-4" Style="height:100%">
                     <MudText Typo="Typo.h6" Class="mb-3">À traiter</MudText>
                     <MudList T="string" Dense="true" ReadOnly="true">
+                        <MudListItem Icon="@Icons.Material.Outlined.FactCheck" IconColor="Color.Warning" Href="/demandes">
+                            <b>@_demandesAValider</b> demande(s) à valider, <b>@_demandesATraiter</b> à traiter
+                        </MudListItem>
                         <MudListItem Icon="@Icons.Material.Outlined.HourglassTop" IconColor="Color.Warning">
                             <b>@_attente.Count</b> réception(s) en attente de confirmation
                         </MudListItem>
@@ -105,6 +118,7 @@ else
     private Utilisateur? _u;
     private Stats? _stats;
     private List<Fiche> _attente = [];
+    private int _demandesAValider, _demandesATraiter;
 
     private sealed record Stats(
         Dictionary<TypeMateriel, int> EnService, Dictionary<TypeMateriel, int> EnStock, Dictionary<StatutMateriel, int> ParStatut,
@@ -114,6 +128,11 @@ else
     {
         _u = await Courant.ObtenirAsync();
         if (_u.EstGestionnaire) await Charger();
+        else if (_u.EstValideur)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _demandesAValider = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.EnAttente);
+        }
     }
 
     private async Task Charger()
@@ -127,6 +146,9 @@ else
             await db.Materiels.CountAsync(m => m.AChanger && m.Statut == StatutMateriel.Attribue),
             await db.Materiels.CountAsync(m => m.SiteId != null),
             await db.Materiels.CountAsync(m => m.PersonneId != null));
+        _demandesAValider = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.EnAttente);
+        _demandesATraiter = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.Validee
+            && d.StatutRealisation != StatutRealisation.Realisee && d.StatutRealisation != StatutRealisation.Annulee);
         _attente = await db.Fiches.Include(f => f.Mouvements).ThenInclude(m => m.Materiel)
             .Where(f => f.StatutReception == StatutReception.EnAttente)
             .OrderBy(f => f.CreeLe).AsSplitQuery().ToListAsync();

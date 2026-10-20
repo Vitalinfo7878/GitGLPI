@@ -119,7 +119,7 @@ public static class PointsDAcces
                 <form method="post" action="/demo/connexion">
                 <input type="hidden" name="{{jeton.FormFieldName}}" value="{{jeton.RequestToken}}">
                 <input type="hidden" name="retour" value="{{retour}}">
-                <label>Profil</label><select name="role"><option value="gestionnaire">Service informatique (gestion)</option><option value="utilisateur">Utilisateur (salarié ou site)</option></select>
+                <label>Profil</label><select name="role"><option value="gestionnaire">Service informatique (gestion)</option><option value="valideur">Valideur des demandes</option><option value="utilisateur">Utilisateur (salarié ou site)</option></select>
                 <label>Nom</label><input name="nom" value="Service Informatique (démo)" required>
                 <label>Adresse mail</label><input name="email" type="email" value="informatique.demo@vitalrest.com" required>
                 <button type="submit">Se connecter</button></form></main></body></html>
@@ -131,6 +131,7 @@ public static class PointsDAcces
         {
             var claims = new List<Claim> { new(ClaimTypes.Name, nom), new("name", nom), new("preferred_username", email.Trim().ToLowerInvariant()) };
             if (role == "gestionnaire") claims.Add(new Claim(ClaimTypes.Role, Roles.Gestionnaire));
+            if (role == "valideur") claims.Add(new Claim(ClaimTypes.Role, Roles.Valideur));
             await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
                 new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)));
             return Results.LocalRedirect(string.IsNullOrEmpty(retour) || !retour.StartsWith('/') ? "/" : retour);

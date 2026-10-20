@@ -13,6 +13,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<Fiche> Fiches => Set<Fiche>();
     public DbSet<Courriel> Courriels => Set<Courriel>();
     public DbSet<Journal> Journal => Set<Journal>();
+    public DbSet<Demande> Demandes => Set<Demande>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
@@ -73,6 +74,20 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.HasIndex(x => x.Code).IsUnique();
             e.HasIndex(x => x.IdPublic).IsUnique();
             e.HasIndex(x => x.DestinataireEmail);
+        });
+
+        b.Entity<Demande>(e =>
+        {
+            e.HasIndex(x => x.Numero).IsUnique();
+            e.HasIndex(x => x.IdPublic).IsUnique();
+            e.HasIndex(x => x.DemandeurEmail);
+            e.HasIndex(x => x.SaisiePar);
+            e.HasIndex(x => x.StatutValidation);
+            e.Property(x => x.Raison).HasMaxLength(4000);
+            e.Property(x => x.CommentaireDecision).HasMaxLength(2000);
+            e.Property(x => x.CommentaireInformatique).HasMaxLength(4000);
+            e.Ignore(x => x.ListeObjets);
+            e.Ignore(x => x.StatutLibelle);
         });
 
         b.Entity<Courriel>(e => e.Property(x => x.CorpsHtml).HasMaxLength(int.MaxValue));

@@ -1,0 +1,215 @@
+@page "/demandes/{IdPublic:guid}"
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject ServiceDemandes Service
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+
+<PageTitle>Demande @(_d?.Numero)</PageTitle>
+
+@if (_chargement)
+{
+    <Attente />
+}
+else if (_d is null || !ServiceDemandes.PeutVoir(_u!, _d))
+{
+    <MudAlert Severity="Severity.Error">Demande introuvable ou accès non autorisé.</MudAlert>
+}
+else
+{
+    @if (_u!.EstValideur)
+    {
+        <MudBreadcrumbs Items="@([new("Demandes", "/demandes"), new($"n° {_d.Numero}", null, true)])" Class="px-0 pt-0" />
+    }
+    else
+    {
+        <MudBreadcrumbs Items="@([new("Mes demandes", "/mes-demandes"), new($"n° {_d.Numero}", null, true)])" Class="px-0 pt-0" />
+    }
+    <div class="d-flex flex-wrap align-center gap-3 mb-4">
+        <MudText Typo="Typo.h4">Demande n° @_d.Numero</MudText>
+        <ChipDemande Demande="_d" />
+        @if (_d.StatutValidation == StatutValidation.Validee && _d.Priorite == Priorite.Haute)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Error">Priorité haute</MudChip>
+        }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="7">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.caption">Reçue le @_d.CreeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm") (saisie par @_d.SaisiePar)</MudText>
+                <dl class="champ-lecture">
+                    <Champ Libelle="Nom / Prénom du demandeur" Valeur="@_d.DemandeurNom" />
+                    <Champ Libelle="Objet de la demande">
+                        @foreach (var o in _d.ListeObjets) { <MudChip T="string" Size="Size.Small" Class="ml-0 mr-1">@o</MudChip> }
+                    </Champ>
+                    <Champ Libelle="La demande concerne" Valeur="@_d.Concerne" />
+                    <Champ Libelle="Adresse mail à créer" Valeur="@_d.AdresseMailACreer" />
+                    <Champ Libelle="Raison de la demande" Valeur="@_d.Raison" />
+                    <Champ Libelle="Adresse de livraison" Valeur="@_d.AdresseLivraison" />
+                    <Champ Libelle="Livraison à l'attention de" Valeur="@_d.DestinataireLivraison" />
+                    <Champ Libelle="Mail du demandeur"><a href="mailto:@_d.DemandeurEmail">@_d.DemandeurEmail</a></Champ>
+                    <Champ Libelle="Téléphone du demandeur"><a href="tel:@_d.DemandeurTelephone">@_d.DemandeurTelephone</a></Champ>
+                    <Champ Libelle="Échéance souhaitée" Valeur="@_d.Echeance?.ToString("dd/MM/yyyy")" />
+                </dl>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            @if (_message is not null)
+            {
+                <MudAlert Severity="@_severite" Class="mb-3">@_message</MudAlert>
+            }
+
+            @* --- Décision --- *@
+            @if (_d.StatutValidation == StatutValidation.EnAttente)
+            {
+                @if (_u.EstValideur)
+                {
+                    <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                        <MudText Typo="Typo.h6" Class="mb-2">Votre décision</MudText>
+                        <MudToggleGroup T="string" @bind-Value="_choix" Color="@(_choix == "refuser" ? Color.Error : Color.Success)" Class="mb-3">
+                            <MudToggleItem Value="@("valider")" Text="Valider" />
+                            <MudToggleItem Value="@("refuser")" Text="Refuser" />
+                        </MudToggleGroup>
+                        @if (_choix is not null)
+                        {
+                            <MudTextField @bind-Value="_commentaire" Label="@(_choix == "refuser" ? "Motif du refus (obligatoire, transmis au demandeur)" : "Commentaire (facultatif, transmis au demandeur)")"
+                                          Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudButton Class="mt-3" Variant="Variant.Filled" Color="@(_choix == "refuser" ? Color.Error : Color.Success)" OnClick="Decider" Disabled="_envoi" FullWidth="true">
+                                @(_choix == "refuser" ? "Confirmer le refus" : "Confirmer la validation")
+                            </MudButton>
+                        }
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Class="mb-3">Votre demande est en attente de validation.</MudAlert>
+                }
+            }
+            else
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                    <MudText Typo="Typo.h6" Class="mb-1">@(_d.StatutValidation == StatutValidation.Validee ? "Validée" : "Refusée")</MudText>
+                    <MudText Typo="Typo.body2">par @_d.DecisionPar le @_d.DecisionLe?.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")</MudText>
+                    @if (!string.IsNullOrEmpty(_d.CommentaireDecision))
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2" Style="white-space:pre-line"><b>@(_d.StatutValidation == StatutValidation.Refusee ? "Motif" : "Commentaire") :</b> @_d.CommentaireDecision</MudText>
+                    }
+                </MudPaper>
+            }
+
+            @* --- Traitement par l'informatique --- *@
+            @if (_d.StatutValidation == StatutValidation.Validee)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4">
+                    <MudText Typo="Typo.h6" Class="mb-2">Traitement</MudText>
+                    @if (_u.EstGestionnaire)
+                    {
+                        <MudGrid Spacing="2">
+                            <MudItem xs="6">
+                                <MudSelect @bind-Value="_priorite" Label="Priorité" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                    @foreach (var p in Enum.GetValues<Priorite>()) { <MudSelectItem Value="p">@p.Libelle()</MudSelectItem> }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="6">
+                                <MudSelect @bind-Value="_statut" Label="Avancement" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                    @foreach (var s in Enum.GetValues<StatutRealisation>()) { <MudSelectItem Value="s">@s.Libelle()</MudSelectItem> }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudTextField @bind-Value="_commentaireInfo" Label="Commentaire du service informatique" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                              HelperText="Visible par le demandeur ; joint au mail envoyé quand la demande passe à « Réalisée »." />
+                            </MudItem>
+                            <MudItem xs="12" Class="d-flex flex-wrap gap-2 justify-space-between">
+                                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.SwapHoriz" Href="/mouvements/nouveau">Préparer une attribution</MudButton>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Enregistrer" Disabled="_envoi">Enregistrer</MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    }
+                    else
+                    {
+                        <dl class="champ-lecture">
+                            <Champ Libelle="Avancement" Valeur="@_d.StatutRealisation.Libelle()" />
+                            <Champ Libelle="Commentaire du service informatique" Valeur="@_d.CommentaireInformatique" />
+                            @if (_d.RealiseeLe is { } r) { <Champ Libelle="Clôturée le" Valeur="@r.ToLocalTime().ToString("dd/MM/yyyy")" /> }
+                        </dl>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid IdPublic { get; set; }
+    [SupplyParameterFromQuery(Name = "choix")] public string? ChoixQuery { get; set; }
+
+    private bool _chargement = true;
+    private bool _envoi;
+    private Demande? _d;
+    private Utilisateur? _u;
+    private string? _choix;
+    private string? _commentaire;
+    private Priorite _priorite;
+    private StatutRealisation _statut;
+    private string? _commentaireInfo;
+    private string? _message;
+    private Severity _severite;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        _choix = ChoixQuery is "valider" or "refuser" ? ChoixQuery : null;
+        await Charger();
+        _chargement = false;
+    }
+
+    private async Task Charger()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _d = await db.Demandes.AsNoTracking().FirstOrDefaultAsync(x => x.IdPublic == IdPublic);
+        if (_d is null) return;
+        _priorite = _d.Priorite;
+        _statut = _d.StatutRealisation;
+        _commentaireInfo = _d.CommentaireInformatique;
+    }
+
+    private void Afficher(string message, Severity s)
+    {
+        _message = message;
+        _severite = s;
+    }
+
+    private async Task Decider()
+    {
+        _envoi = true;
+        try
+        {
+            var r = await Service.DeciderAsync(IdPublic, _choix == "valider", _commentaire, _u!);
+            Afficher(r.AvertissementCourriel is null
+                ? $"Demande {(_choix == "valider" ? "validée" : "refusée")}. Le demandeur a été prévenu par mail."
+                : $"Décision enregistrée, mais un courriel n'a pas pu partir : {r.AvertissementCourriel}",
+                r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        catch (ErreurMetier ex)
+        {
+            Afficher(ex.Message, Severity.Error);
+            await Charger();
+        }
+        finally { _envoi = false; }
+    }
+
+    private async Task Enregistrer()
+    {
+        _envoi = true;
+        try
+        {
+            var r = await Service.MettreAJourTraitementAsync(_d!.Id, _priorite, _statut, _commentaireInfo, _u!);
+            Snackbar.Add(r.AvertissementCourriel ?? "Demande mise à jour.", r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _envoi = false; }
+    }
+}

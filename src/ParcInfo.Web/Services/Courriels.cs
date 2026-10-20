@@ -70,7 +70,9 @@ public sealed class EnvoiCourrielSimule(ILogger<EnvoiCourrielSimule> log) : IEnv
 public sealed class ServiceNotifications(
     IEnvoiCourriel envoi, IDbContextFactory<ParcDbContext> dbFactory, OptionsMessagerie options, ILogger<ServiceNotifications> log)
 {
-    public string LienReception(Fiche f) => $"{options.UrlApplication.TrimEnd('/')}/reception/{f.IdPublic}";
+    public string Url(string chemin) => $"{options.UrlApplication.TrimEnd('/')}/{chemin.TrimStart('/')}";
+
+    public string LienReception(Fiche f) => Url($"reception/{f.IdPublic}");
 
     public async Task DemanderConfirmationReceptionAsync(Fiche fiche, CancellationToken ct = default)
     {
@@ -102,6 +104,111 @@ public sealed class ServiceNotifications(
             </div>
             """;
         await EnvoyerEtTracerAsync(options.BoiteInformatique, $"Réception confirmée – {fiche.Code}", corps, ct);
+    }
+
+    // --- Demandes informatiques ---
+
+    /// <summary>Courriel aux valideurs : récapitulatif de la demande + boutons « Valider » / « Refuser ».</summary>
+    public async Task NouvelleDemandeAsync(Demande d, IEnumerable<string> destinataires, CancellationToken ct = default)
+    {
+        var lien = Url($"demandes/{d.IdPublic}");
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Une nouvelle demande informatique (<b>n° {d.Numero}</b>) attend votre validation.</p>
+            {Recapitulatif(d)}
+            <p style="margin:20px 0 8px">
+              {Bouton($"{lien}?choix=valider", "✔ Valider", "#2e7d32")}
+              &nbsp;
+              {Bouton($"{lien}?choix=refuser", "✖ Refuser", "#c62828")}
+            </p>
+            <p style="margin:0;color:#5b6478;font-size:12px">Le bouton ouvre la demande dans l'application (connexion avec votre compte Microsoft) pour confirmer votre décision.</p>
+            """);
+        await EnvoyerATousAsync(destinataires, $"Nouvelle demande informatique n° {d.Numero} – {d.Objets} – {d.DemandeurNom}", corps, ct);
+    }
+
+    public async Task AccuseReceptionDemandeAsync(Demande d, CancellationToken ct = default)
+    {
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Bonjour {E(d.DemandeurNom)},</p>
+            <p style="margin:0 0 12px">Votre demande informatique a bien été enregistrée sous le <b>n° {d.Numero}</b>. Elle va être examinée pour validation ;
+            vous serez informé(e) par mail de la décision.</p>
+            {Recapitulatif(d)}
+            <p style="margin:20px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Suivre ma demande", "#233d8e")}</p>
+            """);
+        await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Votre demande informatique n° {d.Numero} a bien été reçue", corps, ct);
+    }
+
+    /// <summary>Décision : au demandeur, et aux autres destinataires pour qu'ils sachent que la demande est traitée.</summary>
+    public async Task DecisionDemandeAsync(Demande d, IEnumerable<string> autresDestinataires, CancellationToken ct = default)
+    {
+        var validee = d.StatutValidation == StatutValidation.Validee;
+        var motif = string.IsNullOrWhiteSpace(d.CommentaireDecision) ? "" : $"""<p style="margin:0 0 12px"><b>{(validee ? "Commentaire" : "Motif")} :</b> {E(d.CommentaireDecision)}</p>""";
+        var demandeur = Gabarit($"""
+            <p style="margin:0 0 12px">Bonjour {E(d.DemandeurNom)},</p>
+            <p style="margin:0 0 12px">Votre demande informatique <b>n° {d.Numero}</b> ({E(d.Objets)}) a été
+            <b style="color:{(validee ? "#2e7d32" : "#c62828")}">{(validee ? "validée" : "refusée")}</b>.</p>
+            {motif}
+            <p style="margin:0 0 12px">{(validee ? "Le service informatique va la prendre en charge ; vous serez informé(e) de sa réalisation." : "Pour toute question, contactez le service informatique.")}</p>
+            <p style="margin:16px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Voir ma demande", "#233d8e")}</p>
+            """);
+        await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} {(validee ? "validée" : "refusée")}", demandeur, ct);
+
+        var info = Gabarit($"""
+            <p style="margin:0 0 12px">La demande <b>n° {d.Numero}</b> de {E(d.DemandeurNom)} a été
+            <b>{(validee ? "validée" : "refusée")}</b> par {E(d.DecisionPar)} le {d.DecisionLe?.ToLocalTime():dd/MM/yyyy à HH:mm}.</p>
+            {motif}
+            {Recapitulatif(d)}
+            <p style="margin:16px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Ouvrir la demande", "#233d8e")}</p>
+            """);
+        await EnvoyerATousAsync(autresDestinataires, $"Demande n° {d.Numero} {(validee ? "validée" : "refusée")} par {d.DecisionPar}", info, ct);
+    }
+
+    public async Task DemandeRealiseeAsync(Demande d, CancellationToken ct = default)
+    {
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Bonjour {E(d.DemandeurNom)},</p>
+            <p style="margin:0 0 12px">Votre demande informatique <b>n° {d.Numero}</b> ({E(d.Objets)}) a été <b>réalisée</b>.</p>
+            {(string.IsNullOrWhiteSpace(d.CommentaireInformatique) ? "" : $"<p style=\"margin:0 0 12px\">{E(d.CommentaireInformatique)}</p>")}
+            <p style="margin:0">Le service informatique</p>
+            """);
+        await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} réalisée", corps, ct);
+    }
+
+    private static string Recapitulatif(Demande d)
+    {
+        string Ligne(string libelle, string? valeur) => string.IsNullOrWhiteSpace(valeur) ? "" :
+            $"""<tr><td style="padding:4px 12px 4px 0;color:#5b6478;vertical-align:top;white-space:nowrap">{E(libelle)}</td><td style="padding:4px 0;white-space:pre-line">{E(valeur)}</td></tr>""";
+        return $"""
+            <table style="border-collapse:collapse;font-size:14px">
+            {Ligne("Demandeur", d.DemandeurNom)}
+            {Ligne("Objet", d.Objets)}
+            {Ligne("Concerne", d.Concerne)}
+            {Ligne("Adresse mail à créer", d.AdresseMailACreer)}
+            {Ligne("Raison", d.Raison)}
+            {Ligne("Adresse de livraison", d.AdresseLivraison)}
+            {Ligne("Livraison à l'attention de", d.DestinataireLivraison)}
+            {Ligne("Mail du demandeur", d.DemandeurEmail)}
+            {Ligne("Téléphone", d.DemandeurTelephone)}
+            {Ligne("Échéance souhaitée", d.Echeance?.ToString("dd/MM/yyyy"))}
+            </table>
+            """;
+    }
+
+    private static string Gabarit(string contenu) =>
+        $"""<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2a44;line-height:1.5">{contenu}</div>""";
+
+    private static string Bouton(string url, string texte, string couleur) =>
+        $"""<a href="{E(url)}" style="display:inline-block;background:{couleur};color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:600">{E(texte)}</a>""";
+
+    /// <summary>Envoie à chaque destinataire ; un échec n'empêche pas les envois suivants.</summary>
+    private async Task EnvoyerATousAsync(IEnumerable<string> destinataires, string sujet, string corps, CancellationToken ct)
+    {
+        var erreurs = new List<string>();
+        foreach (var dest in destinataires.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try { await EnvoyerEtTracerAsync(dest, sujet, corps, ct); }
+            catch (InvalidOperationException ex) { erreurs.Add(ex.Message); }
+        }
+        if (erreurs.Count > 0) throw new InvalidOperationException(string.Join(" ", erreurs));
     }
 
     private async Task EnvoyerEtTracerAsync(string destinataire, string sujet, string corps, CancellationToken ct)

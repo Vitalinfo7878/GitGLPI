@@ -1,0 +1,79 @@
+@page "/demandes"
+@attribute [Authorize(Policy = Roles.PolitiqueValidation)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Demandes</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Demandes informatiques</MudText>
+    <MudSpacer />
+    <MudButton Href="/demandes/nouvelle" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Add">Nouvelle demande</MudButton>
+</div>
+
+@if (_demandes is null)
+{
+    <Attente />
+}
+else
+{
+    <MudPaper Elevation="0" Class="carte pa-3 mb-3">
+        <div class="d-flex flex-wrap align-center gap-3">
+            <MudToggleGroup T="string" @bind-Value="_vue" Color="Color.Primary" Size="Size.Small">
+                <MudToggleItem Value="@("valider")" Text="@($"À valider ({AValider.Count()})")" />
+                <MudToggleItem Value="@("traiter")" Text="@($"À traiter ({ATraiter.Count()})")" />
+                <MudToggleItem Value="@("toutes")" Text="@($"Toutes ({_demandes.Count})")" />
+            </MudToggleGroup>
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="N°, demandeur, objet, adresse…"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true"
+                          Style="min-width:260px" />
+        </div>
+    </MudPaper>
+
+    <MudDataGrid T="Demande" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Numero" Title="N°" CellStyle="font-weight:600" />
+            <TemplateColumn T="Demande" Title="Reçue le" SortBy="x => x.CreeLe"><CellTemplate>@context.Item.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")</CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.DemandeurNom" Title="Demandeur" />
+            <PropertyColumn Property="x => x.Objets" Title="Objet" />
+            <PropertyColumn Property="x => x.Concerne" Title="Concerne" />
+            <PropertyColumn Property="x => x.AdresseLivraison" Title="Livraison" />
+            <TemplateColumn T="Demande" Title="Échéance" SortBy="x => x.Echeance"><CellTemplate>@context.Item.Echeance?.ToString("dd/MM/yyyy")</CellTemplate></TemplateColumn>
+            <TemplateColumn T="Demande" Title="Priorité" SortBy="x => x.Priorite">
+                <CellTemplate>@(context.Item.StatutValidation == StatutValidation.Validee ? context.Item.Priorite.Libelle() : "")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="Demande" Title="Statut" SortBy="x => x.StatutLibelle"><CellTemplate><ChipDemande Demande="context.Item" /></CellTemplate></TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Demande" PageSizeOptions="[25, 50, 100]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+        <NoRecordsContent><MudText>Aucune demande.</MudText></NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    private List<Demande>? _demandes;
+    private string _vue = "valider";
+    private string? _recherche;
+
+    private IEnumerable<Demande> AValider => (_demandes ?? []).Where(d => d.StatutValidation == StatutValidation.EnAttente);
+    private IEnumerable<Demande> ATraiter => (_demandes ?? []).Where(d => d.StatutValidation == StatutValidation.Validee
+        && d.StatutRealisation is not (StatutRealisation.Realisee or StatutRealisation.Annulee));
+
+    private IEnumerable<Demande> Filtrees => (_vue switch
+        {
+            "valider" => AValider,
+            "traiter" => ATraiter.OrderByDescending(d => d.Priorite).ThenBy(d => d.Echeance ?? DateOnly.MaxValue),
+            _ => _demandes ?? [],
+        })
+        .Where(d => string.IsNullOrWhiteSpace(_recherche)
+            || $"{d.Numero} {d.DemandeurNom} {d.DemandeurEmail} {d.Objets} {d.Concerne} {d.AdresseLivraison} {d.Raison}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _demandes = await db.Demandes.AsNoTracking().OrderByDescending(d => d.Numero).ToListAsync();
+        if (!AValider.Any()) _vue = ATraiter.Any() ? "traiter" : "toutes";
+    }
+
+    private void Ouvrir(DataGridRowClickEventArgs<Demande> e) => Nav.NavigateTo($"/demandes/{e.Item.IdPublic}");
+}

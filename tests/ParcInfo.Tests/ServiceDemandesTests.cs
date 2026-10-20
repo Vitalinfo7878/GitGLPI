@@ -1,0 +1,181 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using ParcInfo.Web.Data;
+using ParcInfo.Web.Domain;
+using ParcInfo.Web.Services;
+
+namespace ParcInfo.Tests;
+
+public sealed class ServiceDemandesTests : IDisposable
+{
+    private readonly SqliteConnection _connexion = new("Data Source=:memory:");
+    private readonly Fabrique _fabrique;
+    private readonly ServiceDemandes _service;
+    private readonly OptionsDemandes _options = new()
+    {
+        Destinataires = ["informatique@vitalrest.com", "thomas.verchere@groupe-vitalrest.com"],
+        Valideurs = ["thomas.verchere@groupe-vitalrest.com"],
+        PremierNumero = 592,
+    };
+
+    private static readonly Utilisateur Salarie = new("Camille TEST", "camille.test@vitalrest.com", false);
+    private static readonly Utilisateur Valideur = new("Thomas Verchère", "thomas.verchere@groupe-vitalrest.com", false, true);
+    private static readonly Utilisateur Informatique = new("Service Informatique", "anthony@vitalrest.com", true, true);
+
+    public ServiceDemandesTests()
+    {
+        _connexion.Open();
+        _fabrique = new Fabrique(new DbContextOptionsBuilder<ParcDbContext>().UseSqlite(_connexion).Options);
+        using (var db = _fabrique.CreateDbContext()) db.Database.EnsureCreated();
+        var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique,
+            new OptionsMessagerie { UrlApplication = "https://parc.test" }, NullLogger<ServiceNotifications>.Instance);
+        _service = new ServiceDemandes(_fabrique, notifications, _options, NullLogger<ServiceDemandes>.Instance);
+    }
+
+    public void Dispose() => _connexion.Dispose();
+
+    private static FormulaireDemande Complet() => new()
+    {
+        DemandeurNom = "Camille TEST",
+        Objets = ["PC portable", "Ecran"],
+        Concerne = "Un remplacement",
+        Raison = "Écran du PC cassé",
+        AdresseLivraison = "Site 440 – 12 rue de la Paix, 75002 Paris",
+        DemandeurEmail = "Camille.Test@vitalrest.com",
+        DemandeurTelephone = "06 12 34 56 78",
+    };
+
+    [Fact]
+    public void Formulaire_vide_signale_toutes_les_questions_obligatoires()
+    {
+        var erreurs = new FormulaireDemande().Valider();
+        Assert.Equal(
+            new[] { "AdresseLivraison", "Concerne", "DemandeurEmail", "DemandeurNom", "DemandeurTelephone", "Objets", "Raison" },
+            erreurs.Keys.Order().ToArray());
+    }
+
+    [Fact]
+    public void Questions_facultatives_et_controles()
+    {
+        Assert.Empty(Complet().Valider());
+
+        var f = Complet();
+        f.Objets = [FormulaireDemande.Autre];
+        f.Concerne = FormulaireDemande.Autre;
+        f.AdresseMailACreer = "pas-une-adresse";
+        f.DemandeurTelephone = "0612";
+        f.Echeance = DateTime.Today.AddDays(-1);
+        var e = f.Valider();
+        Assert.Contains("ObjetAutre", e.Keys);
+        Assert.Contains("ConcerneAutre", e.Keys);
+        Assert.Contains("AdresseMailACreer", e.Keys);
+        Assert.Contains("DemandeurTelephone", e.Keys);
+        Assert.Contains("Echeance", e.Keys);
+    }
+
+    [Fact]
+    public void Texte_des_choix_avec_autre()
+    {
+        var f = Complet();
+        f.Objets = ["Ecran", FormulaireDemande.Autre, "PC portable"];
+        f.ObjetAutre = "Souris";
+        f.Concerne = FormulaireDemande.Autre;
+        f.ConcerneAutre = "Nouveau collaborateur";
+        Assert.Equal("PC portable ; Ecran ; Autre : Souris", f.ObjetsTexte());
+        Assert.Equal("Autre : Nouveau collaborateur", f.ConcerneTexte());
+    }
+
+    [Fact]
+    public async Task Creation_numerote_et_previent_les_valideurs_et_le_demandeur()
+    {
+        var r1 = await _service.CreerAsync(Complet(), Salarie);
+        var r2 = await _service.CreerAsync(Complet(), Salarie);
+        Assert.Equal(592, r1.Demande.Numero);
+        Assert.Equal(593, r2.Demande.Numero);
+        Assert.Equal(StatutValidation.EnAttente, r1.Demande.StatutValidation);
+        Assert.Equal("camille.test@vitalrest.com", r1.Demande.DemandeurEmail);
+
+        await using var db = _fabrique.CreateDbContext();
+        var courriels = await db.Courriels.Where(c => c.Sujet.Contains("592")).ToListAsync();
+        Assert.Equal(
+            new[] { "camille.test@vitalrest.com", "informatique@vitalrest.com", "thomas.verchere@groupe-vitalrest.com" },
+            courriels.Select(c => c.Destinataire).Order().ToArray());
+        var avecBoutons = courriels.First(c => c.Destinataire == "informatique@vitalrest.com");
+        Assert.Contains($"/demandes/{r1.Demande.IdPublic}?choix=valider", avecBoutons.CorpsHtml);
+        Assert.Contains($"/demandes/{r1.Demande.IdPublic}?choix=refuser", avecBoutons.CorpsHtml);
+    }
+
+    [Fact]
+    public async Task Formulaire_incomplet_refuse()
+    {
+        var f = Complet();
+        f.Raison = " ";
+        var ex = await Assert.ThrowsAsync<ErreurFormulaire>(() => _service.CreerAsync(f, Salarie));
+        Assert.Contains("Raison", ex.Erreurs.Keys);
+    }
+
+    [Fact]
+    public async Task Validation_reservee_aux_valideurs_et_unique()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Salarie));
+
+        var r = await _service.DeciderAsync(d.IdPublic, true, "OK, PC Dell", Valideur);
+        Assert.Equal(StatutValidation.Validee, r.Demande.StatutValidation);
+        Assert.Equal(StatutRealisation.AFaire, r.Demande.StatutRealisation);
+        Assert.Equal("Thomas Verchère", r.Demande.DecisionPar);
+
+        // Le second clic (autre valideur) est refusé et ne change rien
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, "Non", Informatique));
+        Assert.Contains("déjà", ex.Message);
+
+        await using var db = _fabrique.CreateDbContext();
+        Assert.Equal(StatutValidation.Validee, (await db.Demandes.SingleAsync()).StatutValidation);
+        // Le demandeur est prévenu, ainsi que l'autre boîte (pas celle de la personne qui a décidé)
+        var decision = await db.Courriels.Where(c => c.Sujet.Contains("validée")).Select(c => c.Destinataire).ToListAsync();
+        Assert.Contains("camille.test@vitalrest.com", decision);
+        Assert.Contains("informatique@vitalrest.com", decision);
+        Assert.DoesNotContain("thomas.verchere@groupe-vitalrest.com", decision);
+    }
+
+    [Fact]
+    public async Task Refus_exige_un_motif()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, "", Valideur));
+        var r = await _service.DeciderAsync(d.IdPublic, false, "Doublon de la demande 590", Valideur);
+        Assert.Equal(StatutValidation.Refusee, r.Demande.StatutValidation);
+    }
+
+    [Fact]
+    public async Task Traitement_reserve_a_l_informatique_et_previent_a_la_realisation()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Informatique)); // pas encore validée
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Valideur));
+
+        var r = await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0450 envoyé", Informatique);
+        Assert.NotNull(r.Demande.RealiseeLe);
+        await using var db = _fabrique.CreateDbContext();
+        Assert.True(await db.Courriels.AnyAsync(c => c.Sujet.Contains("réalisée") && c.Destinataire == "camille.test@vitalrest.com"));
+    }
+
+    [Fact]
+    public void Visibilite_d_une_demande()
+    {
+        var d = new Demande { SaisiePar = "camille.test@vitalrest.com", DemandeurEmail = "camille.test@vitalrest.com" };
+        Assert.True(ServiceDemandes.PeutVoir(Salarie, d));
+        Assert.True(ServiceDemandes.PeutVoir(Valideur, d));
+        Assert.False(ServiceDemandes.PeutVoir(new Utilisateur("Autre", "autre@vitalrest.com", false), d));
+    }
+
+    private sealed class Fabrique(DbContextOptions<ParcDbContext> options) : IDbContextFactory<ParcDbContext>
+    {
+        public ParcDbContext CreateDbContext() => new(options);
+    }
+}

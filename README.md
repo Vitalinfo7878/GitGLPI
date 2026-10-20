@@ -1,6 +1,6 @@
 # Parc informatique Vitalrest
 
-Application web de suivi du parc informatique : inventaire des PC, PC portables, écrans et imprimantes, mouvements de matériel (achat, attribution, restitution, réparation, rebut), fiches PDF numérotées, et confirmation de réception par le destinataire.
+Application web de suivi du parc informatique : inventaire des PC, PC portables, écrans et imprimantes, mouvements de matériel (achat, attribution, restitution, réparation, rebut), fiches PDF numérotées, confirmation de réception par le destinataire, et demandes informatiques des salariés avec circuit de validation.
 
 Elle remplace le classeur « Informatique Vitalrest – Suivi du stock » et reprend ses données à l'import.
 
@@ -15,6 +15,8 @@ Elle remplace le classeur « Informatique Vitalrest – Suivi du stock » et rep
 | **Réception d'achat** | Entrée en stock de matériel neuf, numéro interne attribué automatiquement (PC, PO, E, I + 4 chiffres) |
 | **Fiches** | Fiches FIA (attribution), FIR (restitution), FIS (achat), FIRE (mise au rebut) : PDF stockés, régénération, relance |
 | **Sites / Personnes** | Les deux parcs : cuisines (non présentes dans Entra ID) et salariés ; fusion des doublons de personnes |
+| **Faire une demande / Mes demandes** | Pour tous les salariés : formulaire de demande (mêmes questions et obligations que le formulaire Microsoft Forms) et suivi de ses demandes |
+| **Demandes à valider / traiter** | Pour le valideur et l'informatique : validation ou refus (avec motif), puis suivi du traitement (priorité, avancement, commentaire) |
 | **Mon matériel** | Pour chaque salarié : son matériel, ses réceptions à confirmer, le mot de passe de session après confirmation |
 | **Import Excel** | Chargement initial depuis le classeur, avec aperçu et rapport d'anomalies |
 | **Courriels / Journal** | Trace des courriels envoyés et des actions sensibles |
@@ -45,6 +47,14 @@ Les règles (statuts de départ autorisés, statut d'arrivée, fiche générée)
 
 Le mot de passe n'est plus imprimé sur les fiches PDF : il n'est visible que dans l'application, par l'informatique et par le détenteur après confirmation, et chaque affichage est journalisé.
 
+### Demandes informatiques
+
+1. Un salarié remplit **Faire une demande** (nom et adresse pré-remplis depuis son compte Microsoft). Les questions obligatoires sont les mêmes que dans le formulaire Forms : nom, objet (plusieurs choix + « Autre »), « concerne » (un choix + « Autre »), raison, adresse de livraison, mail et téléphone.
+2. La demande reçoit un numéro (à la suite de la feuille ETAT DEMANDES : 592, 593…). Chaque adresse de `Demandes:Destinataires` reçoit un mail récapitulatif avec deux boutons **Valider** / **Refuser** ; le demandeur reçoit un accusé de réception.
+3. Le bouton ouvre la demande dans l'application (connexion Microsoft) avec le choix présélectionné ; la décision est confirmée d'un clic, le **motif est obligatoire en cas de refus**. Les boutons du mail ne modifient rien à eux seuls : les antivirus de messagerie qui « cliquent » sur les liens ne peuvent donc pas valider une demande par erreur.
+4. Seuls les **valideurs** (`Demandes:Valideurs` ou rôle Entra ID `Valideur`) et l'équipe informatique (rôle `Gestionnaire`) peuvent décider. Si deux personnes décident en même temps, seule la première décision est retenue.
+5. Le demandeur est prévenu de la décision ; les autres destinataires aussi (pour savoir que la demande est traitée). Une demande validée passe dans l'onglet **À traiter** de l'informatique ; quand elle est marquée **Réalisée**, le demandeur reçoit un mail.
+
 ## Démarrer en local
 
 Prérequis : [SDK .NET 10](https://dotnet.microsoft.com/download).
@@ -56,7 +66,7 @@ dotnet run
 
 Ouvrir http://localhost:5080. Tant qu'Entra ID n'est pas configuré, une **connexion de démonstration** permet de choisir son profil (service informatique ou utilisateur, avec n'importe quelle adresse mail). La base est un fichier SQLite `parc.db` créé automatiquement.
 
-Pour repartir de zéro : arrêter l'application et supprimer `parc.db`.
+Pour repartir de zéro : arrêter l'application et supprimer `parc.db`. **Après une mise à jour qui modifie la base** (nouvelle migration), il faut aussi supprimer `parc.db` en local puis réimporter l'Excel : la base SQLite de développement n'est pas migrée automatiquement (la base Azure SQL, elle, l'est).
 
 ### Import du fichier Excel
 
@@ -101,12 +111,12 @@ Dans le portail Entra ID → *Inscriptions d'applications* → *Nouvelle inscrip
 - URI de redirection (Web) : `https://<votre-app>.azurewebsites.net/signin-oidc`
 - *Authentification* : URL de déconnexion `https://<votre-app>.azurewebsites.net/signout-callback-oidc`, cocher **Jetons d'ID**.
 - *Certificats et secrets* : créer un **secret client** (noter la valeur).
-- *Rôles d'application* : créer un rôle **Gestionnaire** (valeur `Gestionnaire`, membres autorisés : utilisateurs/groupes), puis dans *Applications d'entreprise → Parc informatique → Utilisateurs et groupes*, affecter ce rôle à l'équipe informatique (idéalement via un groupe).
+- *Rôles d'application* : créer un rôle **Gestionnaire** (valeur `Gestionnaire`) et un rôle **Valideur** (valeur `Valideur`), membres autorisés : utilisateurs/groupes. Dans *Applications d'entreprise → Parc informatique → Utilisateurs et groupes*, affecter *Gestionnaire* à l'équipe informatique (idéalement via un groupe) et *Valideur* aux personnes qui valident les demandes.
 - *Autorisations d'API* : **Microsoft Graph → Autorisations d'application → Mail.Send**, puis *Accorder le consentement administrateur*.
 
 Tous les salariés du tenant peuvent se connecter (pour « Mon matériel » et la confirmation de réception) ; seuls les membres du rôle *Gestionnaire* accèdent à la gestion du parc.
 
-> En attendant de configurer le rôle, on peut lister les adresses de l'équipe informatique dans `Authentification:Gestionnaires`.
+> En attendant de configurer les rôles, on peut lister les adresses dans `Authentification:Gestionnaires` (équipe informatique) et `Demandes:Valideurs` (valideurs).
 
 ### 3. Limiter l'envoi de courriels à une seule boîte
 
@@ -138,6 +148,9 @@ Dans ce cas, retirez la permission `Mail.Send` accordée dans Entra ID (le RBAC 
 | `Messagerie__Expediteur` | `informatique@vitalrest.com` |
 | `Messagerie__BoiteInformatique` | boîte à prévenir quand une réception est confirmée |
 | `Messagerie__UrlApplication` | `https://<votre-app>.azurewebsites.net` |
+| `Demandes__Destinataires__0`, `__1`… | boîtes qui reçoivent les nouvelles demandes avec les boutons Valider / Refuser (par défaut `informatique@vitalrest.com` et `thomas.verchere@groupe-vitalrest.com`) |
+| `Demandes__Valideurs__0`… | comptes autorisés à valider, en plus des gestionnaires |
+| `Demandes__PremierNumero` | premier numéro de demande (592, à la suite de la feuille ETAT DEMANDES) |
 
 Au démarrage, l'application applique automatiquement les migrations de base de données (`Data/Migrations`).
 
@@ -168,6 +181,8 @@ Bibliothèques : ASP.NET Core / Blazor Server (.NET 10), EF Core (SQL Server / S
 
 ## Évolutions prévues
 
-- Demandes de matériel par les salariés et tickets d'assistance (remplacement de la feuille « ETAT DEMANDES »).
+- Tickets d'assistance (pannes, problèmes) en plus des demandes de matériel.
+- Reprise de l'historique de la feuille « ETAT DEMANDES » (n° 1 à 591).
+- Lien entre une demande validée et le mouvement d'attribution qui la réalise.
 - Recherche des personnes directement dans Entra ID lors d'une attribution.
 - Création de comptes et suivi des arrivées / départs, en lien avec Entra ID.
