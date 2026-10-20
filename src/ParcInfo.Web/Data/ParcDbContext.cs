@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using ParcInfo.Web.Domain;
+using ParcInfo.Web.Services;
 
 namespace ParcInfo.Web.Data;
 
@@ -55,6 +56,9 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.HasIndex(x => x.NumSerie);
             e.HasIndex(x => x.Statut);
             e.Property(x => x.Commentaire).HasMaxLength(2000);
+            // Mot de passe de session chiffré en base (AES-GCM, clé hors de la base) : la colonne contient la forme chiffrée
+            e.Property(x => x.MotDePasseSession).HasMaxLength(1000)
+                .HasConversion(v => ChiffrementSecrets.Chiffrer(v), v => ChiffrementSecrets.Dechiffrer(v));
             e.HasOne(x => x.Site).WithMany(s => s.Materiels).HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Personne).WithMany(p => p.Materiels).HasForeignKey(x => x.PersonneId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Region).WithMany().HasForeignKey(x => x.RegionId).OnDelete(DeleteBehavior.Restrict);

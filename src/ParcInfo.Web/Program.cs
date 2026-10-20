@@ -15,6 +15,8 @@ using ParcInfo.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+// Ne pas annoncer le serveur web utilisé
+builder.WebHost.ConfigureKestrel(o => o.AddServerHeader = false);
 
 // Dates, nombres et calendriers en français, quelle que soit la langue du serveur (conteneur Linux en anglais)
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.GetCultureInfo("fr-FR");
@@ -121,6 +123,10 @@ var app = builder.Build();
 if (modeDemo && !app.Environment.IsDevelopment())
     app.Logger.LogWarning("MODE DÉMO ACTIF hors développement : n'importe qui peut se connecter. Configurez AzureAd pour activer le SSO.");
 
+// Mots de passe de session chiffrés en base avec une clé conservée hors de la base (secret de l'application)
+ChiffrementSecrets.Configurer(config["Chiffrement:Cle"]);
+if (!ChiffrementSecrets.Actif && !app.Environment.IsDevelopment())
+    app.Logger.LogWarning("Chiffrement:Cle non configurée : les mots de passe de session sont stockés en clair.");
 await InitialisationBase.AppliquerAsync(app.Services, fournisseur);
 
 app.UseForwardedHeaders();
@@ -132,6 +138,7 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
+app.UseEnTetesSecurite();
 
 app.UseAuthentication();
 app.UseAuthorization();

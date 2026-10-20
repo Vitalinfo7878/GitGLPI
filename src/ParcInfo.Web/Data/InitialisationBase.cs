@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ParcInfo.Web.Services;
 
 namespace ParcInfo.Web.Data;
 
@@ -26,5 +27,21 @@ public static class InitialisationBase
         }
         else
             await db.Database.EnsureCreatedAsync();
+        await ChiffrerMotsDePasseAsync(db);
+    }
+
+    /// <summary>Chiffre les mots de passe de session encore en clair (import antérieur à la clé de chiffrement).</summary>
+    public static async Task<int> ChiffrerMotsDePasseAsync(ParcDbContext db)
+    {
+        if (!ChiffrementSecrets.Actif) return 0;
+        // Lecture de la valeur brute de la colonne : le convertisseur rendrait le texte en clair dans les deux cas
+        var ids = await db.Database.SqlQueryRaw<int>(
+            $"SELECT \"Id\" AS \"Value\" FROM \"Materiels\" WHERE \"MotDePasseSession\" IS NOT NULL AND \"MotDePasseSession\" NOT LIKE '{ChiffrementSecrets.Prefixe}%'")
+            .ToListAsync();
+        if (ids.Count == 0) return 0;
+        var materiels = await db.Materiels.Where(m => ids.Contains(m.Id)).ToListAsync();
+        foreach (var m in materiels) db.Entry(m).Property(x => x.MotDePasseSession).IsModified = true;
+        await db.SaveChangesAsync();
+        return materiels.Count;
     }
 }

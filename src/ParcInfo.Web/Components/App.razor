@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="icon" href="img/logo-vitalrest.jpg" />
-    <ImportMap />
+    <ImportMap nonce="@EnTetesSecurite.Nonce(HttpContext)" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 
@@ -24,3 +24,7 @@
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = null!;
+}

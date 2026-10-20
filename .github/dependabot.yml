@@ -1,0 +1,38 @@
+# Mises à jour automatiques des dépendances.
+# Les mises à jour mineures et correctives sont fusionnées automatiquement si les tests passent (voir deploiement-azure.yml),
+# puis déployées ; les mises à jour majeures restent en pull request à valider à la main.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 10
+    groups:
+      # Composants Microsoft (ASP.NET Core, EF Core, Identity…) mis à jour ensemble
+      microsoft:
+        patterns: ["Microsoft.*", "System.*", "Azure.*", "Npgsql*"]
+        update-types: [minor, patch]
+      tests:
+        patterns: ["xunit*", "coverlet*", "Microsoft.NET.Test.Sdk"]
+    ignore:
+      # PDFsharp / MigraDoc : les versions récentes (6.5) changent de licence : on reste en 6.2.x (MIT)
+      - dependency-name: "PDFsharp-MigraDoc"
+        versions: [">= 6.3.0"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris

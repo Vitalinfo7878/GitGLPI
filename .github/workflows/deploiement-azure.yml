@@ -42,6 +42,29 @@ jobs:
         env:
           PARC_TEST_POSTGRES: Host=localhost;Username=test;Password=test
 
+  # Mises à jour Dependabot mineures et correctives : fusion automatique une fois les tests passés, puis déploiement.
+  # Les mises à jour majeures restent en pull request pour validation manuelle.
+  fusion-dependabot:
+    needs: tests
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+      - name: Fusion et déploiement
+        if: steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr merge "$PR" --squash --delete-branch
+          # Une fusion faite avec le jeton du workflow ne relance pas les workflows : on déclenche le déploiement explicitement
+          gh workflow run deploiement-azure.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   deploiement:
     needs: tests
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

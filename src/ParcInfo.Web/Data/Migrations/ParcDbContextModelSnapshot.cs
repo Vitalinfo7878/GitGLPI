@@ -372,8 +372,8 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("MotDePasseSession")
-                        .HasMaxLength(400)
-                        .HasColumnType("character varying(400)");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<int?>("Note")
                         .HasColumnType("integer");

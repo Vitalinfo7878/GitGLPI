@@ -108,6 +108,20 @@ Tant que cette étape n'est pas faite, les mails sont **simulés** (*Administrat
 La fin de l'étape 2 affiche les commandes exactes : Exchange Online PowerShell pour autoriser l'envoi **uniquement** depuis
 `informatique@vitalrest.com`, puis passage de `Messagerie__Mode` à `Graph`.
 
+## Étape 4 bis – Clé de chiffrement des mots de passe (≈ 2 min)
+
+Les mots de passe de session des PC sont chiffrés en base (AES-256) avec une clé gardée **hors de la base**, dans les
+secrets de l'application. Sans clé, ils restent en clair (avertissement dans les journaux). Dans Cloud Shell (Bash) :
+
+```bash
+CLE=$(openssl rand -base64 32); echo "$CLE"   # à copier dans votre coffre de mots de passe : sans elle, mots de passe illisibles
+az containerapp secret set -g rg-parc-informatique -n ca-parc-informatique --secrets "chiffrement-cle=$CLE" -o none
+az containerapp update -g rg-parc-informatique -n ca-parc-informatique --set-env-vars "Chiffrement__Cle=secretref:chiffrement-cle" -o none
+unset CLE
+```
+
+Au redémarrage, les mots de passe déjà en base sont chiffrés automatiquement. Ne jamais changer ni supprimer cette clé.
+
 ## Étape 5 – Premier chargement
 
 Se connecter avec un compte Gestionnaire, *Administration > Import Excel*, puis compléter les adresses mail des personnes.
