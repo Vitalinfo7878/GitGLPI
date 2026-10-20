@@ -78,9 +78,23 @@ az ad app permission add --id "$ID_APPLI" --api "$GRAPH" --api-permissions \
     37f7f235-527c-4136-accd-4a02d197296e=Scope 14dad69e-099b-42c9-810b-d002981feec1=Scope \
     64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0=Scope 7427e0e9-2fba-42fe-b0c0-848c9e6a8182=Scope \
     e1fe6dd8-ba31-4d61-89e7-88639da4683d=Scope --only-show-errors
-sleep 10
-reessayer az ad app permission admin-consent --id "$ID_APPLI"
-info "consentement administrateur accordé"
+# Consentement administrateur via l'API Graph (« az ad app permission admin-consent » ne fonctionne pas dans Cloud Shell) :
+# autorisation donnée pour tous les comptes de l'organisation (consentType AllPrincipals).
+PORTEES="openid profile email offline_access User.Read"
+ID_SP_GRAPH=$(az ad sp show --id "$GRAPH" --query id -o tsv)
+ID_ACCORD=$(az rest --method GET -o tsv --query "value[0].id" \
+    --uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants?\$filter=clientId eq '$ID_SP' and consentType eq 'AllPrincipals' and resourceId eq '$ID_SP_GRAPH'")
+if [[ -n "$ID_ACCORD" ]]; then
+    az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants/$ID_ACCORD" \
+        --headers "Content-Type=application/json" --body "{\"scope\": \"$PORTEES\"}" -o none
+else
+    reessayer az rest --method POST --uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants" \
+        --headers "Content-Type=application/json" -o none \
+        --body "{\"clientId\": \"$ID_SP\", \"consentType\": \"AllPrincipals\", \"resourceId\": \"$ID_SP_GRAPH\", \"scope\": \"$PORTEES\"}" \
+        || erreur "consentement impossible. À faire dans le portail : Entra ID > Inscriptions d'applications > $NOM_APPLI_ENTRA >
+    Autorisations d'API > « Accorder un consentement d'administrateur », puis relancer ce script."
+fi
+info "consentement administrateur accordé ($PORTEES)"
 
 # ---------------------------------------------------------------------------
 etape "2. Secret client et réglages de l'application"
