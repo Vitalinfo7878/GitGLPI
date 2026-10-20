@@ -168,7 +168,7 @@ public sealed class GenerateurFiche
     }
 }
 
-/// <summary>Polices embarquées dans l'application (indispensable sous Linux / Azure App Service).</summary>
+/// <summary>Polices embarquées dans l'application (indispensable dans le conteneur Linux, sans polices installées).</summary>
 internal sealed class ResolveurPolices : IFontResolver
 {
     public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) =>

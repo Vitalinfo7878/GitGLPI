@@ -11,16 +11,17 @@
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.13" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.13" />
     <PackageReference Include="Microsoft.Graph" Version="6.8.0" />
     <PackageReference Include="Microsoft.Identity.Web" Version="4.16.1" />
     <PackageReference Include="Microsoft.Identity.Web.UI" Version="4.16.1" />
     <PackageReference Include="MudBlazor" Version="9.11.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- Ne pas monter au-delà de 6.2.x : à partir de 6.5, PDFsharp est sous licence AGPL ou commerciale (6.2.4 = MIT). -->
     <PackageReference Include="PDFsharp-MigraDoc" Version="6.2.4" />
     <!-- Versions corrigées de dépendances transitives signalées vulnérables (NU1902/NU1903) -->

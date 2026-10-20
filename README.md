@@ -66,7 +66,7 @@ dotnet run
 
 Ouvrir http://localhost:5080. Tant qu'Entra ID n'est pas configuré, une **connexion de démonstration** permet de choisir son profil (service informatique ou utilisateur, avec n'importe quelle adresse mail). La base est un fichier SQLite `parc.db` créé automatiquement.
 
-Pour repartir de zéro : arrêter l'application et supprimer `parc.db`. **Après une mise à jour qui modifie la base** (nouvelle migration), il faut aussi supprimer `parc.db` en local puis réimporter l'Excel : la base SQLite de développement n'est pas migrée automatiquement (la base Azure SQL, elle, l'est).
+Pour repartir de zéro : arrêter l'application et supprimer `parc.db`. **Après une mise à jour qui modifie la base** (nouvelle migration), il faut aussi supprimer `parc.db` en local puis réimporter l'Excel : la base SQLite de développement n'est pas migrée automatiquement (la base PostgreSQL de production, elle, l'est).
 
 ### Import du fichier Excel
 
@@ -89,95 +89,48 @@ Ce que fait l'import :
 dotnet test
 # Avec le vrai classeur (non versionné) :
 PARC_EXCEL=/chemin/vers/Suivi_du_stock.xlsm dotnet test
+# Sur un vrai serveur PostgreSQL (une base temporaire est créée avec les migrations, puis supprimée) :
+PARC_TEST_POSTGRES="Host=localhost;Username=postgres;Password=..." dotnet test
 ```
+
+Le workflow GitHub exécute les tests sur SQLite et sur PostgreSQL 17 à chaque modification.
 
 ## Déploiement sur Azure
 
-Architecture : **Azure App Service (Linux, .NET 10)** + **Azure SQL Database** + **Entra ID** pour la connexion + **Microsoft Graph** pour l'envoi des courriels.
+L'application est hébergée dans l'infrastructure Azure existante du projet Vital Pilot, sans la modifier :
 
-### 1. Ressources Azure
+- **Azure Container Apps** : l'application `ca-parc-informatique` dans l'environnement `cae-vital-pilot` ;
+- **Azure Database for PostgreSQL** : une base `parcinfo` dédiée sur le serveur `pg-vital-pilot-94eed4` ;
+- **Entra ID** : connexion SSO des salariés avec leur compte Microsoft 365, rôles *Gestionnaire* et *Valideur* ;
+- **Exchange Online / Microsoft Graph** : envoi des mails depuis `informatique@vitalrest.com` uniquement ;
+- **GitHub Actions** : tests puis déploiement automatique à chaque modification de `main`, sans mot de passe (fédération d'identité).
 
-1. **Groupe de ressources** (ex. `rg-parc-informatique`).
-2. **Azure SQL Database** : un serveur logique + une base `ParcInfo` (le niveau *Serverless* ou *Basic* suffit). Autoriser l'accès depuis les services Azure.
-3. **App Service** : plan Linux B1 (ou supérieur), pile **.NET 10**.
-   - *Configuration → Paramètres généraux* : activer **Web sockets** et **Affinité ARR** (l'interface Blazor Server garde une connexion temps réel).
-   - *Toujours actif* : activé.
+**Guide pas à pas et scripts : [`deploiement/README.md`](deploiement/README.md).**
 
-### 2. Inscription d'application Entra ID
+Points propres à l'hébergement en conteneur, déjà gérés par l'application :
 
-Dans le portail Entra ID → *Inscriptions d'applications* → *Nouvelle inscription* :
-
-- Nom : « Parc informatique » ; comptes de cet annuaire uniquement.
-- URI de redirection (Web) : `https://<votre-app>.azurewebsites.net/signin-oidc`
-- *Authentification* : URL de déconnexion `https://<votre-app>.azurewebsites.net/signout-callback-oidc`, cocher **Jetons d'ID**.
-- *Certificats et secrets* : créer un **secret client** (noter la valeur).
-- *Rôles d'application* : créer un rôle **Gestionnaire** (valeur `Gestionnaire`) et un rôle **Valideur** (valeur `Valideur`), membres autorisés : utilisateurs/groupes. Dans *Applications d'entreprise → Parc informatique → Utilisateurs et groupes*, affecter *Gestionnaire* à l'équipe informatique (idéalement via un groupe) et *Valideur* aux personnes qui valident les demandes.
-- *Autorisations d'API* : **Microsoft Graph → Autorisations d'application → Mail.Send**, puis *Accorder le consentement administrateur*.
-
-Tous les salariés du tenant peuvent se connecter (pour « Mon matériel » et la confirmation de réception) ; seuls les membres du rôle *Gestionnaire* accèdent à la gestion du parc.
-
-> En attendant de configurer les rôles, on peut lister les adresses dans `Authentification:Gestionnaires` (équipe informatique) et `Demandes:Valideurs` (valideurs).
-
-### 3. Limiter l'envoi de courriels à une seule boîte
-
-La permission `Mail.Send` d'application permet par défaut d'envoyer depuis **n'importe quelle** boîte du tenant. Restreignez-la à la boîte d'envoi (ex. `informatique@vitalrest.com`) avec le **RBAC pour les applications** d'Exchange Online (méthode recommandée par Microsoft, qui remplace les *Application Access Policies*) :
-
-```powershell
-Connect-ExchangeOnline
-# Principal de service correspondant à l'application (AppId = ClientId, ObjectId = celui de l'application d'entreprise)
-New-ServicePrincipal -AppId <ClientId> -ObjectId <ObjectId-application-entreprise> -DisplayName "Parc informatique"
-# Étendue limitée à la boîte d'envoi
-New-ManagementScope -Name "Parc - boite informatique" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'informatique@vitalrest.com'"
-New-ManagementRoleAssignment -App <ClientId> -Role "Application Mail.Send" -CustomResourceScope "Parc - boite informatique"
-```
-
-Dans ce cas, retirez la permission `Mail.Send` accordée dans Entra ID (le RBAC Exchange la remplace).
-
-### 4. Paramètres de l'App Service
-
-*Configuration → Paramètres d'application* (les `:` deviennent `__`) :
-
-| Paramètre | Valeur |
-|---|---|
-| `BaseDeDonnees__Fournisseur` | `SqlServer` |
-| `ConnectionStrings__Parc` | chaîne de connexion Azure SQL (de préférence dans *Chaînes de connexion*, type SQLAzure) |
-| `AzureAd__TenantId` | ID de l'annuaire (tenant) |
-| `AzureAd__ClientId` | ID d'application (client) |
-| `AzureAd__ClientSecret` | secret client (idéalement une référence Key Vault : `@Microsoft.KeyVault(SecretUri=…)`) |
-| `Messagerie__Mode` | `Graph` |
-| `Messagerie__Expediteur` | `informatique@vitalrest.com` |
-| `Messagerie__BoiteInformatique` | boîte à prévenir quand une réception est confirmée |
-| `Messagerie__UrlApplication` | `https://<votre-app>.azurewebsites.net` |
-| `Demandes__Destinataires__0`, `__1`… | boîtes qui reçoivent les nouvelles demandes avec les boutons Valider / Refuser (par défaut `informatique@vitalrest.com` et `thomas.verchere@groupe-vitalrest.com`) |
-| `Demandes__Valideurs__0`… | comptes autorisés à valider, en plus des gestionnaires |
-| `Demandes__PremierNumero` | premier numéro de demande (592, à la suite de la feuille ETAT DEMANDES) |
-
-Au démarrage, l'application applique automatiquement les migrations de base de données (`Data/Migrations`).
-
-### 5. Publication
-
-```bash
-cd src/ParcInfo.Web
-dotnet publish -c Release -o ../../publication
-# puis déployer le dossier « publication » (zip deploy, VS Code / Visual Studio, ou le workflow GitHub Actions fourni)
-```
-
-Un workflow GitHub Actions est fourni dans `.github/workflows/deploiement-azure.yml` : il compile, lance les tests et déploie à chaque push sur `main`. Il nécessite deux éléments dans les paramètres du dépôt GitHub : la variable `AZURE_WEBAPP_NAME` (nom de l'App Service) et le secret `AZURE_WEBAPP_PUBLISH_PROFILE` (profil de publication téléchargé depuis le portail Azure).
+- les clés de chiffrement des cookies (session SSO) sont stockées dans la base : un redémarrage ne déconnecte personne ;
+- les en-têtes `X-Forwarded-*` de l'entrée HTTPS de Container Apps sont pris en compte (adresse de retour de la connexion Microsoft) ;
+- la culture `fr-FR` et le fuseau `Europe/Paris` sont fixés dans l'image ;
+- `/sante` répond `ok` quand l'application et sa base fonctionnent ;
+- au démarrage, les migrations de base de données sont appliquées automatiquement.
 
 ## Structure du code
 
 ```
 src/ParcInfo.Web
 ├── Domain/          Entités (Materiel, Mouvement, Fiche, Site, Personne…) et règles de mouvement
-├── Data/            DbContext EF Core, migrations SQL Server, initialisation
+├── Data/            DbContext EF Core, migrations PostgreSQL, initialisation
 ├── Import/          Lecture du classeur Excel, harmonisation, import
 ├── Services/        Mouvements, fiches PDF, courriels, utilisateur connecté, exports / téléchargements
 ├── Components/      Interface Blazor (MudBlazor) : pages et composants
 └── Resources/       Logo et polices embarquées pour les PDF
-tests/ParcInfo.Tests Tests unitaires (règles, import, PDF, confirmation de réception)
+tests/ParcInfo.Tests Tests unitaires (règles, import, PDF, confirmation de réception, demandes)
+deploiement/         Scripts de mise en place sur Azure et guide
+Dockerfile           Image de l'application
 ```
 
-Bibliothèques : ASP.NET Core / Blazor Server (.NET 10), EF Core (SQL Server / SQLite), MudBlazor, Microsoft.Identity.Web, Microsoft Graph, ClosedXML (Excel), PDFsharp-MigraDoc 6.2.4 (MIT — ne pas passer en 6.5+, sous licence AGPL ou commerciale).
+Bibliothèques : ASP.NET Core / Blazor Server (.NET 10), EF Core (PostgreSQL / SQLite), MudBlazor, Microsoft.Identity.Web, Microsoft Graph, ClosedXML (Excel), PDFsharp-MigraDoc 6.2.4 (MIT — ne pas passer en 6.5+, sous licence AGPL ou commerciale).
 
 ## Évolutions prévues
 

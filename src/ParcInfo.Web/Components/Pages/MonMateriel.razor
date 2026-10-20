@@ -89,12 +89,12 @@ else
     {
         _u = await Courant.ObtenirAsync();
         await using var db = await DbFactory.CreateDbContextAsync();
-        var email = _u.Email;
+        var adresses = _u.ToutesAdresses;
         _materiels = await db.Materiels.AsNoTracking().Include(m => m.Site).Include(m => m.Personne)
-            .Where(m => m.Statut == StatutMateriel.Attribue && (m.Personne!.Email == email || m.Site!.Email == email))
+            .Where(m => m.Statut == StatutMateriel.Attribue && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
             .OrderBy(m => m.Type).ThenBy(m => m.NumInterne).ToListAsync();
         _attente = await db.Fiches.AsNoTracking().Include(f => f.Mouvements).ThenInclude(m => m.Materiel)
-            .Where(f => f.StatutReception == StatutReception.EnAttente && f.DestinataireEmail == email)
+            .Where(f => f.StatutReception == StatutReception.EnAttente && adresses.Contains(f.DestinataireEmail!))
             .AsSplitQuery().ToListAsync();
     }
 

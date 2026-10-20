@@ -34,14 +34,14 @@ else
                 {
                     <EditForm Model="_form" OnValidSubmit="Enregistrer">
                         <MudGrid Spacing="2">
-                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.NumInterne" Label="N° interne" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.NumInterne" Label="N° interne" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                             <MudItem xs="12" sm="6">
                                 <MudSelect @bind-Value="_form.Type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
                                     @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
                                 </MudSelect>
                             </MudItem>
-                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                             <MudItem xs="12" sm="6">
                                 <MudSelect T="int?" @bind-Value="_form.RegionId" Label="Région / service" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                                     @foreach (var r in _regions) { <MudSelectItem T="int?" Value="r.Id">@r.Nom</MudSelectItem> }
@@ -51,14 +51,14 @@ else
                             <MudItem xs="6" sm="3"><MudDatePicker Date="@(_form.DateMiseEnPlace?.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? d) => _form.DateMiseEnPlace = d is null ? null : DateOnly.FromDateTime(d.Value))" Label="Mise en place" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" Clearable="true" /></MudItem>
                             @if (_form.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable)
                             {
-                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.Configuration" Label="Configuration (processeur + RAM)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.ProfilMicrosoft" Label="Profil Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.LicenceMicrosoft" Label="Licence Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_form.MotDePasseSession" Label="Mot de passe de session" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" /></MudItem>
-                                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_form.VersionWindows" Label="Version Windows" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_form.EditionWindows" Label="Édition (Pro / Famille)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Configuration" Label="Configuration (processeur + RAM)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.ProfilMicrosoft" Label="Profil Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.LicenceMicrosoft" Label="Licence Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.MotDePasseSession" Label="Mot de passe de session" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudTextField MaxLength="400" @bind-Value="_form.VersionWindows" Label="Version Windows" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudTextField MaxLength="400" @bind-Value="_form.EditionWindows" Label="Édition (Pro / Famille)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="6" sm="3"><MudNumericField @bind-Value="_form.Note" Label="Note /5" Min="0" Max="5" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_form.CleOffice" Label="Clé Office" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="6" sm="3"><MudTextField MaxLength="400" @bind-Value="_form.CleOffice" Label="Clé Office" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="12" Class="d-flex flex-wrap gap-4">
                                     <MudCheckBox T="bool?" @bind-Value="_form.OfficeEnDur" TriState="true" Label="Office en dur" />
                                     <MudCheckBox T="bool?" @bind-Value="_form.ConnexionAdmin" TriState="true" Label="Connexion administrateur" />
@@ -66,9 +66,9 @@ else
                                     <MudCheckBox T="bool" @bind-Value="_form.AChanger" Label="À changer" />
                                 </MudItem>
                             }
-                            <MudItem xs="6"><MudTextField @bind-Value="_form.NumImmo" Label="N° immobilisation" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                            <MudItem xs="6"><MudTextField @bind-Value="_form.NumFacture" Label="N° de facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                            <MudItem xs="12"><MudTextField @bind-Value="_form.Commentaire" Label="Commentaire" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="6"><MudTextField MaxLength="400" @bind-Value="_form.NumImmo" Label="N° immobilisation" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="6"><MudTextField MaxLength="400" @bind-Value="_form.NumFacture" Label="N° de facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12"><MudTextField @bind-Value="_form.Commentaire" MaxLength="2000" Label="Commentaire" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                             <MudItem xs="12" Class="d-flex gap-2 justify-end">
                                 <MudButton OnClick="() => _edition = false">Annuler</MudButton>
                                 <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Enregistrer</MudButton>

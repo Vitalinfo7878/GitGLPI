@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ParcInfo.Web.Data;
@@ -9,8 +8,7 @@ namespace ParcInfo.Tests;
 
 public sealed class ServiceMouvementsTests : IDisposable
 {
-    private readonly SqliteConnection _connexion = new("Data Source=:memory:");
-    private readonly FabriqueTest _fabrique;
+    private readonly BaseDeTest _fabrique = new();
     private readonly ServiceMouvements _service;
 
     private static readonly Utilisateur Informatique = new("Service Informatique", "informatique@vitalrest.com", true);
@@ -19,15 +17,12 @@ public sealed class ServiceMouvementsTests : IDisposable
 
     public ServiceMouvementsTests()
     {
-        _connexion.Open();
-        _fabrique = new FabriqueTest(new DbContextOptionsBuilder<ParcDbContext>().UseSqlite(_connexion).Options);
-        using (var db = _fabrique.CreateDbContext()) db.Database.EnsureCreated();
         var options = new OptionsMessagerie { UrlApplication = "https://parc.test" };
         var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique, options, NullLogger<ServiceNotifications>.Instance);
         _service = new ServiceMouvements(_fabrique, new GenerateurFiche(), notifications, NullLogger<ServiceMouvements>.Instance);
     }
 
-    public void Dispose() => _connexion.Dispose();
+    public void Dispose() => _fabrique.Dispose();
 
     private (int Pc, int Ecran, int Personne) Donnees()
     {
@@ -160,8 +155,4 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.True(ServiceMouvements.PeutVoirMotDePasse(Informatique, m, [new Fiche()]));
     }
 
-    private sealed class FabriqueTest(DbContextOptions<ParcDbContext> options) : IDbContextFactory<ParcDbContext>
-    {
-        public ParcDbContext CreateDbContext() => new(options);
-    }
 }

@@ -22,8 +22,8 @@ else
             <MudPaper Elevation="0" Class="carte pa-4 mb-3">
                 <EditForm Model="_p" OnValidSubmit="Enregistrer">
                     <MudGrid Spacing="2">
-                        <MudItem xs="12"><MudTextField @bind-Value="_p.NomComplet" Label="Prénom NOM" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                        <MudItem xs="12"><MudTextField @bind-Value="_p.Email" Label="Adresse mail (compte Microsoft)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12"><MudTextField MaxLength="400" @bind-Value="_p.NomComplet" Label="Prénom NOM" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12"><MudTextField MaxLength="400" @bind-Value="_p.Email" Label="Adresse mail (compte Microsoft)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                         <MudItem xs="12">
                             <MudSelect T="int?" @bind-Value="_p.RegionId" Label="Région / service" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                                 @foreach (var r in _regions) { <MudSelectItem T="int?" Value="r.Id">@r.Nom</MudSelectItem> }
@@ -85,7 +85,11 @@ else
     {
         await using var db = await DbFactory.CreateDbContextAsync(ct);
         var q = db.Personnes.AsNoTracking().Where(p => p.Id != Id);
-        if (!string.IsNullOrWhiteSpace(texte)) q = q.Where(p => EF.Functions.Like(p.NomComplet, Recherche.Motif(texte)));
+        if (!string.IsNullOrWhiteSpace(texte))
+        {
+            var t = Recherche.Texte(texte);
+            q = q.Where(p => p.NomComplet.ToLower().Contains(t));
+        }
         return await q.OrderBy(p => p.NomComplet).Take(20).ToListAsync(ct);
     }
 

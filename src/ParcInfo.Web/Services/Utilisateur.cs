@@ -15,24 +15,38 @@ public static class Roles
     public const string PolitiqueValidation = "Validation";
 }
 
-/// <summary>Utilisateur connecté (compte Microsoft 365 / Entra ID).</summary>
+/// <summary>Utilisateur connecté (compte Microsoft 365 / Entra ID, en SSO).</summary>
+/// <param name="Email">Adresse principale : la boîte mail si Entra la fournit, sinon l'identifiant de connexion.</param>
 public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire, bool EstValideur = false)
 {
+    /// <summary>
+    /// Toutes les adresses connues de la personne (boîte mail, identifiant de connexion UPN…).
+    /// Avec plusieurs domaines (vitalrest.com, groupe-vitalrest.com), l'identifiant de connexion peut différer
+    /// de l'adresse saisie dans l'inventaire : on accepte l'une ou l'autre.
+    /// </summary>
+    public IReadOnlyList<string> Adresses { get; init; } = [];
+
     public static Utilisateur Depuis(ClaimsPrincipal p)
     {
-        var email = p.FindFirst("preferred_username")?.Value
-            ?? p.FindFirst(ClaimTypes.Email)?.Value
-            ?? p.FindFirst(ClaimTypes.Upn)?.Value
-            ?? p.Identity?.Name
-            ?? "";
+        var adresses = new[] { "email", ClaimTypes.Email, "preferred_username", ClaimTypes.Upn, "upn" }
+            .Select(t => p.FindFirst(t)?.Value)
+            .Where(v => !string.IsNullOrWhiteSpace(v) && v.Contains('@'))
+            .Select(v => v!.Trim().ToLowerInvariant())
+            .Distinct()
+            .ToList();
+        var email = adresses.FirstOrDefault() ?? p.Identity?.Name?.ToLowerInvariant() ?? "";
         var nom = p.FindFirst("name")?.Value ?? p.FindFirst(ClaimTypes.Name)?.Value ?? email;
         var gestionnaire = p.IsInRole(Roles.Gestionnaire);
-        return new Utilisateur(nom, email.ToLowerInvariant(), gestionnaire, gestionnaire || p.IsInRole(Roles.Valideur));
+        return new Utilisateur(nom, email, gestionnaire, gestionnaire || p.IsInRole(Roles.Valideur)) { Adresses = adresses };
     }
 
     public string Signature => $"{Nom} <{Email}>";
 
-    public bool AEmail(string? email) => !string.IsNullOrWhiteSpace(email) && string.Equals(email.Trim(), Email, StringComparison.OrdinalIgnoreCase);
+    /// <summary>Adresses à comparer aux adresses enregistrées (toujours en minuscules).</summary>
+    public string[] ToutesAdresses => Adresses.Append(Email).Where(a => a.Length > 0).Distinct().ToArray();
+
+    public bool AEmail(string? email) => !string.IsNullOrWhiteSpace(email)
+        && ToutesAdresses.Contains(email.Trim(), StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>Accès à l'utilisateur courant depuis les composants Blazor.</summary>
@@ -61,9 +75,9 @@ public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransfo
     {
         if (principal.Identity is ClaimsIdentity { IsAuthenticated: true } id)
         {
-            var email = Utilisateur.Depuis(principal).Email;
-            Ajouter(id, principal, Roles.Gestionnaire, _gestionnaires.Contains(email));
-            Ajouter(id, principal, Roles.Valideur, _valideurs.Contains(email));
+            var u = Utilisateur.Depuis(principal);
+            Ajouter(id, principal, Roles.Gestionnaire, u.ToutesAdresses.Any(_gestionnaires.Contains));
+            Ajouter(id, principal, Roles.Valideur, u.ToutesAdresses.Any(_valideurs.Contains));
         }
         return Task.FromResult(principal);
     }

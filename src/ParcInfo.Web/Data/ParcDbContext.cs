@@ -1,9 +1,10 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using ParcInfo.Web.Domain;
 
 namespace ParcInfo.Web.Data;
 
-public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(options)
+public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<Region> Regions => Set<Region>();
     public DbSet<Site> Sites => Set<Site>();
@@ -14,6 +15,8 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<Courriel> Courriels => Set<Courriel>();
     public DbSet<Journal> Journal => Set<Journal>();
     public DbSet<Demande> Demandes => Set<Demande>();
+    /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
@@ -90,7 +93,13 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Ignore(x => x.StatutLibelle);
         });
 
-        b.Entity<Courriel>(e => e.Property(x => x.CorpsHtml).HasMaxLength(int.MaxValue));
+        b.Entity<Courriel>(e => e.Property(x => x.CorpsHtml).Metadata.SetMaxLength(null));
+        // Les clés Data Protection sont des documents XML de taille variable : pas de limite
+        b.Entity<DataProtectionKey>(e =>
+        {
+            e.Property(x => x.FriendlyName).Metadata.SetMaxLength(null);
+            e.Property(x => x.Xml).Metadata.SetMaxLength(null);
+        });
         b.Entity<Journal>(e =>
         {
             e.Property(x => x.Details).HasMaxLength(2000);
