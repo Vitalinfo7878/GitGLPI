@@ -1,126 +1,143 @@
 # Mise en ligne sur Azure
 
-L'application s'installe **à côté** du projet Vital Pilot, dans l'abonnement `VITAL-PILOT`, sans rien modifier de l'existant :
+Le Parc informatique s'installe **dans son propre groupe de ressources** `rg-parc-informatique`, dans l'abonnement `VITAL-PILOT`.
+Les ressources du projet Vital Pilot ne sont **ni créées, ni modifiées, ni supprimées** :
 
-| Ressource existante (Vital Pilot) | Ce que le Parc informatique y ajoute |
-|---|---|
-| Environnement Container Apps `cae-vital-pilot` | L'application `ca-parc-informatique` (son propre conteneur, sa propre adresse) |
-| Serveur PostgreSQL `pg-vital-pilot-94eed4` | La base `parcinfo` et un compte `parcinfo` qui n'a accès qu'à elle |
-| Registre d'images `acrvitalpilot94eed4` | Le dossier d'images `parc-informatique` (+ `outils/postgres`, utilisé une fois à l'installation) |
+| Ressource Vital Pilot | Ce que le Parc informatique en fait | Droit utilisé |
+|---|---|---|
+| Environnement Container Apps `cae-vital-pilot` | Notre application s'y rattache et y tourne (conteneur séparé, adresse séparée) | rôle personnalisé « rattachement environnement » : rattacher, sans pouvoir modifier l'environnement |
+| Serveur PostgreSQL `pg-vital-pilot-94eed4` | Une base `parcinfo` + un compte `parcinfo` qui n'a accès qu'à elle | rôle personnalisé « création de base PostgreSQL » : créer une base, sans pouvoir modifier ni supprimer |
+| Coffre `kv-vital-pilot-94eed4` | Lecture du seul secret `pg-admin-password`, le temps de l'installation | accès temporaire, retiré à la fin |
 
-Ressources nouvelles : les identités `id-parc-informatique` (l'application) et `id-parc-github` (le déploiement), un rôle personnalisé
-« Parc informatique - rattachement a l'environnement », et l'inscription d'application Entra ID « Parc informatique Vitalrest ».
-Tout porte l'étiquette `projet=parc-informatique`.
+Tout le reste est dans `rg-parc-informatique` et porte l'étiquette `projet=parc-informatique` :
+application `ca-parc-informatique`, registre d'images `acrparcinfo94eed4`, identités `id-parc-informatique` (l'application)
+et `id-parc-github` (le déploiement automatique). S'y ajoute l'inscription d'application Entra ID « Parc informatique Vitalrest ».
 
 Adresse de l'application : `https://ca-parc-informatique.salmonmushroom-95a18e16.francecentral.azurecontainerapps.io`
 
-> **Prévenez votre collègue avant de commencer** : on ajoute une base sur son serveur PostgreSQL et une application dans son environnement.
-> Il vous faudra aussi le **mot de passe administrateur du serveur PostgreSQL** (étape 1).
+> Prévenez votre collègue responsable de Vital Pilot avant de commencer.
 
 ## Prérequis
 
-- Un compte avec le rôle **Propriétaire** sur le groupe `rg-vital-pilot-prod` (ou Contributeur + Administrateur de l'accès utilisateur), pour créer les identités et leurs droits.
+- Pouvoir **attribuer des rôles Azure** sur l'abonnement : par exemple un administrateur général qui a activé
+  *Microsoft Entra ID > Propriétés > Gestion de l'accès pour les ressources Azure* (à remettre sur « Non » à la fin).
 - Pour l'étape 2 : un rôle **Administrateur d'application** (ou Administrateur général) dans Entra ID.
 - Pour l'étape 4 : un rôle **Administrateur Exchange**.
 
-## Étape 1 – Ressources Azure (≈ 10 min)
+Toutes les commandes se lancent dans **Azure Cloud Shell**, en **Bash** (portail Azure, icône `>_`, « No storage account required »).
 
-Dans le portail Azure, ouvrir **Cloud Shell** (icône `>_`), choisir **Bash**, puis :
+## Étape 0 – Espace et droits (une seule fois, ≈ 5 min)
 
 ```bash
-git clone https://github.com/Vitalinfo7878/GitGLPI.git
+cd ~ && rm -rf GitGLPI && git clone https://github.com/Vitalinfo7878/GitGLPI.git
 cd GitGLPI/deploiement/azure
-bash 1-creer-ressources.sh
+bash 0-preparer-acces.sh
 ```
 
-Le script affiche un récapitulatif et demande confirmation, puis le mot de passe administrateur PostgreSQL (saisie masquée, jamais enregistrée en clair).
+Le script affiche vos rôles actuels, puis :
 
-**Où trouver le mot de passe administrateur PostgreSQL ?** Azure l'exige à la création du serveur ; s'il a été généré automatiquement
-(Bicep, Terraform…), il est en général rangé dans le coffre `kv-vital-pilot-94eed4`. Le script peut le lire directement, sans l'afficher :
+1. crée le groupe `rg-parc-informatique` et vous en donne la propriété. Si vous n'êtes pas déjà Contributeur de l'abonnement,
+   ce droit vous est donné **temporairement**, uniquement pour créer le groupe, puis retiré aussitôt ;
+2. crée les deux rôles personnalisés limités décrits ci-dessus et vous les attribue sur l'environnement et sur le serveur PostgreSQL.
+
+Attendez ensuite 2 à 3 minutes que les droits s'appliquent.
+
+## Étape 1 – Ressources (≈ 10 min)
+
+Le mot de passe administrateur PostgreSQL est dans le coffre de Vital Pilot (secret `pg-admin-password`).
+Autorisez-vous à lire **ce seul secret**, attendez 2 à 3 minutes, puis lancez le script :
 
 ```bash
-MDP_ADMIN_PG=$(az keyvault secret show --vault-name kv-vital-pilot-94eed4 -n <nom-du-secret> --query value -o tsv) bash 1-creer-ressources.sh
+MOI=$(az ad signed-in-user show --query id -o tsv)
+COFFRE=$(az keyvault show -n kv-vital-pilot-94eed4 --query id -o tsv)
+az role assignment create --role "Key Vault Secrets User" --assignee-object-id $MOI --assignee-principal-type User \
+  --scope "$COFFRE/secrets/pg-admin-password" -o none && echo "Accès accordé"
 ```
 
-Ne réinitialisez pas ce mot de passe sans l'accord de votre collègue : si ses applications utilisent le compte administrateur, elles cesseraient de fonctionner.
+```bash
+MDP_ADMIN_PG=$(az keyvault secret show --vault-name kv-vital-pilot-94eed4 -n pg-admin-password --query value -o tsv) bash 1-creer-ressources.sh
+```
+
+Le mot de passe passe du coffre au script sans jamais s'afficher. Le script crée le registre, les identités, la base `parcinfo`
+et son compte (via une tâche temporaire exécutée dans le réseau privé, puis supprimée), l'application et l'identité de déploiement.
 À la fin, il affiche **trois valeurs à copier dans GitHub** (étape 3).
 
-Si le dépôt est privé, Cloud Shell demandera de vous identifier sur GitHub : utilisez un *personal access token* en guise de mot de passe,
-ou téléversez le dossier `deploiement/azure` dans Cloud Shell (bouton « Charger des fichiers »).
+Ensuite, **refermez l'accès au coffre** (et le droit de lecture des noms de secrets, s'il a été ajouté) :
+
+```bash
+MOI=$(az ad signed-in-user show --query id -o tsv)
+COFFRE=$(az keyvault show -n kv-vital-pilot-94eed4 --query id -o tsv)
+az role assignment delete --assignee $MOI --role "Key Vault Secrets User" --scope "$COFFRE/secrets/pg-admin-password"
+az role assignment delete --assignee $MOI --role "Key Vault Reader" --scope "$COFFRE"
+```
+
+Ne réinitialisez jamais le mot de passe administrateur PostgreSQL : si les applications Vital Pilot utilisent ce compte,
+elles cesseraient de fonctionner.
 
 ## Étape 2 – Connexion Microsoft / SSO (≈ 5 min)
 
-1. Ouvrir `parametres.sh` (`code parametres.sh` dans Cloud Shell) et compléter la liste `GESTIONNAIRES` avec les adresses de l'équipe informatique.
+1. Ouvrir `parametres.sh` (`code parametres.sh` dans Cloud Shell) et compléter `GESTIONNAIRES` avec les adresses de l'équipe informatique.
    `VALIDEURS` contient déjà `thomas.verchere@groupe-vitalrest.com`.
-2. Lancer :
-
-```bash
-bash 2-configurer-sso.sh
-```
+2. Lancer `bash 2-configurer-sso.sh`.
 
 Le script crée l'inscription d'application (adresse de retour, rôles *Gestionnaire* et *Valideur*, adresse mail dans le jeton),
-donne le **consentement administrateur** (les salariés n'ont aucun écran d'accord à valider), enregistre le secret dans l'application
+donne le **consentement administrateur** (aucun écran d'accord pour les salariés), enregistre le secret dans l'application
 et attribue les rôles.
 
-Fonctionnement du SSO :
-
-- **Tous les comptes de l'organisation** peuvent se connecter, avec leur session Microsoft 365 déjà ouverte (pas de nouveau mot de passe).
-  Ils accèdent à « Mon matériel », « Faire une demande », « Mes demandes » et aux confirmations de réception.
-- Le rôle **Gestionnaire** donne accès à toute la gestion du parc ; le rôle **Valideur** à la validation des demandes.
-  Les rôles se gèrent ensuite dans *Entra ID > Applications d'entreprise > Parc informatique Vitalrest > Utilisateurs et groupes*
-  (attribution à des groupes possible avec Entra ID P1, inclus dans Microsoft 365 Business Premium / E3).
-- Les comptes des sites (boîtes partagées type `villaduparc@vitalrest.com`) doivent pouvoir se connecter pour confirmer une réception.
-- Le mode démo est désactivé dès que l'inscription d'application est configurée.
+- **Tous les comptes de l'organisation** se connectent avec leur session Microsoft 365 (pas de nouveau mot de passe) et accèdent à
+  « Mon matériel », « Faire une demande », « Mes demandes » et aux confirmations de réception.
+- **Gestionnaire** : toute la gestion du parc. **Valideur** : validation des demandes.
+  Gestion ensuite dans *Entra ID > Applications d'entreprise > Parc informatique Vitalrest > Utilisateurs et groupes*.
+- Le mode démo est désactivé.
 
 ## Étape 3 – Déploiement automatique depuis GitHub (≈ 5 min)
 
 Dans GitHub, dépôt **Vitalinfo7878/GitGLPI** :
 
-1. *Settings > Environments > New environment* : créer `production`
-   (facultatif : y ajouter des *Required reviewers* pour valider chaque mise en production).
-2. *Settings > Secrets and variables > Actions > onglet **Variables*** : créer `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` et `AZURE_SUBSCRIPTION_ID`
-   avec les valeurs affichées à la fin de l'étape 1. Ce ne sont pas des secrets : la connexion à Azure se fait sans mot de passe
-   (fédération d'identité, réservée à l'environnement `production` de ce dépôt).
-3. *Actions > Tests et déploiement Azure > Run workflow* (ou pousser une modification sur `main`).
+1. *Settings > Environments > New environment* : créer `production`.
+2. *Settings > Secrets and variables > Actions > onglet **Variables*** : créer `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
+   avec les valeurs de fin d'étape 1 (ce ne sont pas des secrets : la connexion à Azure se fait sans mot de passe).
+3. *Actions > Tests et déploiement Azure > Run workflow*.
 
-Le workflow lance les tests (SQLite et PostgreSQL 17), construit l'image, la publie dans le registre, met à jour l'application
-et vérifie qu'elle répond sur `/sante`. Au premier démarrage, l'application crée ses tables dans la base `parcinfo`.
+Le workflow teste, construit l'image, la publie dans **notre** registre, met à jour **notre** application et vérifie `/sante`.
+Au premier démarrage, l'application crée ses tables dans la base `parcinfo`.
 
 ## Étape 4 – Envoi des mails (≈ 5 min)
 
-Tant que cette étape n'est pas faite, les mails sont **simulés** (visibles dans *Administration > Courriels envoyés*).
-La fin de l'étape 2 affiche les commandes exactes, avec les bons identifiants :
-
-1. Dans **Exchange Online PowerShell** : autoriser l'application à envoyer **uniquement** depuis `informatique@vitalrest.com`
-   (RBAC pour les applications d'Exchange Online — aucune permission Mail.Send n'est accordée dans Entra ID).
-2. Dans Cloud Shell : passer `Messagerie__Mode` à `Graph`.
+Tant que cette étape n'est pas faite, les mails sont **simulés** (*Administration > Courriels envoyés*).
+La fin de l'étape 2 affiche les commandes exactes : Exchange Online PowerShell pour autoriser l'envoi **uniquement** depuis
+`informatique@vitalrest.com`, puis passage de `Messagerie__Mode` à `Graph`.
 
 ## Étape 5 – Premier chargement
 
-1. Se connecter avec un compte **Gestionnaire**.
-2. *Administration > Import Excel* : charger le classeur « Suivi du stock » (une seule fois, base vide).
-3. Compléter les adresses mail des personnes (*Parcs > Personnes*) et vérifier celles des sites.
+Se connecter avec un compte Gestionnaire, *Administration > Import Excel*, puis compléter les adresses mail des personnes.
+
+## Après l'installation
+
+- Remettre *Gestion de l'accès pour les ressources Azure* sur **Non** si vous l'aviez activé pour l'étape 0.
+- Facultatif : retirer votre rôle « création de base PostgreSQL » (inutile une fois la base créée) :
+  `az role assignment delete --assignee $(az ad signed-in-user show --query id -o tsv) --role "Parc informatique - creation de base PostgreSQL" --scope $(az postgres flexible-server show -g rg-vital-pilot-prod -n pg-vital-pilot-94eed4 --query id -o tsv)`
 
 ## Coût
 
-Le serveur PostgreSQL et le registre étant déjà payés, seul le conteneur de l'application s'ajoute (0,5 processeur, 1 Go de mémoire,
-toujours allumé) : quelques euros par mois selon l'usage et le quota gratuit mensuel de Container Apps (partagé avec Vital Pilot).
-Suivi : *Gestion des coûts > Analyse des coûts*, filtrer sur l'étiquette `projet = parc-informatique`.
+Registre d'images Basic ≈ 4,50 €/mois + le conteneur de l'application (0,5 processeur, 1 Go, toujours allumé) : quelques euros par mois
+selon l'usage et le quota gratuit mensuel de Container Apps (partagé avec Vital Pilot). Le serveur PostgreSQL est celui de Vital Pilot.
+Suivi : *Gestion des coûts > Analyse des coûts*, groupe `rg-parc-informatique`.
 
 ## Exploitation
 
 | Besoin | Où |
 |---|---|
-| Journaux de l'application | Portail > `ca-parc-informatique` > *Flux de journaux* |
-| Redémarrer | Portail > `ca-parc-informatique` > *Révisions et réplicas* > *Redémarrer* |
-| Revenir à la version précédente | *Révisions et réplicas* : réactiver la révision précédente |
-| Changer un réglage | *Conteneurs > Variables d'environnement* (ou relancer les scripts) |
-| Renouveler le secret SSO (tous les 2 ans) | Relancer `2-configurer-sso.sh` |
-| Changer le mot de passe de la base | Relancer `1-creer-ressources.sh` (nouveau mot de passe généré et enregistré) |
-| Sauvegardes de la base | Celles du serveur PostgreSQL (rétention définie par votre collègue) |
+| Journaux | Portail > `rg-parc-informatique` > `ca-parc-informatique` > *Flux de journaux* |
+| Redémarrer / revenir à une version précédente | `ca-parc-informatique` > *Révisions et réplicas* |
+| Changer un réglage | *Conteneurs > Variables d'environnement*, ou relancer les scripts |
+| Renouveler le secret SSO (tous les 2 ans) | `bash 2-configurer-sso.sh` |
+| Changer le mot de passe de la base | `bash 1-creer-ressources.sh` (nouveau mot de passe généré ; nécessite l'accès au secret, étape 1) |
+| Sauvegardes de la base | Celles du serveur PostgreSQL Vital Pilot |
 
 ## Désinstallation
 
-Supprimer `ca-parc-informatique`, `id-parc-informatique`, `id-parc-github`, le rôle personnalisé, la base `parcinfo`
-(`az postgres flexible-server db delete`), le compte PostgreSQL `parcinfo` (`DROP ROLE parcinfo;`), le dossier d'images `parc-informatique`
-et l'inscription d'application « Parc informatique Vitalrest ». Rien d'autre n'est à défaire.
+1. Supprimer le groupe `rg-parc-informatique` (application, registre, identités).
+2. Sur le serveur PostgreSQL : `az postgres flexible-server db delete -g rg-vital-pilot-prod -s pg-vital-pilot-94eed4 -n parcinfo`,
+   puis `DROP ROLE parcinfo;` avec le compte administrateur.
+3. Supprimer les rôles personnalisés « Parc informatique - … » (et leurs attributions) et l'inscription d'application « Parc informatique Vitalrest ».

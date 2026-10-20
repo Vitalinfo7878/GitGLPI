@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 env:
-  AZURE_GROUPE: rg-vital-pilot-prod
-  AZURE_REGISTRE: acrvitalpilot94eed4
+  AZURE_GROUPE: rg-parc-informatique
+  AZURE_REGISTRE: acrparcinfo94eed4
   AZURE_APPLICATION: ca-parc-informatique
   IMAGE: parc-informatique
 

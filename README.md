@@ -97,9 +97,11 @@ Le workflow GitHub exécute les tests sur SQLite et sur PostgreSQL 17 à chaque 
 
 ## Déploiement sur Azure
 
-L'application est hébergée dans l'infrastructure Azure existante du projet Vital Pilot, sans la modifier :
+L'application a son propre groupe de ressources `rg-parc-informatique` et s'appuie sur l'infrastructure du projet Vital Pilot
+sans la modifier :
 
-- **Azure Container Apps** : l'application `ca-parc-informatique` dans l'environnement `cae-vital-pilot` ;
+- **Azure Container Apps** : l'application `ca-parc-informatique` (notre groupe) tourne dans l'environnement `cae-vital-pilot` ;
+- **Azure Container Registry** : notre registre d'images `acrparcinfo94eed4` ;
 - **Azure Database for PostgreSQL** : une base `parcinfo` dédiée sur le serveur `pg-vital-pilot-94eed4` ;
 - **Entra ID** : connexion SSO des salariés avec leur compte Microsoft 365, rôles *Gestionnaire* et *Valideur* ;
 - **Exchange Online / Microsoft Graph** : envoi des mails depuis `informatique@vitalrest.com` uniquement ;

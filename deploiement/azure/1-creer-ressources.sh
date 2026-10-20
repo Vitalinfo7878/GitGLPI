@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Étape 1 : crée les ressources Azure du Parc informatique à côté de celles de Vital Pilot.
-# À lancer dans Azure Cloud Shell (Bash), depuis le dossier du dépôt :
-#   git clone https://github.com/Vitalinfo7878/GitGLPI.git && cd GitGLPI/deploiement/azure && bash 1-creer-ressources.sh
+# Étape 1 : crée les ressources du Parc informatique dans son propre groupe « rg-parc-informatique ».
+# À lancer dans Azure Cloud Shell (Bash) après 0-preparer-acces.sh :
+#   MDP_ADMIN_PG=$(az keyvault secret show --vault-name kv-vital-pilot-94eed4 -n pg-admin-password --query value -o tsv) bash 1-creer-ressources.sh
 #
 # Ce que fait le script (rejouable sans risque) :
-#   - identité « id-parc-informatique » autorisée à lire les images du registre
-#   - base PostgreSQL « parcinfo » sur le serveur existant + compte « parcinfo » qui n'a accès qu'à elle
-#   - application Container Apps « ca-parc-informatique » dans l'environnement existant (image provisoire)
-#   - identité « id-parc-github » pour le déploiement automatique depuis GitHub (sans mot de passe)
-# Il ne modifie aucune ressource existante de Vital Pilot.
+#   - dans rg-parc-informatique : registre d'images, identités, application Container Apps
+#   - sur le serveur PostgreSQL Vital Pilot : la base « parcinfo » et un compte « parcinfo » qui n'a accès qu'à elle
+#   - l'application tourne dans l'environnement Vital Pilot (rattachement), sans le modifier
+# Aucune ressource Vital Pilot n'est modifiée.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -18,50 +17,58 @@ az extension add --name containerapp --upgrade --only-show-errors -y >/dev/null
 verifier_abonnement
 
 etape "Récapitulatif"
-info "Abonnement     : $ABONNEMENT ($ID_ABONNEMENT)"
-info "Groupe         : $GROUPE"
-info "Environnement  : $ENVIRONNEMENT (existant, inchangé)"
-info "Registre       : $REGISTRE (existant, ajout du dossier « $IMAGE »)"
-info "PostgreSQL     : $SERVEUR_PG (existant, ajout de la base « $BASE »)"
-info "Application    : $APPLICATION → https://$ADRESSE_APP"
+info "Abonnement        : $ABONNEMENT"
+info "Notre groupe      : $GROUPE (toutes les ressources créées sont ici)"
+info "Registre d'images : $REGISTRE (le nôtre)"
+info "Application       : $APPLICATION → https://$ADRESSE_APP"
+info "Vital Pilot       : rattachement à $ENVIRONNEMENT + base « $BASE » sur $SERVEUR_PG (rien d'autre)"
 confirmer "Créer / mettre à jour les ressources du Parc informatique ?"
 
-ID_REGISTRE=$(az acr show -n "$REGISTRE" --query id -o tsv)
-ID_ENV=$(az containerapp env show -g "$GROUPE" -n "$ENVIRONNEMENT" --query id -o tsv)
-
-attribuer_role() { # principal, rôle, portée
-    if [[ -z "$(az role assignment list --assignee "$1" --role "$2" --scope "$3" --query '[0].id' -o tsv)" ]]; then
-        az role assignment create --assignee-object-id "$1" --assignee-principal-type ServicePrincipal \
-            --role "$2" --scope "$3" -o none
-        info "rôle « $2 » attribué"
-    else
-        info "rôle « $2 » déjà attribué"
-    fi
-}
-
 # ---------------------------------------------------------------------------
-etape "1. Identité de l'application ($IDENTITE_APP)"
-az identity create -g "$GROUPE" -n "$IDENTITE_APP" --tags "${ETIQUETTES[@]}" -o none
+etape "1. Registre d'images ($REGISTRE)"
+if az acr show -n "$REGISTRE" -o none 2>/dev/null; then
+    info "le registre existe déjà"
+else
+    az acr create -g "$GROUPE" -n "$REGISTRE" --sku Basic --admin-enabled false --tags "${ETIQUETTES[@]}" -o none
+    info "registre créé (formule Basic)"
+fi
+ID_REGISTRE=$(az acr show -n "$REGISTRE" --query id -o tsv)
+
+etape "2. Identité de l'application ($IDENTITE_APP)"
+az identity create -g "$GROUPE" -n "$IDENTITE_APP" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
 ID_IDENTITE_APP=$(az identity show -g "$GROUPE" -n "$IDENTITE_APP" --query id -o tsv)
 PRINCIPAL_APP=$(az identity show -g "$GROUPE" -n "$IDENTITE_APP" --query principalId -o tsv)
-attribuer_role "$PRINCIPAL_APP" "AcrPull" "$ID_REGISTRE"
+reessayer attribuer_role "$PRINCIPAL_APP" ServicePrincipal "AcrPull" "$ID_REGISTRE"
+
+# Image de l'outil psql copiée dans notre registre (évite les limites de téléchargement des registres publics)
+if az acr repository show -n "$REGISTRE" --image "$IMAGE_PSQL" -o none 2>/dev/null; then
+    info "outil psql déjà présent dans le registre"
+else
+    for source in "${SOURCES_PSQL[@]}"; do
+        if az acr import -n "$REGISTRE" --source "$source" --image "$IMAGE_PSQL" -o none 2>/dev/null; then
+            info "outil psql copié depuis $source"; break
+        fi
+        info "copie impossible depuis $source, source suivante…"
+    done
+    az acr repository show -n "$REGISTRE" --image "$IMAGE_PSQL" -o none 2>/dev/null \
+        || erreur "impossible de copier l'image PostgreSQL dans le registre : relancez le script dans quelques minutes."
+fi
 
 # ---------------------------------------------------------------------------
-etape "2. Base PostgreSQL « $BASE »"
-if az postgres flexible-server db show -g "$GROUPE" -s "$SERVEUR_PG" -n "$BASE" -o none 2>/dev/null; then
+etape "3. Base PostgreSQL « $BASE » sur $SERVEUR_PG"
+if az postgres flexible-server db show -g "$GROUPE_VP" -s "$SERVEUR_PG" -n "$BASE" -o none 2>/dev/null; then
     info "la base existe déjà"
 else
-    az postgres flexible-server db create -g "$GROUPE" -s "$SERVEUR_PG" -n "$BASE" -o none
-    info "base créée"
+    az postgres flexible-server db create -g "$GROUPE_VP" -s "$SERVEUR_PG" -n "$BASE" -o none
+    info "base créée (les autres bases du serveur ne sont pas touchées)"
 fi
-HOTE_PG=$(az postgres flexible-server show -g "$GROUPE" -n "$SERVEUR_PG" --query fullyQualifiedDomainName -o tsv)
-ADMIN_PG=$(az postgres flexible-server show -g "$GROUPE" -n "$SERVEUR_PG" --query administratorLogin -o tsv)
+HOTE_PG=$(az postgres flexible-server show -g "$GROUPE_VP" -n "$SERVEUR_PG" --query fullyQualifiedDomainName -o tsv)
+ADMIN_PG=$(az postgres flexible-server show -g "$GROUPE_VP" -n "$SERVEUR_PG" --query administratorLogin -o tsv)
 
-etape "3. Compte PostgreSQL « $BASE » (n'a accès qu'à sa base)"
-info "Le serveur n'est joignable que depuis le réseau privé : le compte est créé par une tâche"
-info "temporaire lancée dans l'environnement Container Apps, puis supprimée."
-# Le mot de passe administrateur peut être fourni par la variable MDP_ADMIN_PG (par exemple lu dans le coffre à secrets) :
-#   MDP_ADMIN_PG=$(az keyvault secret show --vault-name <coffre> -n <secret> --query value -o tsv) bash 1-creer-ressources.sh
+etape "4. Compte PostgreSQL « $BASE » (n'a accès qu'à sa base)"
+info "Le serveur n'est joignable que depuis le réseau privé : le compte est créé par une tâche temporaire"
+info "de notre groupe, exécutée dans l'environnement Vital Pilot, puis supprimée."
+# Le mot de passe administrateur peut être fourni par la variable MDP_ADMIN_PG (lu dans le coffre à secrets, voir en tête)
 if [[ -z "${MDP_ADMIN_PG:-}" ]]; then
     info "Il faut le mot de passe de l'administrateur PostgreSQL « $ADMIN_PG » (voir deploiement/README.md)."
     read -r -s -p "    Mot de passe de $ADMIN_PG : " MDP_ADMIN_PG; echo
@@ -71,17 +78,11 @@ fi
 [[ -n "$MDP_ADMIN_PG" ]] || erreur "mot de passe vide."
 MDP_PARC=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 32)
 
-# Image PostgreSQL (pour l'outil psql) copiée dans le registre, pour ne pas dépendre de Docker Hub
-if ! az acr repository show -n "$REGISTRE" --image "outils/postgres:17-alpine" -o none 2>/dev/null; then
-    az acr import -n "$REGISTRE" --source public.ecr.aws/docker/library/postgres:17-alpine --image outils/postgres:17-alpine -o none
-fi
-
 YAML_TACHE=$(mktemp --suffix=.yaml)
 trap 'rm -f "$YAML_TACHE"' EXIT
 yaml_quote() { printf "'%s'" "${1//\'/\'\'}"; }
-SQL_B64=$(base64 -w0 role-parcinfo.sql)
 cat > "$YAML_TACHE" <<EOF
-location: $(az group show -n "$GROUPE" --query location -o tsv)
+location: $REGION
 identity:
   type: UserAssigned
   userAssignedIdentities:
@@ -106,7 +107,7 @@ properties:
   template:
     containers:
       - name: init
-        image: $SERVEUR_REGISTRE/outils/postgres:17-alpine
+        image: $SERVEUR_REGISTRE/$IMAGE_PSQL
         command: ["/bin/sh", "-c", "echo \"\$SQL_B64\" | base64 -d > /tmp/role.sql && psql -v mdp=\"\$MDP\" -f /tmp/role.sql"]
         env:
           - { name: PGHOST, value: $HOTE_PG }
@@ -115,10 +116,12 @@ properties:
           - { name: PGSSLMODE, value: require }
           - { name: PGPASSWORD, secretRef: mdp-admin }
           - { name: MDP, secretRef: mdp-parc }
-          - { name: SQL_B64, value: $SQL_B64 }
+          - { name: SQL_B64, value: $(yaml_quote "$(base64 -w0 role-parcinfo.sql)") }
         resources: { cpu: 0.25, memory: 0.5Gi }
 EOF
-az containerapp job create -g "$GROUPE" -n "$TACHE_INIT" --yaml "$YAML_TACHE" -o none
+az containerapp job delete -g "$GROUPE" -n "$TACHE_INIT" -y -o none 2>/dev/null || true
+reessayer az containerapp job create -g "$GROUPE" -n "$TACHE_INIT" --yaml "$YAML_TACHE" -o none \
+    || erreur "création de la tâche impossible (droit de rattachement à $ENVIRONNEMENT manquant ? relancez 0-preparer-acces.sh)."
 rm -f "$YAML_TACHE"
 EXECUTION=$(az containerapp job start -g "$GROUPE" -n "$TACHE_INIT" --query name -o tsv)
 info "tâche lancée ($EXECUTION), attente du résultat…"
@@ -130,8 +133,8 @@ for _ in $(seq 1 60); do
 done
 if [[ "$STATUT" != "Succeeded" ]]; then
     erreur "la création du compte PostgreSQL a échoué (statut : ${STATUT:-inconnu}).
-    Consultez les journaux : portail Azure > $TACHE_INIT > Historique des exécutions > Journaux de console.
-    Causes fréquentes : mot de passe administrateur incorrect. La tâche est conservée pour le diagnostic ;
+    Journaux : portail Azure > $GROUPE > $TACHE_INIT > Historique des exécutions > Journaux de console.
+    Cause fréquente : mot de passe administrateur incorrect. La tâche est conservée pour le diagnostic ;
     relancez simplement ce script une fois le problème corrigé."
 fi
 az containerapp job delete -g "$GROUPE" -n "$TACHE_INIT" -y -o none
@@ -139,7 +142,7 @@ info "compte « $BASE » prêt, tâche temporaire supprimée"
 CHAINE_PG="Host=$HOTE_PG;Database=$BASE;Username=$BASE;Password=$MDP_PARC;SSL Mode=Require"
 
 # ---------------------------------------------------------------------------
-etape "4. Application Container Apps ($APPLICATION)"
+etape "5. Application Container Apps ($APPLICATION)"
 VARIABLES=(
     "ASPNETCORE_ENVIRONMENT=Production"
     "BaseDeDonnees__Fournisseur=Postgres"
@@ -152,8 +155,8 @@ if az containerapp show -g "$GROUPE" -n "$APPLICATION" -o none 2>/dev/null; then
     az containerapp update -g "$GROUPE" -n "$APPLICATION" --set-env-vars "${VARIABLES[@]}" -o none
     info "application existante mise à jour (nouveau mot de passe de base enregistré)"
 else
-    # Image provisoire de Microsoft : la vraie image sera publiée par le déploiement GitHub (étape 3 du guide)
-    az containerapp create -g "$GROUPE" -n "$APPLICATION" --environment "$ENVIRONNEMENT" \
+    # Image provisoire de Microsoft : la vraie image sera publiée par le déploiement GitHub
+    az containerapp create -g "$GROUPE" -n "$APPLICATION" --environment "$ID_ENV" \
         --image mcr.microsoft.com/k8se/quickstart:latest --ingress external --target-port 80 \
         --min-replicas 1 --max-replicas 1 --cpu 0.5 --memory 1.0Gi \
         --user-assigned "$ID_IDENTITE_APP" --registry-server "$SERVEUR_REGISTRE" --registry-identity "$ID_IDENTITE_APP" \
@@ -164,8 +167,8 @@ fi
 ID_APPLICATION=$(az containerapp show -g "$GROUPE" -n "$APPLICATION" --query id -o tsv)
 
 # ---------------------------------------------------------------------------
-etape "5. Identité du déploiement GitHub ($IDENTITE_GITHUB)"
-az identity create -g "$GROUPE" -n "$IDENTITE_GITHUB" --tags "${ETIQUETTES[@]}" -o none
+etape "6. Identité du déploiement GitHub ($IDENTITE_GITHUB)"
+az identity create -g "$GROUPE" -n "$IDENTITE_GITHUB" -l "$REGION" --tags "${ETIQUETTES[@]}" -o none
 PRINCIPAL_GITHUB=$(az identity show -g "$GROUPE" -n "$IDENTITE_GITHUB" --query principalId -o tsv)
 CLIENT_GITHUB=$(az identity show -g "$GROUPE" -n "$IDENTITE_GITHUB" --query clientId -o tsv)
 SUJET="repo:$DEPOT_GITHUB:environment:$ENVIRONNEMENT_GITHUB"
@@ -174,21 +177,10 @@ if [[ -z "$(az identity federated-credential list -g "$GROUPE" --identity-name "
         --issuer https://token.actions.githubusercontent.com --subject "$SUJET" --audiences api://AzureADTokenExchange -o none
 fi
 info "confiance accordée au dépôt $DEPOT_GITHUB (environnement GitHub « $ENVIRONNEMENT_GITHUB » uniquement)"
-
-# Droits minimaux : publier des images, mettre à jour NOTRE application, et s'y rattacher à l'environnement
-attribuer_role "$PRINCIPAL_GITHUB" "AcrPush" "$ID_REGISTRE"
-attribuer_role "$PRINCIPAL_GITHUB" "Contributor" "$ID_APPLICATION"
-if [[ -z "$(az role definition list --name "$ROLE_RATTACHEMENT" --query '[0].id' -o tsv)" ]]; then
-    az role definition create -o none --role-definition "{
-        \"Name\": \"$ROLE_RATTACHEMENT\",
-        \"Description\": \"Permet de déployer une application dans l'environnement Container Apps, sans pouvoir le modifier.\",
-        \"Actions\": [\"Microsoft.App/managedEnvironments/read\", \"Microsoft.App/managedEnvironments/join/action\"],
-        \"AssignableScopes\": [\"/subscriptions/$ID_ABONNEMENT/resourceGroups/$GROUPE\"]
-    }"
-    info "rôle personnalisé créé, attente de sa propagation…"
-    sleep 30
-fi
-attribuer_role "$PRINCIPAL_GITHUB" "$ROLE_RATTACHEMENT" "$ID_ENV"
+# Droits : publier dans NOTRE registre, mettre à jour NOTRE application, s'y rattacher à l'environnement (sans le modifier)
+reessayer attribuer_role "$PRINCIPAL_GITHUB" ServicePrincipal "AcrPush" "$ID_REGISTRE"
+reessayer attribuer_role "$PRINCIPAL_GITHUB" ServicePrincipal "Contributor" "$ID_APPLICATION"
+reessayer attribuer_role "$PRINCIPAL_GITHUB" ServicePrincipal "$ROLE_RATTACHEMENT" "$ID_ENV"
 
 # ---------------------------------------------------------------------------
 etape "Terminé"
