@@ -71,7 +71,8 @@ verifier_abonnement() {
 # Attribue un rôle s'il ne l'est pas déjà. Paramètres : id du principal, type (User / ServicePrincipal), rôle, portée.
 attribuer_role() {
     if [[ -z "$(az role assignment list --assignee "$1" --role "$3" --scope "$4" --query '[0].id' -o tsv 2>/dev/null)" ]]; then
-        az role assignment create --assignee-object-id "$1" --assignee-principal-type "$2" --role "$3" --scope "$4" -o none
+        # « || return 1 » : sans lui, un échec passerait inaperçu quand la fonction est appelée par « reessayer »
+        az role assignment create --assignee-object-id "$1" --assignee-principal-type "$2" --role "$3" --scope "$4" -o none || return 1
         info "rôle « $3 » attribué"
     else
         info "rôle « $3 » déjà attribué"
