@@ -1,4 +1,7 @@
-name: Compilation, tests et déploiement Azure
+name: Tests et déploiement Azure
+
+# Tests à chaque push / pull request ; déploiement sur Azure Container Apps à chaque push sur main,
+# une fois les variables AZURE_* renseignées (voir deploiement/README.md).
 
 on:
   push:
@@ -9,35 +12,74 @@ on:
 permissions:
   contents: read
 
+env:
+  AZURE_GROUPE: rg-vital-pilot-prod
+  AZURE_REGISTRE: acrvitalpilot94eed4
+  AZURE_APPLICATION: ca-parc-informatique
+  IMAGE: parc-informatique
+
 jobs:
-  build:
+  tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - name: Tests
+      - name: Tests (SQLite)
         run: dotnet test --configuration Release
-      - name: Publication
-        run: dotnet publish src/ParcInfo.Web --configuration Release --output publication
-      - uses: actions/upload-artifact@v4
-        with:
-          name: application
-          path: publication
+      - name: Tests (PostgreSQL 17, avec les migrations de production)
+        run: dotnet test --configuration Release --no-build
+        env:
+          PARC_TEST_POSTGRES: Host=localhost;Username=test;Password=test
 
   deploiement:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
-    needs: build
+    needs: tests
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != ''
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write   # connexion à Azure sans mot de passe (identité id-parc-github)
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - name: Connexion à Azure
+        uses: azure/login@v2
         with:
-          name: application
-          path: publication
-      - uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: publication
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Construction et publication de l'image
+        run: |
+          az acr login --name "$AZURE_REGISTRE"
+          IMAGE_COMPLETE="$AZURE_REGISTRE.azurecr.io/$IMAGE:${GITHUB_SHA::12}"
+          docker build -t "$IMAGE_COMPLETE" .
+          docker push "$IMAGE_COMPLETE"
+          echo "IMAGE_COMPLETE=$IMAGE_COMPLETE" >> "$GITHUB_ENV"
+
+      - name: Mise à jour de l'application
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors -y
+          az containerapp update -g "$AZURE_GROUPE" -n "$AZURE_APPLICATION" --image "$IMAGE_COMPLETE" -o none
+          az containerapp ingress update -g "$AZURE_GROUPE" -n "$AZURE_APPLICATION" --target-port 8080 -o none
+
+      - name: Vérification (sonde /sante)
+        run: |
+          ADRESSE=$(az containerapp show -g "$AZURE_GROUPE" -n "$AZURE_APPLICATION" --query properties.configuration.ingress.fqdn -o tsv)
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$ADRESSE/sante"; then echo; echo "Application en ligne : https://$ADRESSE"; exit 0; fi
+            sleep 10
+          done
+          echo "L'application ne répond pas : consultez les journaux dans le portail Azure ($AZURE_APPLICATION > Flux de journaux)."
+          exit 1

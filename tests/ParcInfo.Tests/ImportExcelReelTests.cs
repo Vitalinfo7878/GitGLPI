@@ -11,7 +11,7 @@ namespace ParcInfo.Tests;
 public class ImportExcelReelTests(ITestOutputHelper output)
 {
     [Fact]
-    public void Import_du_classeur_reel()
+    public async Task Import_du_classeur_reel()
     {
         var chemin = Environment.GetEnvironmentVariable("PARC_EXCEL");
         if (string.IsNullOrEmpty(chemin) || !File.Exists(chemin)) return;
@@ -37,7 +37,7 @@ public class ImportExcelReelTests(ITestOutputHelper output)
         // Enregistrement réel (SQLite, ou PostgreSQL si PARC_TEST_POSTGRES est défini) : vérifie notamment les longueurs de colonnes
         using var baseTest = new BaseDeTest();
         using var db = baseTest.CreateDbContext();
-        var enregistre = new ImportateurParc().ImporterAsync(db, inv, mvts, "test").GetAwaiter().GetResult();
+        var enregistre = await new ImportateurParc().ImporterAsync(db, inv, mvts, "test");
         Assert.True(enregistre.Enregistre);
         Assert.Equal(rapport.Materiels, db.Materiels.Count());
         Assert.Equal(rapport.Mouvements, db.Mouvements.Count());

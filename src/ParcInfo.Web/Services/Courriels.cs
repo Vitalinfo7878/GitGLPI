@@ -36,7 +36,7 @@ public sealed class EnvoiCourrielGraph(IConfiguration config, OptionsMessagerie 
     {
         var az = config.GetSection("AzureAd");
         return string.IsNullOrEmpty(az["ClientSecret"])
-            ? new DefaultAzureCredential() // identité managée de l'App Service
+            ? new DefaultAzureCredential() // identité managée (si aucun secret client n'est configuré)
             : new ClientSecretCredential(az["TenantId"], az["ClientId"], az["ClientSecret"]);
     }
 

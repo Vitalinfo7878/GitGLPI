@@ -24,14 +24,14 @@ public class UtilisateurTests
     }
 
     [Fact]
-    public void Roles_configures_reconnus_sur_n_importe_quelle_adresse()
+    public async Task Roles_configures_reconnus_sur_n_importe_quelle_adresse()
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Demandes:Valideurs:0"] = "thomas.verchere@groupe-vitalrest.com" })
             .Build();
         var p = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim("email", "thomas.verchere@vitalrest.com"), new Claim("preferred_username", "thomas.verchere@groupe-vitalrest.com")], "test"));
-        var t = new AjoutRolesConfigures(config).TransformAsync(p).Result;
+        var t = await new AjoutRolesConfigures(config).TransformAsync(p);
         Assert.True(Utilisateur.Depuis(t).EstValideur);
         Assert.False(Utilisateur.Depuis(t).EstGestionnaire);
     }
