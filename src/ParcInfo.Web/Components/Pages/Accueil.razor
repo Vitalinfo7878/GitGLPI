@@ -61,13 +61,7 @@ else
                         <MudListItem Icon="@Icons.Material.Outlined.Autorenew" IconColor="Color.Primary" Href="/inventaire?filtre=achanger">
                             <b>@_stats.AChanger</b> PC à changer
                         </MudListItem>
-                        @* Statuts repris de l'ancien inventaire, qui ne sont plus produits par les mouvements *@
-                        @if (_stats.ParStatut.GetValueOrDefault(StatutMateriel.EnReparation) is > 0 and var reparation)
-                        {
-                            <MudListItem Icon="@Icons.Material.Outlined.Build" IconColor="Color.Warning" Href="/inventaire?statut=EnReparation">
-                                <b>@reparation</b> en réparation
-                            </MudListItem>
-                        }
+                        @* Statut repris de l'ancien inventaire, qui n'est plus produit par les mouvements *@
                         @if (_stats.ParStatut.GetValueOrDefault(StatutMateriel.RebutEnAttente) is > 0 and var attenteRebut)
                         {
                             <MudListItem Icon="@Icons.Material.Outlined.DeleteOutline" IconColor="Color.Dark" Href="/inventaire?statut=RebutEnAttente">

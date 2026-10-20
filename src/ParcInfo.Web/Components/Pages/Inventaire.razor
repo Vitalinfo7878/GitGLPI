@@ -41,7 +41,7 @@
         </MudItem>
         <MudItem xs="6" md="2">
             <MudSelect T="StatutMateriel?" Value="_statut" ValueChanged="v => Filtrer(() => _statut = v)" Label="Statut" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
-                @foreach (var s in Enum.GetValues<StatutMateriel>())
+                @foreach (var s in Enum.GetValues<StatutMateriel>().Where(s => s != StatutMateriel.EnReparation))
                 {
                     <MudSelectItem T="StatutMateriel?" Value="s">@s.Libelle()</MudSelectItem>
                 }
