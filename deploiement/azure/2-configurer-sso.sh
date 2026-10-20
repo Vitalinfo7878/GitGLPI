@@ -58,11 +58,19 @@ else
         --app-roles @"$FICHIER_ROLES" --optional-claims @"$FICHIER_REVENDICATIONS"
     info "inscription existante mise à jour ($ID_APPLI)"
 fi
-az ad app update --id "$ID_APPLI" --set web.logoutUrl="https://$ADRESSE_APP/signout-callback-oidc"
+# Adresses de retour et de déconnexion : via l'API Graph (« az ad app update --set web.… » ne fonctionne pas).
+# Le bloc « web » est envoyé en entier, car Graph remplace tout le bloc à chaque modification.
+az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications(appId='$ID_APPLI')" \
+    --headers "Content-Type=application/json" -o none --body "{\"web\": {
+        \"redirectUris\": [\"https://$ADRESSE_APP/signin-oidc\"],
+        \"logoutUrl\": \"https://$ADRESSE_APP/signout-callback-oidc\",
+        \"implicitGrantSettings\": {\"enableIdTokenIssuance\": true, \"enableAccessTokenIssuance\": false}
+    }}"
+info "adresses de retour et de déconnexion enregistrées"
 
 # Application d'entreprise (principal de service) : ouverte à tous les comptes du tenant
 ID_SP=$(az ad sp list --filter "appId eq '$ID_APPLI'" --query "[0].id" -o tsv)
-[[ -n "$ID_SP" ]] || ID_SP=$(az ad sp create --id "$ID_APPLI" --query id -o tsv)
+[[ -n "$ID_SP" ]] || ID_SP=$(reessayer az ad sp create --id "$ID_APPLI" --query id -o tsv)
 
 # Autorisations de connexion (openid, profile, email, offline_access, User.Read) + consentement administrateur :
 # les salariés se connectent directement, sans écran d'accord.
@@ -71,7 +79,7 @@ az ad app permission add --id "$ID_APPLI" --api "$GRAPH" --api-permissions \
     64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0=Scope 7427e0e9-2fba-42fe-b0c0-848c9e6a8182=Scope \
     e1fe6dd8-ba31-4d61-89e7-88639da4683d=Scope --only-show-errors
 sleep 10
-az ad app permission admin-consent --id "$ID_APPLI"
+reessayer az ad app permission admin-consent --id "$ID_APPLI"
 info "consentement administrateur accordé"
 
 # ---------------------------------------------------------------------------
