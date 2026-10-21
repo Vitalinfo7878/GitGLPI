@@ -110,11 +110,14 @@ else
                                 {
                                     <div class="d-flex flex-wrap gap-2 align-center">
                                         <MudTextField MaxLength="400" @bind-Value="_npNom" Label="Prénom NOM" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                        <MudTextField MaxLength="400" @bind-Value="_npEmail" Label="Adresse mail" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudTextField MaxLength="400" @bind-Value="_npEmail" Label="Adresse mail *" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
                                         <MudButton Variant="Variant.Outlined" OnClick="CreerPersonne">Créer</MudButton>
                                     </div>
                                 }
                             }
+                            <MudTextField @bind-Value="_d.EmailDetenteur" MaxLength="200" Label="Adresse mail du destinataire *" InputType="InputType.Email"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                                          HelperText="Obligatoire : enregistrée sur la personne ou le site, elle donne accès à « Mon matériel »." />
                         </MudItem>
                     }
                     else
@@ -211,11 +214,20 @@ else
         _typeDest = t;
         _site = null;
         _personne = null;
+        _d.EmailDetenteur = null;
     }
 
-    private void ChoisirSite(Site? s) => _site = s;
+    private void ChoisirSite(Site? s)
+    {
+        _site = s;
+        _d.EmailDetenteur = s?.Email;
+    }
 
-    private void ChoisirPersonne(Personne? p) => _personne = p;
+    private void ChoisirPersonne(Personne? p)
+    {
+        _personne = p;
+        _d.EmailDetenteur = p?.Email;
+    }
 
     private async Task<IEnumerable<Materiel>> ChercherMateriel(string? texte, CancellationToken ct)
     {
@@ -259,7 +271,11 @@ else
 
     private async Task CreerPersonne()
     {
-        if (string.IsNullOrWhiteSpace(_npNom)) return;
+        if (string.IsNullOrWhiteSpace(_npNom) || string.IsNullOrWhiteSpace(_npEmail))
+        {
+            Snackbar.Add("Nom et adresse mail obligatoires.", Severity.Warning);
+            return;
+        }
         await using var db = await DbFactory.CreateDbContextAsync();
         var p = new Personne { NomComplet = _npNom.Trim(), Email = string.IsNullOrWhiteSpace(_npEmail) ? null : _npEmail.Trim().ToLowerInvariant() };
         db.Personnes.Add(p);

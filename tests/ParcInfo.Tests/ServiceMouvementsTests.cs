@@ -88,7 +88,7 @@ public sealed class ServiceMouvementsTests : IDisposable
     }
 
     [Fact]
-    public async Task Attribution_a_un_site_sans_adresse_mail()
+    public async Task Attribution_exige_l_adresse_mail_du_destinataire()
     {
         var (pc, _, _) = Donnees();
         int site;
@@ -99,22 +99,38 @@ public sealed class ServiceMouvementsTests : IDisposable
             await db.SaveChangesAsync();
             site = s.Id;
         }
-        var r = await _service.CreerMouvementsAsync(new DemandeMouvement
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerMouvementsAsync(new DemandeMouvement
         {
             Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site,
+        }, Informatique));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerMouvementsAsync(new DemandeMouvement
+        {
+            Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site, EmailDetenteur = "pas-une-adresse",
+        }, Informatique));
+
+        var r = await _service.CreerMouvementsAsync(new DemandeMouvement
+        {
+            Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site, EmailDetenteur = "Site586@Vitalrest.com",
         }, Informatique);
-        Assert.Equal(TypeFiche.Attribution, r.Fiche!.Type);
-        Assert.Null(r.Fiche.DestinataireEmail);
+        Assert.Equal("site586@vitalrest.com", r.Fiche!.DestinataireEmail);
+        await using var verif = _fabrique.CreateDbContext();
+        Assert.Equal("site586@vitalrest.com", (await verif.Sites.SingleAsync()).Email); // enregistrée sur le site
     }
 
     [Fact]
     public async Task Reception_d_achat_numerote_dans_la_nomenclature()
     {
         Donnees();
+        var sansSerie = await Assert.ThrowsAsync<ErreurMetier>(() => _service.ReceptionnerAchatAsync(new DemandeAchat
+        {
+            Materiels = [new() { Type = TypeMateriel.PcFixe, NumSerie = "S1" }, new() { Type = TypeMateriel.Ecran }],
+        }, Informatique));
+        Assert.Contains("ligne 2", sansSerie.Message);
         var r = await _service.ReceptionnerAchatAsync(new DemandeAchat
         {
             Fournisseur = "AMAZON",
-            Materiels = [new() { Type = TypeMateriel.PcFixe, Modele = "Lenovo M75q" }, new() { Type = TypeMateriel.PcFixe }, new() { Type = TypeMateriel.Ecran }],
+            Materiels = [new() { Type = TypeMateriel.PcFixe, Modele = "Lenovo M75q", NumSerie = "S1" }, new() { Type = TypeMateriel.PcFixe, NumSerie = "S2" },
+                new() { Type = TypeMateriel.Ecran, NumSerie = "S3" }],
         }, Informatique);
         Assert.Equal(TypeFiche.Achat, r.Fiche!.Type);
         await using var db = _fabrique.CreateDbContext();

@@ -15,6 +15,8 @@ public sealed class DemandeMouvement
     public string? DestinationLibre { get; set; }
     public string? DocumentReference { get; set; }
     public string? Commentaire { get; set; }
+    /// <summary>Attribution : adresse mail du destinataire (obligatoire), enregistrée sur la personne ou le site.</summary>
+    public string? EmailDetenteur { get; set; }
 }
 
 public sealed class NouveauMateriel
@@ -76,6 +78,8 @@ public sealed class ServiceMouvements(
     public async Task<ResultatMouvement> ReceptionnerAchatAsync(DemandeAchat demande, Utilisateur auteur, CancellationToken ct = default)
     {
         if (demande.Materiels.Count == 0) throw new ErreurMetier("Ajoutez au moins un matériel.");
+        var sansSerie = demande.Materiels.Select((n, i) => (n, i)).Where(x => string.IsNullOrWhiteSpace(x.n.NumSerie)).Select(x => x.i + 1).ToList();
+        if (sansSerie.Count > 0) throw new ErreurMetier($"Le n° de série est obligatoire (ligne {string.Join(", ", sansSerie)}).");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var maintenant = DateTime.UtcNow;
         var reserves = new List<string>();
@@ -129,8 +133,17 @@ public sealed class ServiceMouvements(
         if (regle.DestinationEstDetenteur && site == null && personne == null)
             throw new ErreurMetier("Choisissez le site ou la personne destinataire.");
 
-        // Adresse du destinataire d'une attribution : lui permet de télécharger sa fiche
-        var emailDestinataire = (personne?.Email ?? site?.Email)?.ToLowerInvariant();
+        // Adresse du destinataire d'une attribution, obligatoire : enregistrée sur la personne ou le site,
+        // elle donne accès à « Mon matériel » et au téléchargement de la fiche.
+        string? emailDestinataire = null;
+        if (regle.DestinationEstDetenteur)
+        {
+            emailDestinataire = (Vide(d.EmailDetenteur) ?? personne?.Email ?? site?.Email)?.ToLowerInvariant();
+            if (emailDestinataire is null) throw new ErreurMetier("L'adresse mail du destinataire est obligatoire.");
+            if (!FormulaireDemande.EmailValide(emailDestinataire)) throw new ErreurMetier($"Adresse mail invalide : {emailDestinataire}.");
+            if (personne != null) personne.Email = emailDestinataire;
+            if (site != null) site.Email = emailDestinataire;
+        }
 
         var maintenant = DateTime.UtcNow;
         var prochain = (await db.Mouvements.MaxAsync(m => (int?)m.Numero, ct) ?? 0) + 1;

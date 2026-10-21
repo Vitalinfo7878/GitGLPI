@@ -45,7 +45,16 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                            <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                  Error="@(_erreurs.ContainsKey("NumSerie"))" ErrorText="@_erreurs.GetValueOrDefault("NumSerie")" /></MudItem>
+                            @if (_m.Site is not null || _m.Personne is not null)
+                            {
+                                <MudItem xs="12">
+                                    <MudTextField MaxLength="200" @bind-Value="_emailDetenteur" Label="@($"Adresse mail de {_m.DetenteurLibelle} *")" InputType="InputType.Email"
+                                                  Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Donne accès à « Mon matériel » ; s'applique à tout le matériel de ce détenteur."
+                                                  Error="@(_erreurs.ContainsKey("Email"))" ErrorText="@_erreurs.GetValueOrDefault("Email")" />
+                                </MudItem>
+                            }
                             <MudItem xs="12" sm="6">
                                 <MudSelect T="int?" @bind-Value="_form.RegionId" Label="Région / service" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                                     @foreach (var r in _regions) { <MudSelectItem T="int?" Value="r.Id">@r.Nom</MudSelectItem> }
@@ -99,6 +108,10 @@ else
                                     else if (_m.Personne is { } p) { @p.NomComplet }
                                     else { <span>—</span> }
                                 </Champ>
+                                @if (_m.Site is not null || _m.Personne is not null)
+                                {
+                                    <Champ Libelle="Mail du détenteur" Valeur="@(_m.Personne?.Email ?? _m.Site?.Email)" />
+                                }
                                 <Champ Libelle="Région / service" Valeur="@(_m.Region?.Nom ?? _m.Site?.Region?.Nom)" />
                                 <Champ Libelle="Année d'acquisition" Valeur="@_m.AnneeAcquisition?.ToString()" />
                                 <Champ Libelle="Date de mise en place" Valeur="@_m.DateMiseEnPlace?.ToString("dd/MM/yyyy")" />
@@ -191,6 +204,8 @@ else
 
     private Materiel? _m;
     private List<Ticket> _tickets = [];
+    private string? _emailDetenteur;
+    private Dictionary<string, string> _erreurs = [];
     private Materiel? _form;
     private bool _edition;
     private bool _introuvable;
@@ -230,12 +245,23 @@ else
             OfficeEnDur = _m.OfficeEnDur, ConnexionAdmin = _m.ConnexionAdmin, Labtech = _m.Labtech, AChanger = _m.AChanger,
             NumImmo = _m.NumImmo, NumFacture = _m.NumFacture, Commentaire = _m.Commentaire,
         };
+        _emailDetenteur = _m.Personne?.Email ?? _m.Site?.Email;
+        _erreurs = [];
         _edition = true;
     }
 
     private async Task Enregistrer()
     {
         var f = _form!;
+        var email = _emailDetenteur?.Trim().ToLowerInvariant();
+        _erreurs = [];
+        if (string.IsNullOrWhiteSpace(f.NumSerie)) _erreurs["NumSerie"] = "Le n° de série est obligatoire.";
+        if (_m!.Site is not null || _m.Personne is not null)
+        {
+            if (string.IsNullOrEmpty(email)) _erreurs["Email"] = "L'adresse mail est obligatoire.";
+            else if (!FormulaireDemande.EmailValide(email)) _erreurs["Email"] = "Adresse mail invalide.";
+        }
+        if (_erreurs.Count > 0) return;
         var num = f.NumInterne.Trim().ToUpperInvariant();
         await using var db = await DbFactory.CreateDbContextAsync();
         if (await db.Materiels.AnyAsync(m => m.NumInterne == num && m.Id != Id))
@@ -252,6 +278,10 @@ else
         m.OfficeEnDur = f.OfficeEnDur; m.ConnexionAdmin = f.ConnexionAdmin; m.Labtech = f.Labtech; m.AChanger = f.AChanger;
         m.NumImmo = f.NumImmo; m.NumFacture = f.NumFacture; m.Commentaire = f.Commentaire;
         m.CategoriePc = f.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? f.CategoriePc : null;
+        m.NumSerie = f.NumSerie!.Trim();
+        // L'adresse appartient au détenteur (personne ou site) : elle vaut pour tout son matériel
+        if (m.PersonneId is { } pid) await db.Personnes.Where(p => p.Id == pid).ExecuteUpdateAsync(x => x.SetProperty(p => p.Email, email));
+        else if (m.SiteId is { } sid) await db.Sites.Where(x => x.Id == sid).ExecuteUpdateAsync(x => x.SetProperty(st => st.Email, email));
         m.ModifieLe = DateTime.UtcNow;
         var u = await Courant.ObtenirAsync();
         db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Matériel modifié", MaterielId = Id,

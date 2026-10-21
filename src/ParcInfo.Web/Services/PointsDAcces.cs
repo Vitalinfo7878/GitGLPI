@@ -54,14 +54,14 @@ public static class PointsDAcces
                 .OrderBy(m => m.NumInterne).ToListAsync();
             using var wb = new XLWorkbook();
             var ws = wb.AddWorksheet("Inventaire");
-            string[] entetes = ["N° interne", "Type", "Statut", "Catégorie PC", "Site / personne", "Région / service", "Modèle", "N° série",
+            string[] entetes = ["N° interne", "Type", "Statut", "Catégorie PC", "Site / personne", "Mail", "Région / service", "Modèle", "N° série",
                 "Configuration", "Année", "Mise en place", "Profil Microsoft", "Licence", "Office en dur", "Note /5", "Admin local",
                 "Windows", "Édition", "À changer", "Labtech", "N° immo", "N° facture", "Clé Office", "Commentaire"];
             for (var i = 0; i < entetes.Length; i++) ws.Cell(1, i + 1).Value = entetes[i];
             var r = 2;
             foreach (var m in materiels)
             {
-                object?[] v = [m.NumInterne, m.Type.Libelle(), m.Statut.Libelle(), m.CategoriePc?.Libelle(), m.DetenteurLibelle,
+                object?[] v = [m.NumInterne, m.Type.Libelle(), m.Statut.Libelle(), m.CategoriePc?.Libelle(), m.DetenteurLibelle, m.Personne?.Email ?? m.Site?.Email,
                     m.Region?.Nom ?? m.Site?.Region?.Nom, m.Modele, m.NumSerie, m.Configuration, m.AnneeAcquisition,
                     m.DateMiseEnPlace?.ToDateTime(TimeOnly.MinValue), m.ProfilMicrosoft, m.LicenceMicrosoft, OuiNon(m.OfficeEnDur), m.Note,
                     OuiNon(m.ConnexionAdmin), m.VersionWindows, m.EditionWindows, m.AChanger ? "oui" : "non", OuiNon(m.Labtech),

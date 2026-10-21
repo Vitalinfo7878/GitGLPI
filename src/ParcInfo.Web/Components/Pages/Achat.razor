@@ -53,7 +53,7 @@ else
                 </MudItem>
                 <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumInterne" Label="N° interne" Placeholder="automatique" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="3"><MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
                     <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>

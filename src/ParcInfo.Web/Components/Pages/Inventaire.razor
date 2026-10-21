@@ -31,7 +31,7 @@
     <MudGrid Spacing="2">
         <MudItem xs="12" md="4">
             <MudTextField T="string" Value="_recherche" ValueChanged="Rechercher" Immediate="true" DebounceInterval="250"
-                          Placeholder="N° interne, modèle, n° série, site, personne, compte Microsoft…" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Placeholder="N° interne, modèle, n° série, site, personne, mail, compte Microsoft…" Variant="Variant.Outlined" Margin="Margin.Dense"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
         </MudItem>
         <MudItem xs="6" md="2">
@@ -105,6 +105,7 @@ else
                     @context.Item.Detenteur
                 </CellTemplate>
             </TemplateColumn>
+            <PropertyColumn Property="x => x.Email" Title="Mail" />
             <PropertyColumn Property="x => x.Region" Title="Région / service" />
             <TemplateColumn T="Ligne" Title="Statut" SortBy="x => x.Statut">
                 <CellTemplate><ChipStatut Statut="context.Item.Statut" /></CellTemplate>
@@ -128,7 +129,7 @@ else
 
     private sealed record Ligne(
         int Id, string NumInterne, TypeMateriel Type, string TypeLibelle, CategoriePc? CategoriePc, string? Modele, string? NumSerie, TypeDetenteur Parc,
-        string Detenteur, string? Region, StatutMateriel Statut, string? ProfilMicrosoft, string? VersionWindows, int? Note,
+        string Detenteur, string? Email, string? Region, StatutMateriel Statut, string? ProfilMicrosoft, string? VersionWindows, int? Note,
         int? Annee, bool AChanger, string Recherche)
     {
         // Une ligne = un matériel : la sélection de la grille survit à la mise à jour d'une ligne
@@ -159,6 +160,7 @@ else
             {
                 m.Id, m.NumInterne, m.Type, m.CategoriePc, m.Modele, m.NumSerie, m.SiteId, m.PersonneId,
                 SiteCode = m.Site!.Code, SiteNom = m.Site.Nom, SiteRegion = m.Site.Region!.Nom, Personne = m.Personne!.NomComplet,
+                Email = m.Personne.Email ?? m.Site.Email,
                 Region = m.Region!.Nom, m.Statut, m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger,
             })
             .ToListAsync();
@@ -173,8 +175,8 @@ else
                 _ => "",
             };
             var region = m.Region ?? m.SiteRegion;
-            var recherche = Normaliser($"{m.NumInterne} {m.Modele} {m.NumSerie} {detenteur} {m.ProfilMicrosoft} {region}");
-            return new Ligne(m.Id, m.NumInterne, m.Type, m.Type.Libelle(), m.CategoriePc, m.Modele, m.NumSerie, parc, detenteur, region, m.Statut,
+            var recherche = Normaliser($"{m.NumInterne} {m.Modele} {m.NumSerie} {detenteur} {m.Email} {m.ProfilMicrosoft} {region}");
+            return new Ligne(m.Id, m.NumInterne, m.Type, m.Type.Libelle(), m.CategoriePc, m.Modele, m.NumSerie, parc, detenteur, m.Email, region, m.Statut,
                 m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger, recherche);
         }).OrderBy(l => l.NumInterne).ToList();
         _regions = _tous.Select(l => l.Region).OfType<string>().Distinct().Order().ToList();
