@@ -226,6 +226,26 @@ public sealed class ServiceMouvements(
     private static async Task<string?> RegionDe(ParcDbContext db, Materiel m, CancellationToken ct) =>
         m.RegionId is { } id ? await db.Regions.Where(r => r.Id == id).Select(r => r.Nom).FirstOrDefaultAsync(ct) : null;
 
+    /// <summary>
+    /// Supprime définitivement un matériel et son historique de mouvements. Les fiches PDF déjà émises sont conservées,
+    /// les tickets restent avec le n° interne saisi ; la suppression est tracée dans le journal.
+    /// </summary>
+    public async Task SupprimerMaterielAsync(int id, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var m = await db.Materiels.Include(x => x.Mouvements).FirstOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ErreurMetier("Matériel introuvable.");
+        db.Materiels.Remove(m);
+        db.Journal.Add(new Journal
+        {
+            Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Matériel supprimé", MaterielId = m.Id,
+            Details = $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele} (n° série {m.NumSerie ?? "?"}, statut {m.Statut.Libelle()}, " +
+                      $"{m.Mouvements.Count} mouvement(s) supprimé(s))",
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task RegenererPdfAsync(int ficheId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);

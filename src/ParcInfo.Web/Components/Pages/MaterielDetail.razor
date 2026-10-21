@@ -4,6 +4,8 @@
 @inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
 @inject NavigationManager Nav
+@inject IDialogService Dialogues
+@inject ServiceMouvements Mouvements
 
 <PageTitle>@(_m?.NumInterne ?? "Matériel")</PageTitle>
 
@@ -21,6 +23,7 @@ else
         <MudSpacer />
         @if (!_edition)
         {
+            <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Outlined.DeleteForever" OnClick="Supprimer">Supprimer</MudButton>
             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="Editer">Modifier</MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
                        Href="@($"/mouvements/nouveau?ids={_m.Id}")">Nouveau mouvement</MudButton>
@@ -247,6 +250,23 @@ else
         _edition = false;
         Snackbar.Add("Modifications enregistrées.", Severity.Success);
         await Charger();
+    }
+
+    private async Task Supprimer()
+    {
+        var m = _m!;
+        var ok = await Dialogues.ShowMessageBoxAsync($"Supprimer {m.NumInterne} ?",
+            $"Le matériel {m.NumInterne} ({m.Type.Libelle()} {m.Modele}) et ses {m.Mouvements.Count} mouvement(s) seront définitivement supprimés du parc. " +
+            "Les fiches PDF déjà émises sont conservées. Pour un matériel hors service, préférez le mouvement « Mise au rebut », qui garde l'historique.",
+            yesText: "Supprimer définitivement", cancelText: "Annuler");
+        if (ok != true) return;
+        try
+        {
+            await Mouvements.SupprimerMaterielAsync(m.Id, await Courant.ObtenirAsync());
+            Snackbar.Add($"{m.NumInterne} supprimé du parc.", Severity.Success);
+            Nav.NavigateTo("/inventaire");
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
     private async Task AfficherMotDePasse()

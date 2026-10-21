@@ -128,4 +128,35 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal("PC0444", ServiceMouvements.ProchainNumero("PC", ["PC0443", "PC0099", "PCANCIEN2", "PO0500"]));
         Assert.Equal("PO0001", ServiceMouvements.ProchainNumero("PO", []));
     }
+
+    [Fact]
+    public async Task Suppression_d_un_materiel_et_de_son_historique()
+    {
+        var (pc, ecran, personne) = Donnees();
+        var r = await _service.CreerMouvementsAsync(new DemandeMouvement
+        {
+            Type = TypeMouvement.Attribution, MaterielIds = [pc, ecran], DestinationPersonneId = personne,
+        }, Informatique);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.Tickets.Add(new Ticket { Numero = 1, Titre = "Écran HS", MaterielId = pc, MaterielReference = "PC0001" });
+            await db.SaveChangesAsync();
+        }
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.SupprimerMaterielAsync(pc, new Utilisateur("Autre", "autre@vitalrest.com", false)));
+        await _service.SupprimerMaterielAsync(pc, Informatique);
+
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.Null(await db.Materiels.FindAsync(pc));
+            Assert.DoesNotContain(await db.Mouvements.ToListAsync(), m => m.MaterielId == pc);
+            Assert.Single(await db.Mouvements.Where(m => m.MaterielId == ecran && m.Type == TypeMouvement.Attribution).ToListAsync());
+            Assert.Single(await db.Fiches.ToListAsync()); // la fiche émise est conservée
+            var t = await db.Tickets.SingleAsync();
+            Assert.Null(t.MaterielId);
+            Assert.Equal("PC0001", t.MaterielReference);
+            Assert.Contains(await db.Journal.ToListAsync(), j => j.Action == "Matériel supprimé" && j.Details!.StartsWith("PC0001"));
+        }
+        Assert.NotNull(r.Fiche);
+    }
 }
