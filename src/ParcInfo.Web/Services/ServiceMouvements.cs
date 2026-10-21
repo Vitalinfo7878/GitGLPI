@@ -78,8 +78,18 @@ public sealed class ServiceMouvements(
     public async Task<ResultatMouvement> ReceptionnerAchatAsync(DemandeAchat demande, Utilisateur auteur, CancellationToken ct = default)
     {
         if (demande.Materiels.Count == 0) throw new ErreurMetier("Ajoutez au moins un matériel.");
-        var sansSerie = demande.Materiels.Select((n, i) => (n, i)).Where(x => string.IsNullOrWhiteSpace(x.n.NumSerie)).Select(x => x.i + 1).ToList();
-        if (sansSerie.Count > 0) throw new ErreurMetier($"Le n° de série est obligatoire (ligne {string.Join(", ", sansSerie)}).");
+        // Champs obligatoires : fournisseur ; pour chaque ligne n° de facture et n° de série, et nom (n° interne) des PC
+        var manquants = new List<string>();
+        if (string.IsNullOrWhiteSpace(demande.Fournisseur)) manquants.Add("le fournisseur");
+        void Lignes(string libelle, Func<NouveauMateriel, bool> manque)
+        {
+            var lignes = demande.Materiels.Select((n, i) => (n, i)).Where(x => manque(x.n)).Select(x => x.i + 1).ToList();
+            if (lignes.Count > 0) manquants.Add($"{libelle} (ligne {string.Join(", ", lignes)})");
+        }
+        Lignes("le nom du PC", n => n.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable && string.IsNullOrWhiteSpace(n.NumInterne));
+        Lignes("le n° de série", n => string.IsNullOrWhiteSpace(n.NumSerie));
+        Lignes("le n° de facture", n => string.IsNullOrWhiteSpace(n.NumFacture));
+        if (manquants.Count > 0) throw new ErreurMetier($"À renseigner : {string.Join(" ; ", manquants)}.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var maintenant = DateTime.UtcNow;
         var reserves = new List<string>();

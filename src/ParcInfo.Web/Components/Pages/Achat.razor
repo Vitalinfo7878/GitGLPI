@@ -34,7 +34,7 @@ else
                 <MudDatePicker Date="@(_d.Date.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? d) => _d.Date = DateOnly.FromDateTime(d ?? DateTime.Today))"
                                Label="Date de réception" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" />
             </MudItem>
-            <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Fournisseur" Label="Fournisseur" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Fournisseur" Label="Fournisseur *" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.DocumentReference" Label="Devis / bon de commande" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Commentaire" Label="Commentaire" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3">
@@ -51,18 +51,18 @@ else
                         @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumInterne" Label="N° interne" Placeholder="automatique" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumInterne" Label="@(m.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? "Nom du PC *" : "N° interne")" Placeholder="@(m.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? "ex. PC0123" : "automatique")" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="3"><MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
                     <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>
                     <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => _d.Materiels.RemoveAt(i)" aria-label="Supprimer" />
                 </MudItem>
             }
             <MudItem xs="12">
-                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add" OnClick="() => _d.Materiels.Add(new())">Ajouter une ligne</MudButton>
-                <MudText Typo="Typo.caption" Class="d-block">N° interne vide = numéro suivant de la nomenclature (PC, PO, E, I).</MudText>
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add" OnClick="AjouterLigne">Ajouter une ligne</MudButton>
+                <MudText Typo="Typo.caption" Class="d-block">* obligatoire. Écrans et imprimantes : n° interne vide = numéro suivant de la nomenclature (E, I).</MudText>
             </MudItem>
             @if (_erreur is not null)
             {
@@ -83,6 +83,9 @@ else
 
     private void Dupliquer(NouveauMateriel m) =>
         _d.Materiels.Add(new NouveauMateriel { Type = m.Type, Modele = m.Modele, Configuration = m.Configuration, NumFacture = m.NumFacture });
+
+    // Nouvelle ligne : même facture que la précédente (le plus souvent une seule facture par réception)
+    private void AjouterLigne() => _d.Materiels.Add(new NouveauMateriel { NumFacture = _d.Materiels.LastOrDefault()?.NumFacture });
 
     private async Task Valider()
     {

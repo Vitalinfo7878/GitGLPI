@@ -121,21 +121,22 @@ public sealed class ServiceMouvementsTests : IDisposable
     public async Task Reception_d_achat_numerote_dans_la_nomenclature()
     {
         Donnees();
-        var sansSerie = await Assert.ThrowsAsync<ErreurMetier>(() => _service.ReceptionnerAchatAsync(new DemandeAchat
+        var incomplet = await Assert.ThrowsAsync<ErreurMetier>(() => _service.ReceptionnerAchatAsync(new DemandeAchat
         {
-            Materiels = [new() { Type = TypeMateriel.PcFixe, NumSerie = "S1" }, new() { Type = TypeMateriel.Ecran }],
+            Materiels = [new() { Type = TypeMateriel.PcFixe, NumSerie = "S1", NumFacture = "F1" }, new() { Type = TypeMateriel.Ecran }],
         }, Informatique));
-        Assert.Contains("ligne 2", sansSerie.Message);
+        Assert.Equal("À renseigner : le fournisseur ; le nom du PC (ligne 1) ; le n° de série (ligne 2) ; le n° de facture (ligne 2).", incomplet.Message);
         var r = await _service.ReceptionnerAchatAsync(new DemandeAchat
         {
             Fournisseur = "AMAZON",
-            Materiels = [new() { Type = TypeMateriel.PcFixe, Modele = "Lenovo M75q", NumSerie = "S1" }, new() { Type = TypeMateriel.PcFixe, NumSerie = "S2" },
-                new() { Type = TypeMateriel.Ecran, NumSerie = "S3" }],
+            Materiels = [new() { Type = TypeMateriel.PcFixe, NumInterne = "PC0444", Modele = "Lenovo M75q", NumSerie = "S1", NumFacture = "F1" },
+                new() { Type = TypeMateriel.PcPortable, NumInterne = "po0012", NumSerie = "S2", NumFacture = "F1" },
+                new() { Type = TypeMateriel.Ecran, NumSerie = "S3", NumFacture = "F1" }],
         }, Informatique);
         Assert.Equal(TypeFiche.Achat, r.Fiche!.Type);
         await using var db = _fabrique.CreateDbContext();
         var nums = await db.Materiels.Where(m => m.Statut == StatutMateriel.EnStock).Select(m => m.NumInterne).OrderBy(n => n).ToListAsync();
-        Assert.Equal(["E0001", "E0002", "PC0001", "PC0002", "PC0003"], nums);
+        Assert.Equal(["E0001", "E0002", "PC0001", "PC0444", "PO0012"], nums);
     }
 
     [Fact]
