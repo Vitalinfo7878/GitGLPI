@@ -44,6 +44,8 @@ public static class EnTetesSecurite
             h["Referrer-Policy"] = "strict-origin-when-cross-origin";
             h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
             h["Cross-Origin-Opener-Policy"] = "same-origin";
+            // Les fichiers de l'application (PDF, exports…) ne peuvent pas être chargés par un autre site
+            h["Cross-Origin-Resource-Policy"] = "same-origin";
             return Task.CompletedTask;
         });
         await next();

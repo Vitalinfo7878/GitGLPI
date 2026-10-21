@@ -15,6 +15,12 @@ using ParcInfo.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+// HTTPS imposé au navigateur pendant un an (recommandation des outils d'audit, dont Mozilla Observatory)
+builder.Services.AddHsts(o =>
+{
+    o.MaxAge = TimeSpan.FromDays(365);
+    o.IncludeSubDomains = true;
+});
 // Ne pas annoncer le serveur web utilisé
 builder.WebHost.ConfigureKestrel(o => o.AddServerHeader = false);
 
