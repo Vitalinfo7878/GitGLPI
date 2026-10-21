@@ -1,8 +1,6 @@
 @page "/"
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject UtilisateurCourant Courant
-@inject ServiceMouvements Mouvements
-@inject ISnackbar Snackbar
 
 <PageTitle>Accueil – Parc informatique</PageTitle>
 
@@ -65,9 +63,6 @@ else
                         <MudListItem Icon="@Icons.Material.Outlined.ConfirmationNumber" IconColor="Color.Warning" Href="/tickets">
                             <b>@_ticketsOuverts</b> ticket(s) ouvert(s), dont <b>@_ticketsNouveaux</b> à prendre en charge
                         </MudListItem>
-                        <MudListItem Icon="@Icons.Material.Outlined.HourglassTop" IconColor="Color.Warning">
-                            <b>@_attente.Count</b> réception(s) en attente de confirmation
-                        </MudListItem>
                         <MudListItem Icon="@Icons.Material.Outlined.Autorenew" IconColor="Color.Primary" Href="/inventaire?filtre=achanger">
                             <b>@_stats.AChanger</b> PC à changer
                         </MudListItem>
@@ -96,31 +91,6 @@ else
                     </MudSimpleTable>
                 </MudPaper>
             </MudItem>
-            <MudItem xs="12">
-                <MudPaper Elevation="0" Class="carte pa-4">
-                    <MudText Typo="Typo.h6" Class="mb-3">Réceptions en attente</MudText>
-                    @if (_attente.Count == 0)
-                    {
-                        <MudText Typo="Typo.body2">Aucune réception en attente.</MudText>
-                    }
-                    else
-                    {
-                        <MudTable Items="_attente" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm">
-                            <HeaderContent>
-                                <MudTh>Fiche</MudTh><MudTh>Destinataire</MudTh><MudTh>Matériel</MudTh><MudTh>Envoyée le</MudTh><MudTh></MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Fiche">@context.Code</MudTd>
-                                <MudTd DataLabel="Destinataire">@context.DestinataireNom<br /><small>@context.DestinataireEmail</small></MudTd>
-                                <MudTd DataLabel="Matériel">@string.Join(", ", context.Mouvements.Select(m => m.Materiel.NumInterne))</MudTd>
-                                <MudTd DataLabel="Envoyée le">@context.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")
-                                    @if (context.DerniereRelanceLe is { } r) { <br /><small>relancée le @r.ToLocalTime().ToString("dd/MM")</small> }</MudTd>
-                                <MudTd><MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Send" OnClick="() => Relancer(context)">Relancer</MudButton></MudTd>
-                            </RowTemplate>
-                        </MudTable>
-                    }
-                </MudPaper>
-            </MudItem>
         </MudGrid>
     }
 }
@@ -128,7 +98,6 @@ else
 @code {
     private Utilisateur? _u;
     private Stats? _stats;
-    private List<Fiche> _attente = [];
     private int _demandesAValider, _demandesATraiter;
     private int _ticketsOuverts, _ticketsNouveaux;
 
@@ -163,9 +132,6 @@ else
         _demandesATraiter = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.Validee
             && d.StatutRealisation != StatutRealisation.Realisee && d.StatutRealisation != StatutRealisation.Annulee);
         await CompterTickets(db);
-        _attente = await db.Fiches.Include(f => f.Mouvements).ThenInclude(m => m.Materiel)
-            .Where(f => f.StatutReception == StatutReception.EnAttente)
-            .OrderBy(f => f.CreeLe).AsSplitQuery().ToListAsync();
     }
 
     private async Task CompterTickets(ParcDbContext db)
@@ -174,14 +140,4 @@ else
         _ticketsNouveaux = await db.Tickets.CountAsync(t => t.Statut == StatutTicket.Nouveau);
     }
 
-    private async Task Relancer(Fiche f)
-    {
-        try
-        {
-            await Mouvements.RelancerAsync(f.Id, _u!);
-            Snackbar.Add($"Relance envoyée à {f.DestinataireEmail}.", Severity.Success);
-            await Charger();
-        }
-        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
-    }
 }

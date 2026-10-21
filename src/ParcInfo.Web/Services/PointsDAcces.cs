@@ -114,7 +114,7 @@ public static class PointsDAcces
 
     /// <summary>
     /// Connexion de démonstration (sans Entra ID) : permet de tester l'application en tant que service informatique
-    /// ou en tant que n'importe quel destinataire (pour la confirmation de réception).
+    /// ou en tant que n'importe quel salarié (demandes, tickets, « Mon matériel »).
     /// </summary>
     public static void MapConnexionDemo(this WebApplication app)
     {

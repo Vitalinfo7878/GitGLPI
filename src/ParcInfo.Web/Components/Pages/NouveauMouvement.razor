@@ -17,16 +17,9 @@
         </MudText>
         @if (_resultat.Fiche is { } f)
         {
-            <div class="d-flex flex-wrap align-center gap-3">
-                <MudButton Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf">Fiche @f.Code</MudButton>
-                <ChipReception Statut="f.StatutReception" />
-            </div>
-            @if (f.StatutReception == StatutReception.EnAttente && _resultat.AvertissementCourriel is null)
-            {
-                <MudText Typo="Typo.body2" Class="mt-2">Un courriel a été envoyé à <b>@f.DestinataireEmail</b> pour confirmer la réception.</MudText>
-            }
+            <MudButton Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf">Fiche @f.Code</MudButton>
         }
-        @if (_resultat.AvertissementCourriel is { } a)
+        @if (_resultat.Avertissement is { } a)
         {
             <MudAlert Severity="Severity.Warning" Class="mt-3">@a</MudAlert>
         }
@@ -132,18 +125,6 @@ else
                         <MudTextField @bind-Value="_d.Commentaire" MaxLength="2000" Label="@(_d.Type == TypeMouvement.MiseAuRebut ? "Raison de la mise au rebut" : "Commentaire")" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     </MudItem>
 
-                    @if (_d.Type == TypeMouvement.Attribution)
-                    {
-                        <MudItem xs="12">
-                            <MudCheckBox @bind-Value="_d.DemanderConfirmation" Label="Demander au destinataire de confirmer la réception par mail" />
-                            @if (_d.DemanderConfirmation)
-                            {
-                                <MudTextField MaxLength="400" @bind-Value="_d.EmailDestinataire" Label="Adresse mail du destinataire" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                              HelperText="Le destinataire recevra un lien ; le mot de passe de session s'affichera après sa confirmation." />
-                            }
-                        </MudItem>
-                    }
-
                     @if (_erreur is not null)
                     {
                         <MudItem xs="12"><MudAlert Severity="Severity.Error">@_erreur</MudAlert></MudItem>
@@ -219,20 +200,11 @@ else
         _typeDest = t;
         _site = null;
         _personne = null;
-        _d.EmailDestinataire = null;
     }
 
-    private void ChoisirSite(Site? s)
-    {
-        _site = s;
-        _d.EmailDestinataire = s?.Email;
-    }
+    private void ChoisirSite(Site? s) => _site = s;
 
-    private void ChoisirPersonne(Personne? p)
-    {
-        _personne = p;
-        _d.EmailDestinataire = p?.Email;
-    }
+    private void ChoisirPersonne(Personne? p) => _personne = p;
 
     private async Task<IEnumerable<Materiel>> ChercherMateriel(string? texte, CancellationToken ct)
     {

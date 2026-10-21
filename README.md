@@ -1,6 +1,6 @@
 # Parc informatique Vitalrest
 
-Application web de suivi du parc informatique : inventaire des PC, PC portables, écrans et imprimantes, mouvements de matériel (achat, attribution, restitution, réparation, rebut), fiches PDF numérotées, confirmation de réception par le destinataire, et demandes informatiques des salariés avec circuit de validation.
+Application web de suivi du parc informatique : inventaire des PC, PC portables, écrans et imprimantes, mouvements de matériel (achat, entrée dans le SI, sortie / attribution, mise au rebut), fiches PDF numérotées, demandes informatiques des salariés avec circuit de validation, et tickets d'assistance avec analyse.
 
 Elle remplace le classeur « Informatique Vitalrest – Suivi du stock » et reprend ses données à l'import.
 
@@ -8,44 +8,38 @@ Elle remplace le classeur « Informatique Vitalrest – Suivi du stock » et rep
 
 | Écran | Rôle |
 |---|---|
-| **Tableau de bord** | Chiffres clés, réceptions en attente (avec relance), PC à changer, réparations, rebuts en attente |
+| **Tableau de bord** | Chiffres clés, demandes et tickets à traiter, PC à changer |
 | **Inventaire** | Tout le matériel : recherche instantanée, filtres (parc sites / personnes, type, statut, région), sélection multiple → mouvement, export Excel |
-| **Fiche matériel** | Toutes les informations, modification, mot de passe de session (affichage journalisé), historique complet des mouvements et des fiches |
-| **Nouveau mouvement** | Attribution, restitution, envoi / retour de réparation, renvoi fournisseur, vol / perte, attente de rebut, mise au rebut — sur un ou plusieurs matériels |
+| **Fiche matériel** | Toutes les informations, modification, mot de passe de session (affichage journalisé), historique complet des mouvements, des fiches et des tickets |
+| **Nouveau mouvement** | Achat, entrée (dans le SI), sortie (attribution), mise au rebut — sur un ou plusieurs matériels |
 | **Réception d'achat** | Entrée en stock de matériel neuf, numéro interne attribué automatiquement (PC, PO, E, I + 4 chiffres) |
-| **Fiches** | Fiches FIA (attribution), FIR (restitution), FIS (achat), FIRE (mise au rebut) : PDF stockés, régénération, relance |
+| **Fiches** | Fiches FIA (attribution), FIR (restitution), FIS (achat), FIRE (mise au rebut) : PDF stockés, régénération |
 | **Sites / Personnes** | Les deux parcs : cuisines (non présentes dans Entra ID) et salariés ; fusion des doublons de personnes |
 | **Faire une demande / Mes demandes** | Pour tous les salariés : formulaire de demande (mêmes questions et obligations que le formulaire Microsoft Forms) et suivi de ses demandes |
 | **Demandes à valider / traiter** | Pour le valideur et l'informatique : validation ou refus (avec motif), puis suivi du traitement (priorité, avancement, commentaire) |
-| **Mon matériel** | Pour chaque salarié : son matériel, ses réceptions à confirmer, le mot de passe de session après confirmation |
+| **Créer un ticket / Mes tickets** | Pour tous les salariés : déclaration d'un problème, échanges avec l'informatique, confirmation de la résolution avec une note |
+| **Tickets à traiter / Analyse** | Pour l'informatique et les administrateurs des tickets : traitement, analyse (cause, solution, mode de résolution, temps passé) et statistiques |
+| **Mon matériel** | Pour chaque salarié : le matériel qui lui est attribué |
 | **Import Excel** | Chargement initial depuis le classeur, avec aperçu et rapport d'anomalies |
 | **Courriels / Journal** | Trace des courriels envoyés et des actions sensibles |
 
 ### Cycle de vie du matériel
 
 ```
-            ACHAT                      ATTRIBUTION
+            ACHAT                 SORTIE (attribution)
 Fournisseur ─────▶ EN STOCK ─────────────────────────▶ ATTRIBUÉ (site ou personne)
-                    ▲   │    ▲                              │
-                    │   │    └──────── RESTITUTION ─────────┘
-       RETOUR RÉPAR.│   │ ENVOI RÉPARATION / RENVOI FOURNISSEUR
-                    │   ▼
-                 EN RÉPARATION / RENVOYÉ FOURNISSEUR      (+ VOLÉ / PERDU)
-                        │
-          ──▶ REBUT EN ATTENTE ──(fiche FIRE, signature DAF)──▶ REBUTÉ
+                    │    ▲                              │
+                    │    └──── ENTRÉE (dans le SI) ─────┘
+                    │                                   │
+                    └───────────▶ MISE AU REBUT ◀───────┘   (fiche FIRE) ─▶ REBUTÉ
 ```
 
 Les règles (statuts de départ autorisés, statut d'arrivée, fiche générée) sont centralisées dans `Domain/RegleMouvement.cs`.
 
-### Confirmation de réception
+### Mots de passe de session
 
-1. L'informatique enregistre une **attribution** et coche « Demander au destinataire de confirmer la réception ».
-2. Le destinataire (personne, ou boîte mail du site) reçoit un courriel avec un lien.
-3. Il se connecte avec son compte Microsoft et clique sur **Je confirme la réception**.
-4. La date, le nom et l'adresse de la personne qui confirme sont enregistrés, la fiche d'attribution PDF est régénérée avec la mention « Réception confirmée électroniquement », et le **mot de passe de session** devient visible pour lui.
-5. L'informatique est prévenue (si `Messagerie:BoiteInformatique` est renseigné) ; tant que ce n'est pas fait, la réception apparaît « en attente » sur le tableau de bord avec un bouton **Relancer**.
-
-Le mot de passe n'est plus imprimé sur les fiches PDF : il n'est visible que dans l'application, par l'informatique et par le détenteur après confirmation, et chaque affichage est journalisé.
+Ils ne sont visibles que par l'informatique, dans la fiche du matériel (chaque affichage est journalisé), et ne sont pas imprimés sur les fiches PDF.
+En base, ils sont chiffrés (AES-256-GCM) avec une clé conservée hors de la base (réglage `Chiffrement:Cle`, voir `deploiement/README.md`).
 
 ### Demandes informatiques
 
@@ -78,7 +72,7 @@ Ce que fait l'import :
 - **Deux parcs** : la colonne « SITES / UTILISATEURS » est classée en *site* (586, S012, G124, 440-1…) ou *personne* (Prénom NOM).
 - **Statut** : déduit de « SERVICE / LIEU » (STOCK, REBUT, Voler, Retour Amazon, réparation…) et du dernier mouvement.
 - **Sites** : téléphone, responsable et adresse mail (profil Microsoft le plus fréquent sur les PC du site) repris des lignes d'inventaire — **à vérifier**.
-- **Personnes** : sans adresse mail à l'import (la colonne « Profil Microsoft » est celle du PC, pas forcément de la personne) — à compléter dans **Personnes** pour activer la confirmation de réception et « Mon matériel ».
+- **Personnes** : sans adresse mail à l'import (la colonne « Profil Microsoft » est celle du PC, pas forcément de la personne) — à compléter dans **Personnes** pour activer « Mon matériel ».
 - **Mouvements** : « SORTIE INITIALE » et « ENTREE (SI) » (mise en place de l'inventaire) restent distincts des sorties / entrées ordinaires. La numérotation continue à la suite du dernier numéro de l'Excel.
 
 > Le classeur contient des données personnelles et des mots de passe : il ne doit jamais être ajouté au dépôt Git (`.gitignore` exclut `*.xlsx` / `*.xlsm`).
@@ -127,7 +121,7 @@ src/ParcInfo.Web
 ├── Services/        Mouvements, fiches PDF, courriels, utilisateur connecté, exports / téléchargements
 ├── Components/      Interface Blazor (MudBlazor) : pages et composants
 └── Resources/       Logo et polices embarquées pour les PDF
-tests/ParcInfo.Tests Tests unitaires (règles, import, PDF, confirmation de réception, demandes)
+tests/ParcInfo.Tests Tests unitaires (règles, import, PDF, chiffrement, demandes, tickets)
 deploiement/         Scripts de mise en place sur Azure et guide
 Dockerfile           Image de l'application
 ```

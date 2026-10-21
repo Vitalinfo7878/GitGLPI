@@ -16,8 +16,6 @@ public sealed class OptionsMessagerie
     public string Mode { get; set; } = "Simulation";
     /// <summary>Boîte aux lettres d'envoi (ex. informatique@vitalrest.com).</summary>
     public string? Expediteur { get; set; }
-    /// <summary>Boîte de l'équipe informatique, prévenue quand une réception est confirmée.</summary>
-    public string? BoiteInformatique { get; set; }
     /// <summary>Adresse publique de l'application, utilisée dans les liens des courriels.</summary>
     public string UrlApplication { get; set; } = "https://localhost:5001";
 }
@@ -71,40 +69,6 @@ public sealed class ServiceNotifications(
     IEnvoiCourriel envoi, IDbContextFactory<ParcDbContext> dbFactory, OptionsMessagerie options, ILogger<ServiceNotifications> log)
 {
     public string Url(string chemin) => $"{options.UrlApplication.TrimEnd('/')}/{chemin.TrimStart('/')}";
-
-    public string LienReception(Fiche f) => Url($"reception/{f.IdPublic}");
-
-    public async Task DemanderConfirmationReceptionAsync(Fiche fiche, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(fiche.DestinataireEmail)) return;
-        var lignes = string.Join("", fiche.Mouvements.Select(m =>
-            $"<li><b>{E(m.Materiel.NumInterne)}</b> – {E(m.Materiel.Type.Libelle())} {E(m.Materiel.Modele)}{(m.Materiel.NumSerie is null ? "" : $" (n° série {E(m.Materiel.NumSerie)})")}</li>"));
-        var corps = $"""
-            <div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2a44;line-height:1.5">
-            <p style="margin:0 0 12px">Bonjour {E(fiche.DestinataireNom)},</p>
-            <p style="margin:0 0 8px">Le service informatique vous a envoyé le matériel suivant (fiche <b>{E(fiche.Code)}</b>) :</p>
-            <ul style="margin:0 0 12px;padding-left:20px">{lignes}</ul>
-            <p style="margin:0 0 16px">Dès que vous l'avez reçu, merci de <b>confirmer la réception</b> en cliquant sur le bouton ci-dessous
-            (connexion avec votre compte Microsoft Vitalrest). Le mot de passe de session du PC s'affichera après confirmation.</p>
-            <p style="margin:0 0 20px"><a href="{LienReception(fiche)}" style="display:inline-block;background:#233d8e;color:#ffffff;padding:10px 18px;border-radius:4px;text-decoration:none;font-weight:600">Confirmer la réception</a></p>
-            <p style="margin:0">Merci,<br/>Le service informatique</p>
-            </div>
-            """;
-        await EnvoyerEtTracerAsync(fiche.DestinataireEmail, $"Matériel informatique envoyé – confirmez la réception ({fiche.Code})", corps, ct);
-    }
-
-    public async Task SignalerReceptionConfirmeeAsync(Fiche fiche, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(options.BoiteInformatique)) return;
-        var corps = $"""
-            <div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2a44;line-height:1.5">
-            <p style="margin:0 0 8px">La réception de la fiche <b>{E(fiche.Code)}</b> a été confirmée par {E(fiche.ReceptionConfirmeePar)}
-            ({E(fiche.ReceptionConfirmeeParEmail)}) le {fiche.ReceptionConfirmeeLe?.ToLocalTime():dd/MM/yyyy à HH:mm}.</p>
-            <p style="margin:0">Matériel : {E(string.Join(", ", fiche.Mouvements.Select(m => m.Materiel.NumInterne)))}</p>
-            </div>
-            """;
-        await EnvoyerEtTracerAsync(options.BoiteInformatique, $"Réception confirmée – {fiche.Code}", corps, ct);
-    }
 
     // --- Demandes informatiques ---
 
@@ -224,7 +188,7 @@ public sealed class ServiceNotifications(
         }
         catch (Exception ex)
         {
-            // L'échec d'envoi ne doit pas annuler le mouvement : il est tracé et la relance reste possible.
+            // L'échec d'envoi ne doit pas annuler l'opération en cours : il est tracé dans les courriels envoyés.
             log.LogError(ex, "Échec d'envoi du courriel à {Destinataire}", destinataire);
             trace.Erreur = ex.Message;
         }

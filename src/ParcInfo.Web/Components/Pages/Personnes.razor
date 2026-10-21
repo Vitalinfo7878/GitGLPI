@@ -10,7 +10,7 @@
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonAdd" Href="/personnes/0">Nouvelle personne</MudButton>
 </div>
 <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
-    Salariés équipés en propre. L'adresse mail (compte Microsoft) sert à la confirmation de réception et à « Mon matériel ».
+    Salariés équipés en propre. L'adresse mail (compte Microsoft) sert à « Mon matériel ».
 </MudText>
 
 <MudPaper Elevation="0" Class="carte pa-3 mb-3">
@@ -35,7 +35,7 @@ else
     @if (_personnes.Count(p => p.Email is null && p.Materiels > 0) is > 0 and var n)
     {
         <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
-            @n personne(s) équipée(s) n'ont pas encore d'adresse mail : renseignez-la pour activer la confirmation de réception et « Mon matériel ».
+            @n personne(s) équipée(s) n'ont pas encore d'adresse mail : renseignez-la pour activer « Mon matériel ».
         </MudAlert>
     }
     <MudDataGrid T="Ligne" Items="Filtres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne">

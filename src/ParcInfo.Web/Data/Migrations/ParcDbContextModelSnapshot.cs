@@ -226,9 +226,6 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
-                    b.Property<DateTime?>("DerniereRelanceLe")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("DestinataireEmail")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
@@ -248,22 +245,6 @@ namespace ParcInfo.Web.Data.Migrations
 
                     b.Property<DateTime?>("PdfGenereLe")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("ReceptionConfirmeeLe")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ReceptionConfirmeePar")
-                        .HasMaxLength(400)
-                        .HasColumnType("character varying(400)");
-
-                    b.Property<string>("ReceptionConfirmeeParEmail")
-                        .HasMaxLength(400)
-                        .HasColumnType("character varying(400)");
-
-                    b.Property<string>("StatutReception")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("Type")
                         .IsRequired()

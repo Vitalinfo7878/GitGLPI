@@ -142,12 +142,9 @@ else
                             </MudText>
                             @if (mv.Fiche is { } f)
                             {
-                                <div class="d-flex align-center gap-2 mt-1">
-                                    <MudLink Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Typo="Typo.body2">
-                                        <MudIcon Icon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Style="vertical-align:middle" /> @f.Code
-                                    </MudLink>
-                                    <ChipReception Statut="f.StatutReception" />
-                                </div>
+                                <MudLink Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Typo="Typo.body2" Class="d-block mt-1">
+                                    <MudIcon Icon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Style="vertical-align:middle" /> @f.Code
+                                </MudLink>
                             }
                             @if (mv.DateReception is { } dr) { <MudText Typo="Typo.caption">Reçu le @dr.ToString("dd/MM/yyyy")</MudText> }
                             @if (!string.IsNullOrEmpty(mv.Commentaire)) { <MudText Typo="Typo.caption" Class="d-block">@mv.Commentaire</MudText> }

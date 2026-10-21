@@ -18,7 +18,7 @@ public class Site
     public Region? Region { get; set; }
     public string? Responsable { get; set; }
     public string? Telephone { get; set; }
-    /// <summary>Boîte mail du site, destinataire des demandes de confirmation de réception.</summary>
+    /// <summary>Boîte mail du site : son compte voit le matériel du site dans « Mon matériel ».</summary>
     public string? Email { get; set; }
     public string? Adresse { get; set; }
     public bool Actif { get; set; } = true;
@@ -69,7 +69,7 @@ public class Materiel
     public string? LicenceMicrosoft { get; set; }
     public bool? OfficeEnDur { get; set; }
     public int? Note { get; set; }
-    /// <summary>Mot de passe de session. Visible uniquement par l'informatique et par le destinataire après confirmation de réception.</summary>
+    /// <summary>Mot de passe de session, chiffré en base. Visible uniquement par l'informatique.</summary>
     public string? MotDePasseSession { get; set; }
     public bool? ConnexionAdmin { get; set; }
     public string? VersionWindows { get; set; }
@@ -133,7 +133,7 @@ public class Mouvement
 public class Fiche
 {
     public int Id { get; set; }
-    /// <summary>Identifiant non devinable utilisé dans les liens envoyés par mail.</summary>
+    /// <summary>Identifiant non devinable utilisé dans l'adresse de téléchargement du PDF.</summary>
     public Guid IdPublic { get; set; } = Guid.NewGuid();
     public TypeFiche Type { get; set; }
     public int Annee { get; set; }
@@ -142,13 +142,8 @@ public class Fiche
     public string Code { get; set; } = "";
 
     public string? DestinataireNom { get; set; }
+    /// <summary>Adresse du destinataire d'une attribution : il peut télécharger la fiche.</summary>
     public string? DestinataireEmail { get; set; }
-
-    public StatutReception StatutReception { get; set; }
-    public DateTime? ReceptionConfirmeeLe { get; set; }
-    public string? ReceptionConfirmeePar { get; set; }
-    public string? ReceptionConfirmeeParEmail { get; set; }
-    public DateTime? DerniereRelanceLe { get; set; }
 
     public byte[]? Pdf { get; set; }
     public DateTime? PdfGenereLe { get; set; }

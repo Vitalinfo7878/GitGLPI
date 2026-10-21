@@ -148,5 +148,5 @@ cat <<EOF
   Puis activer l'envoi réel (les mails sont simulés jusque-là) :
 
       az containerapp update -g $GROUPE -n $APPLICATION --set-env-vars Messagerie__Mode=Graph \\
-          Messagerie__Expediteur=$BOITE_ENVOI Messagerie__BoiteInformatique=$BOITE_ENVOI
+          Messagerie__Expediteur=$BOITE_ENVOI
 EOF

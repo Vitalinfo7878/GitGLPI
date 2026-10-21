@@ -8,7 +8,7 @@ namespace ParcInfo.Web.Services;
 
 /// <summary>
 /// Génère le PDF d'une fiche (attribution, restitution, achat, mise au rebut).
-/// Le mot de passe n'est volontairement pas imprimé : il s'affiche dans l'application après confirmation de réception.
+/// Le mot de passe n'est volontairement pas imprimé : il n'est visible que dans l'application, par l'informatique.
 /// </summary>
 public sealed class GenerateurFiche
 {
@@ -115,7 +115,6 @@ public sealed class GenerateurFiche
             p.AddFormattedText("Merci de bien vouloir nous renvoyer l'ancien matériel.", TextFormat.Bold);
         }
 
-        AjouterReception(section, fiche);
         AjouterSignatures(section, fiche);
 
         var pied = section.Footers.Primary.AddParagraph($"{fiche.Code} – généré le {DateTime.Now:dd/MM/yyyy HH:mm}");
@@ -129,29 +128,8 @@ public sealed class GenerateurFiche
         return ms.ToArray();
     }
 
-    private static void AjouterReception(Section section, Fiche fiche)
-    {
-        if (fiche.StatutReception == StatutReception.NonDemandee) return;
-        var p = section.AddParagraph();
-        p.Format.SpaceBefore = Unit.FromCentimeter(0.6);
-        p.Format.Shading.Color = fiche.StatutReception == StatutReception.Confirmee ? new Color(0xe8, 0xf5, 0xe9) : new Color(0xff, 0xf4, 0xe5);
-        p.Format.Borders.Distance = Unit.FromPoint(5);
-        if (fiche.StatutReception == StatutReception.Confirmee)
-        {
-            p.AddFormattedText("Réception confirmée électroniquement", TextFormat.Bold);
-            p.AddText($" le {fiche.ReceptionConfirmeeLe?.ToLocalTime():dd/MM/yyyy à HH:mm} par {fiche.ReceptionConfirmeePar} ({fiche.ReceptionConfirmeeParEmail}).");
-        }
-        else
-        {
-            p.AddFormattedText("Réception en attente de confirmation", TextFormat.Bold);
-            p.AddText($" par {fiche.DestinataireNom} ({fiche.DestinataireEmail}).");
-        }
-    }
-
     private static void AjouterSignatures(Section section, Fiche fiche)
     {
-        // Une attribution confirmée électroniquement n'a plus besoin de signature manuscrite.
-        if (fiche.StatutReception == StatutReception.Confirmee) return;
         var t = section.AddTable();
         t.Format.SpaceBefore = Unit.FromCentimeter(1);
         t.Borders.Width = 0.5;

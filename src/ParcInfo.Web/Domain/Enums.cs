@@ -51,13 +51,6 @@ public enum TypeFiche
     [Display(Name = "Fiche de mise au rebut")] MiseAuRebut,
 }
 
-public enum StatutReception
-{
-    [Display(Name = "Non demandée")] NonDemandee,
-    [Display(Name = "En attente")] EnAttente,
-    [Display(Name = "Confirmée")] Confirmee,
-}
-
 public enum TypeDetenteur
 {
     [Display(Name = "Aucun")] Aucun,

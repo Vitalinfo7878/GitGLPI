@@ -57,7 +57,6 @@ else
                     @if (context.Item.FicheId is { } f)
                     {
                         <MudLink Href="@($"/fiches/{f}/pdf")" Target="_blank" @onclick:stopPropagation="true">@context.Item.Fiche</MudLink>
-                        <ChipReception Statut="context.Item.Reception" />
                     }
                 </CellTemplate>
             </TemplateColumn>
@@ -70,7 +69,7 @@ else
 
 @code {
     private sealed record Ligne(int Numero, DateTime? Date, TypeMouvement Type, string TypeLibelle, int MaterielId, string NumInterne, string Materiel,
-        string? Expediteur, string Destination, string? Region, Guid? FicheId, string? Fiche, StatutReception Reception, string Recherche);
+        string? Expediteur, string Destination, string? Region, Guid? FicheId, string? Fiche, string Recherche);
 
     private List<Ligne>? _tous;
     private List<Ligne> _filtres = [];
@@ -87,7 +86,7 @@ else
             {
                 m.Numero, m.Date, m.Type, m.MaterielId, m.Materiel.NumInterne, MType = m.Materiel.Type, m.Materiel.Modele, m.Expediteur,
                 SiteCode = m.DestinationSite!.Code, SiteNom = m.DestinationSite.Nom, Personne = m.DestinationPersonne!.NomComplet, m.DestinationLibre,
-                m.Region, FicheId = (Guid?)m.Fiche!.IdPublic, Fiche = m.Fiche.Code, Reception = (StatutReception?)m.Fiche.StatutReception,
+                m.Region, FicheId = (Guid?)m.Fiche!.IdPublic, Fiche = m.Fiche.Code,
             })
             .OrderByDescending(m => m.Numero).ToListAsync();
         _tous = mvts.Select(m =>
@@ -96,7 +95,7 @@ else
             var materiel = $"{m.MType.Libelle()} {m.Modele}";
             var r = ParcInfo.Web.Import.Normalisation.SansAccents($"{m.Numero} {m.NumInterne} {materiel} {m.Expediteur} {dest} {m.Region} {m.Fiche}").ToLowerInvariant();
             return new Ligne(m.Numero, m.Date?.ToDateTime(TimeOnly.MinValue), m.Type, m.Type.Libelle(), m.MaterielId, m.NumInterne, materiel,
-                m.Expediteur, dest, m.Region, m.FicheId, m.Fiche, m.Reception ?? StatutReception.NonDemandee, r);
+                m.Expediteur, dest, m.Region, m.FicheId, m.Fiche, r);
         }).ToList();
         _annees = _tous.Where(l => l.Date != null).Select(l => l.Date!.Value.Year).Distinct().OrderDescending().ToList();
         Appliquer();

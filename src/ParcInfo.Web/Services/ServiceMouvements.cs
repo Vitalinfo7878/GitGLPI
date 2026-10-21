@@ -15,10 +15,6 @@ public sealed class DemandeMouvement
     public string? DestinationLibre { get; set; }
     public string? DocumentReference { get; set; }
     public string? Commentaire { get; set; }
-    /// <summary>Pour une attribution : envoyer un mail au destinataire pour qu'il confirme la réception.</summary>
-    public bool DemanderConfirmation { get; set; } = true;
-    /// <summary>Adresse du destinataire si elle diffère de celle de la personne / du site.</summary>
-    public string? EmailDestinataire { get; set; }
 }
 
 public sealed class NouveauMateriel
@@ -42,10 +38,10 @@ public sealed class DemandeAchat
 
 public sealed class ErreurMetier(string message) : Exception(message);
 
-public sealed record ResultatMouvement(List<int> Numeros, Fiche? Fiche, string? AvertissementCourriel);
+public sealed record ResultatMouvement(List<int> Numeros, Fiche? Fiche, string? Avertissement);
 
 public sealed class ServiceMouvements(
-    IDbContextFactory<ParcDbContext> dbFactory, GenerateurFiche generateur, ServiceNotifications notifications, ILogger<ServiceMouvements> log)
+    IDbContextFactory<ParcDbContext> dbFactory, GenerateurFiche generateur, ILogger<ServiceMouvements> log)
 {
     /// <summary>Prochain numéro interne libre pour la nomenclature actuelle (PC, PO, E, I + 4 chiffres).</summary>
     public static string Prefixe(TypeMateriel type) => type switch
@@ -105,7 +101,6 @@ public sealed class ServiceMouvements(
         {
             Type = TypeMouvement.Achat, MaterielIds = crees.Select(m => m.Id).ToList(), Date = demande.Date,
             Expediteur = demande.Fournisseur, DocumentReference = demande.DocumentReference, Commentaire = demande.Commentaire,
-            DemanderConfirmation = false,
         }, auteur, ct);
     }
 
@@ -131,11 +126,8 @@ public sealed class ServiceMouvements(
         if (regle.DestinationEstDetenteur && site == null && personne == null)
             throw new ErreurMetier("Choisissez le site ou la personne destinataire.");
 
-        // Une attribution confirmée électroniquement n'est possible que sur une destination unique avec une adresse mail.
-        var emailDestinataire = (Vide(d.EmailDestinataire) ?? personne?.Email ?? site?.Email)?.ToLowerInvariant();
-        var demanderConfirmation = d.Type == TypeMouvement.Attribution && d.DemanderConfirmation;
-        if (demanderConfirmation && emailDestinataire is null)
-            throw new ErreurMetier("Aucune adresse mail pour ce destinataire : renseignez-la ou décochez la confirmation de réception.");
+        // Adresse du destinataire d'une attribution : lui permet de télécharger sa fiche
+        var emailDestinataire = (personne?.Email ?? site?.Email)?.ToLowerInvariant();
 
         var maintenant = DateTime.UtcNow;
         var prochain = (await db.Mouvements.MaxAsync(m => (int?)m.Numero, ct) ?? 0) + 1;
@@ -189,7 +181,6 @@ public sealed class ServiceMouvements(
                 Code = RegleMouvement.CodeFiche(typeFiche, d.Date.Year, numero),
                 DestinataireNom = site?.Libelle ?? personne?.NomComplet ?? Vide(d.DestinationLibre) ?? regle.DestinationParDefaut,
                 DestinataireEmail = d.Type == TypeMouvement.Attribution ? emailDestinataire : null,
-                StatutReception = demanderConfirmation ? StatutReception.EnAttente : StatutReception.NonDemandee,
                 CreePar = auteur.Signature,
                 CreeLe = maintenant,
                 Mouvements = mouvements,
@@ -216,7 +207,7 @@ public sealed class ServiceMouvements(
         string? avertissement = null;
         if (fiche != null)
         {
-            // Le mouvement est déjà enregistré : un problème de PDF ou de courriel ne doit pas le faire échouer.
+            // Le mouvement est déjà enregistré : un problème de PDF ne doit pas le faire échouer.
             try
             {
                 fiche.Pdf = generateur.Generer(fiche);
@@ -228,55 +219,12 @@ public sealed class ServiceMouvements(
                 log.LogError(ex, "Génération du PDF {Code} impossible", fiche.Code);
                 avertissement = $"Mouvement enregistré, mais le PDF de la fiche n'a pas pu être généré ({ex.Message}). Utilisez « Régénérer » dans Fiches.";
             }
-            if (fiche.StatutReception == StatutReception.EnAttente)
-            {
-                try { await notifications.DemanderConfirmationReceptionAsync(fiche, ct); }
-                catch (Exception ex) { avertissement = string.Join(" ", avertissement, ex.Message).Trim(); }
-            }
         }
         return new ResultatMouvement(mouvements.Select(m => m.Numero).ToList(), fiche, avertissement);
     }
 
     private static async Task<string?> RegionDe(ParcDbContext db, Materiel m, CancellationToken ct) =>
         m.RegionId is { } id ? await db.Regions.Where(r => r.Id == id).Select(r => r.Nom).FirstOrDefaultAsync(ct) : null;
-
-    /// <summary>Le destinataire (ou l'informatique, pour son compte) confirme la réception d'une fiche d'attribution.</summary>
-    public async Task<Fiche> ConfirmerReceptionAsync(Guid idPublic, Utilisateur u, CancellationToken ct = default)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var fiche = await ChargerFiche(db).FirstOrDefaultAsync(f => f.IdPublic == idPublic, ct)
-            ?? throw new ErreurMetier("Fiche introuvable.");
-        if (fiche.StatutReception == StatutReception.Confirmee) return fiche;
-        if (fiche.StatutReception != StatutReception.EnAttente) throw new ErreurMetier("Cette fiche n'attend pas de confirmation.");
-        if (!u.AEmail(fiche.DestinataireEmail) && !u.EstGestionnaire)
-            throw new ErreurMetier($"Cette confirmation est réservée à {fiche.DestinataireEmail}. Connectez-vous avec ce compte.");
-
-        var maintenant = DateTime.UtcNow;
-        fiche.StatutReception = StatutReception.Confirmee;
-        fiche.ReceptionConfirmeeLe = maintenant;
-        fiche.ReceptionConfirmeePar = u.AEmail(fiche.DestinataireEmail) ? u.Nom : $"{u.Nom} (service informatique, pour le compte du destinataire)";
-        fiche.ReceptionConfirmeeParEmail = u.Email;
-        foreach (var m in fiche.Mouvements) m.DateReception = DateOnly.FromDateTime(DateTime.Today);
-        fiche.Pdf = generateur.Generer(fiche);
-        fiche.PdfGenereLe = maintenant;
-        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Réception confirmée", Details = fiche.Code });
-        await db.SaveChangesAsync(ct);
-
-        try { await notifications.SignalerReceptionConfirmeeAsync(fiche, ct); }
-        catch { /* déjà tracé dans les courriels */ }
-        return fiche;
-    }
-
-    public async Task RelancerAsync(int ficheId, Utilisateur u, CancellationToken ct = default)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var fiche = await ChargerFiche(db).FirstAsync(f => f.Id == ficheId, ct);
-        if (fiche.StatutReception != StatutReception.EnAttente) throw new ErreurMetier("Cette fiche n'attend pas de confirmation.");
-        await notifications.DemanderConfirmationReceptionAsync(fiche, ct);
-        fiche.DerniereRelanceLe = DateTime.UtcNow;
-        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Relance réception", Details = fiche.Code });
-        await db.SaveChangesAsync(ct);
-    }
 
     public async Task RegenererPdfAsync(int ficheId, CancellationToken ct = default)
     {
@@ -285,17 +233,6 @@ public sealed class ServiceMouvements(
         fiche.Pdf = generateur.Generer(fiche);
         fiche.PdfGenereLe = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-    }
-
-    /// <summary>
-    /// Mot de passe visible par l'informatique, ou par le détenteur actuel (même adresse mail)
-    /// à condition qu'aucune réception ne soit en attente pour ce matériel.
-    /// </summary>
-    public static bool PeutVoirMotDePasse(Utilisateur u, Materiel m, IEnumerable<Fiche> fichesEnAttente)
-    {
-        if (u.EstGestionnaire) return true;
-        var estDetenteur = u.AEmail(m.Personne?.Email) || u.AEmail(m.Site?.Email);
-        return estDetenteur && m.Statut == StatutMateriel.Attribue && !fichesEnAttente.Any();
     }
 
     public static IQueryable<Fiche> ChargerFiche(ParcDbContext db) => db.Fiches

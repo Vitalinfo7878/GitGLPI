@@ -15,6 +15,12 @@ public static class EnTetesSecurite
 
     public static IApplicationBuilder UseEnTetesSecurite(this IApplicationBuilder app) => app.Use(async (ctx, next) =>
     {
+        // Requête rejouée pour afficher une page d'erreur (404…) : en-têtes et jeton déjà en place pour cette réponse
+        if (ctx.Items.ContainsKey(CleNonce))
+        {
+            await next();
+            return;
+        }
         var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
         ctx.Items[CleNonce] = nonce;
         ctx.Response.OnStarting(() =>

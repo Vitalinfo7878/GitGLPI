@@ -14,20 +14,6 @@
 }
 else
 {
-    @if (_attente.Count > 0)
-    {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
-            <MudText Typo="Typo.subtitle2">Du matériel vous a été envoyé : merci de confirmer sa réception.</MudText>
-            @foreach (var f in _attente)
-            {
-                <div class="d-flex align-center flex-wrap gap-2 mt-2">
-                    <span><b>@f.Code</b> – @string.Join(", ", f.Mouvements.Select(m => $"{m.Materiel.NumInterne} ({m.Materiel.Type.Libelle()})"))</span>
-                    <MudButton Href="@($"/reception/{f.IdPublic}")" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small">Confirmer la réception</MudButton>
-                </div>
-            }
-        </MudAlert>
-    }
-
     @if (_materiels.Count == 0)
     {
         <MudPaper Elevation="0" Class="carte pa-6">
@@ -52,23 +38,6 @@ else
                         <dl class="champ-lecture">
                             <Champ Libelle="N° de série" Valeur="@m.NumSerie" />
                             <Champ Libelle="Attribué à" Valeur="@m.DetenteurLibelle" />
-                            @if (m.EstUnPc && m.MotDePasseSession is not null)
-                            {
-                                <Champ Libelle="Mot de passe de session">
-                                    @if (_visibles.Contains(m.Id))
-                                    {
-                                        <span class="mot-de-passe">@m.MotDePasseSession</span>
-                                    }
-                                    else if (PeutVoir(m))
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Visibility" OnClick="() => Afficher(m)">Afficher</MudButton>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.body2">Visible après confirmation de réception</MudText>
-                                    }
-                                </Champ>
-                            }
                         </dl>
                     </MudPaper>
                 </MudItem>
@@ -82,8 +51,6 @@ else
 
     private Utilisateur? _u;
     private List<Materiel> _materiels = [];
-    private List<Fiche> _attente = [];
-    private readonly HashSet<int> _visibles = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -93,20 +60,7 @@ else
         _materiels = await db.Materiels.AsNoTracking().Include(m => m.Site).Include(m => m.Personne)
             .Where(m => m.Statut == StatutMateriel.Attribue && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
             .OrderBy(m => m.Type).ThenBy(m => m.NumInterne).ToListAsync();
-        _attente = await db.Fiches.AsNoTracking().Include(f => f.Mouvements).ThenInclude(m => m.Materiel)
-            .Where(f => f.StatutReception == StatutReception.EnAttente && adresses.Contains(f.DestinataireEmail!))
-            .AsSplitQuery().ToListAsync();
-    }
-
-    private bool PeutVoir(Materiel m) =>
-        ServiceMouvements.PeutVoirMotDePasse(_u!, m, _attente.Where(f => f.Mouvements.Any(x => x.MaterielId == m.Id)));
-
-    private async Task Afficher(Materiel m)
-    {
-        if (!PeutVoir(m)) return;
-        _visibles.Add(m.Id);
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = _u!.Signature, Action = "Mot de passe affiché", MaterielId = m.Id, Details = m.NumInterne });
-        await db.SaveChangesAsync();
+        // Le mot de passe de session est réservé à l'informatique : il ne reste pas en mémoire de la page du salarié
+        foreach (var m in _materiels) m.MotDePasseSession = null;
     }
 }

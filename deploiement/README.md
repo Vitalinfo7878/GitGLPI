@@ -85,7 +85,7 @@ donne le **consentement administrateur** (aucun écran d'accord pour les salari�
 et attribue les rôles.
 
 - **Tous les comptes de l'organisation** se connectent avec leur session Microsoft 365 (pas de nouveau mot de passe) et accèdent à
-  « Mon matériel », « Faire une demande », « Mes demandes » et aux confirmations de réception.
+  « Mon matériel », « Faire une demande », « Mes demandes », « Créer un ticket » et « Mes tickets ».
 - **Gestionnaire** : toute la gestion du parc. **Valideur** : validation des demandes.
   Gestion ensuite dans *Entra ID > Applications d'entreprise > Parc informatique Vitalrest > Utilisateurs et groupes*.
 - Le mode démo est désactivé.

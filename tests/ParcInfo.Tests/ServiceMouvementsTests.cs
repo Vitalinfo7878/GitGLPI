@@ -12,14 +12,10 @@ public sealed class ServiceMouvementsTests : IDisposable
     private readonly ServiceMouvements _service;
 
     private static readonly Utilisateur Informatique = new("Service Informatique", "informatique@vitalrest.com", true);
-    private static readonly Utilisateur Camille = new("Camille TEST", "camille.test@vitalrest.com", false);
-    private static readonly Utilisateur Autre = new("Autre", "autre@vitalrest.com", false);
 
     public ServiceMouvementsTests()
     {
-        var options = new OptionsMessagerie { UrlApplication = "https://parc.test" };
-        var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique, options, NullLogger<ServiceNotifications>.Instance);
-        _service = new ServiceMouvements(_fabrique, new GenerateurFiche(), notifications, NullLogger<ServiceMouvements>.Instance);
+        _service = new ServiceMouvements(_fabrique, new GenerateurFiche(), NullLogger<ServiceMouvements>.Instance);
     }
 
     public void Dispose() => _fabrique.Dispose();
@@ -37,20 +33,20 @@ public sealed class ServiceMouvementsTests : IDisposable
     }
 
     [Fact]
-    public async Task Attribution_avec_confirmation_puis_restitution()
+    public async Task Attribution_puis_restitution()
     {
         var (pc, ecran, personne) = Donnees();
 
         var r = await _service.CreerMouvementsAsync(new DemandeMouvement
         {
-            Type = TypeMouvement.Attribution, MaterielIds = [pc, ecran], DestinationPersonneId = personne, DemanderConfirmation = true,
+            Type = TypeMouvement.Attribution, MaterielIds = [pc, ecran], DestinationPersonneId = personne,
         }, Informatique);
 
         Assert.Equal([101, 102], r.Numeros);
         Assert.NotNull(r.Fiche);
         Assert.Equal("FIA" + DateTime.Today.Year + " 0101", r.Fiche!.Code);
-        Assert.Equal(StatutReception.EnAttente, r.Fiche.StatutReception);
-        Assert.Null(r.AvertissementCourriel);
+        Assert.Equal("camille.test@vitalrest.com", r.Fiche.DestinataireEmail);
+        Assert.Null(r.Avertissement);
 
         await using (var db = _fabrique.CreateDbContext())
         {
@@ -58,15 +54,8 @@ public sealed class ServiceMouvementsTests : IDisposable
             Assert.Equal(StatutMateriel.Attribue, m!.Statut);
             Assert.Equal(personne, m.PersonneId);
             Assert.NotNull((await db.Fiches.SingleAsync()).Pdf);
-            Assert.Equal("camille.test@vitalrest.com", (await db.Courriels.SingleAsync()).Destinataire);
+            Assert.Empty(await db.Courriels.ToListAsync()); // aucun mail envoyé au destinataire
         }
-
-        // Un autre utilisateur ne peut pas confirmer à la place du destinataire
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.ConfirmerReceptionAsync(r.Fiche.IdPublic, Autre));
-        var fiche = await _service.ConfirmerReceptionAsync(r.Fiche.IdPublic, Camille);
-        Assert.Equal(StatutReception.Confirmee, fiche.StatutReception);
-        Assert.Equal("Camille TEST", fiche.ReceptionConfirmeePar);
-        Assert.All(fiche.Mouvements, m => Assert.NotNull(m.DateReception));
 
         var retour = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
         Assert.Equal(TypeFiche.Restitution, retour.Fiche!.Type);
@@ -99,7 +88,7 @@ public sealed class ServiceMouvementsTests : IDisposable
     }
 
     [Fact]
-    public async Task Confirmation_impossible_sans_adresse_mail()
+    public async Task Attribution_a_un_site_sans_adresse_mail()
     {
         var (pc, _, _) = Donnees();
         int site;
@@ -110,17 +99,12 @@ public sealed class ServiceMouvementsTests : IDisposable
             await db.SaveChangesAsync();
             site = s.Id;
         }
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerMouvementsAsync(new DemandeMouvement
-        {
-            Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site, DemanderConfirmation = true,
-        }, Informatique));
-
-        // Sans confirmation, l'attribution au site passe
         var r = await _service.CreerMouvementsAsync(new DemandeMouvement
         {
-            Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site, DemanderConfirmation = false,
+            Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site,
         }, Informatique);
-        Assert.Equal(StatutReception.NonDemandee, r.Fiche!.StatutReception);
+        Assert.Equal(TypeFiche.Attribution, r.Fiche!.Type);
+        Assert.Null(r.Fiche.DestinataireEmail);
     }
 
     [Fact]
@@ -144,15 +128,4 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal("PC0444", ServiceMouvements.ProchainNumero("PC", ["PC0443", "PC0099", "PCANCIEN2", "PO0500"]));
         Assert.Equal("PO0001", ServiceMouvements.ProchainNumero("PO", []));
     }
-
-    [Fact]
-    public void Mot_de_passe_visible_seulement_par_le_detenteur_sans_reception_en_attente()
-    {
-        var m = new Materiel { Statut = StatutMateriel.Attribue, Personne = new Personne { Email = "camille.test@vitalrest.com" } };
-        Assert.True(ServiceMouvements.PeutVoirMotDePasse(Camille, m, []));
-        Assert.False(ServiceMouvements.PeutVoirMotDePasse(Autre, m, []));
-        Assert.False(ServiceMouvements.PeutVoirMotDePasse(Camille, m, [new Fiche()]));
-        Assert.True(ServiceMouvements.PeutVoirMotDePasse(Informatique, m, [new Fiche()]));
-    }
-
 }

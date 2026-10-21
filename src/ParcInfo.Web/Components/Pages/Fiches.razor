@@ -2,7 +2,6 @@
 @attribute [Authorize(Policy = Roles.PolitiqueGestion)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject ServiceMouvements Service
-@inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
 
 <PageTitle>Fiches</PageTitle>
@@ -20,11 +19,6 @@
         <MudItem xs="6" md="3">
             <MudSelect T="TypeFiche?" @bind-Value="_type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                 @foreach (var t in Enum.GetValues<TypeFiche>()) { <MudSelectItem T="TypeFiche?" Value="t">@t.Libelle()</MudSelectItem> }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="6" md="3">
-            <MudSelect T="StatutReception?" @bind-Value="_reception" Label="Réception" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
-                @foreach (var s in Enum.GetValues<StatutReception>()) { <MudSelectItem T="StatutReception?" Value="s">@s.Libelle()</MudSelectItem> }
             </MudSelect>
         </MudItem>
     </MudGrid>
@@ -45,15 +39,6 @@ else
             <TemplateColumn T="Fiche" Title="Matériel">
                 <CellTemplate>@string.Join(", ", context.Item.Mouvements.Select(m => m.Materiel.NumInterne))</CellTemplate>
             </TemplateColumn>
-            <TemplateColumn T="Fiche" Title="Réception" SortBy="x => x.StatutReception">
-                <CellTemplate>
-                    <ChipReception Statut="context.Item.StatutReception" />
-                    @if (context.Item.StatutReception == StatutReception.Confirmee)
-                    {
-                        <div><small>@context.Item.ReceptionConfirmeePar, @context.Item.ReceptionConfirmeeLe?.ToLocalTime().ToString("dd/MM/yyyy")</small></div>
-                    }
-                </CellTemplate>
-            </TemplateColumn>
             <TemplateColumn T="Fiche" Title="" Sortable="false">
                 <CellTemplate>
                     <div class="d-flex">
@@ -63,15 +48,6 @@ else
                         <MudTooltip Text="Régénérer le PDF">
                             <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" OnClick="() => Regenerer(context.Item)" aria-label="Régénérer" />
                         </MudTooltip>
-                        @if (context.Item.StatutReception == StatutReception.EnAttente)
-                        {
-                            <MudTooltip Text="Relancer le destinataire par mail">
-                                <MudIconButton Icon="@Icons.Material.Outlined.Send" Size="Size.Small" OnClick="() => Relancer(context.Item)" aria-label="Relancer" />
-                            </MudTooltip>
-                            <MudTooltip Text="Ouvrir la page de confirmation (pour confirmer à la place du destinataire)">
-                                <MudIconButton Icon="@Icons.Material.Outlined.HowToReg" Size="Size.Small" Href="@($"/reception/{context.Item.IdPublic}")" aria-label="Confirmer" />
-                            </MudTooltip>
-                        }
                     </div>
                 </CellTemplate>
             </TemplateColumn>
@@ -87,11 +63,9 @@ else
     private List<Fiche>? _fiches;
     private string? _recherche;
     private TypeFiche? _type;
-    private StatutReception? _reception;
 
     private IEnumerable<Fiche> Filtrees => (_fiches ?? [])
         .Where(f => _type is null || f.Type == _type)
-        .Where(f => _reception is null || f.StatutReception == _reception)
         .Where(f => string.IsNullOrWhiteSpace(_recherche)
             || $"{f.Code} {f.DestinataireNom} {f.DestinataireEmail} {string.Join(' ', f.Mouvements.Select(m => m.Materiel.NumInterne))}"
                 .Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -106,8 +80,7 @@ else
             .Select(f => new Fiche
             {
                 Id = f.Id, IdPublic = f.IdPublic, Code = f.Code, Type = f.Type, CreeLe = f.CreeLe, DestinataireNom = f.DestinataireNom,
-                DestinataireEmail = f.DestinataireEmail, StatutReception = f.StatutReception, ReceptionConfirmeePar = f.ReceptionConfirmeePar,
-                ReceptionConfirmeeLe = f.ReceptionConfirmeeLe,
+                DestinataireEmail = f.DestinataireEmail,
                 Mouvements = f.Mouvements.Select(m => new Mouvement { Numero = m.Numero, Materiel = new Materiel { NumInterne = m.Materiel.NumInterne } }).ToList(),
             })
             .OrderByDescending(f => f.CreeLe).ToListAsync();
@@ -119,13 +92,4 @@ else
         Snackbar.Add($"PDF {f.Code} régénéré.", Severity.Success);
     }
 
-    private async Task Relancer(Fiche f)
-    {
-        try
-        {
-            await Service.RelancerAsync(f.Id, await Courant.ObtenirAsync());
-            Snackbar.Add($"Relance envoyée à {f.DestinataireEmail}.", Severity.Success);
-        }
-        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
-    }
 }
