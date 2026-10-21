@@ -142,4 +142,13 @@ public sealed class ServiceTicketsTests : IDisposable
         Assert.False(u.EstGestionnaire);
         Assert.False(Utilisateur.Depuis(new ClaimsPrincipal(new ClaimsIdentity([new Claim("email", "x@vitalrest.com")], "test"))).EstAdminTickets);
     }
+
+    [Fact]
+    public async Task Mail_du_demandeur_toujours_celui_du_compte_connecte()
+    {
+        var f = Complet();
+        f.DemandeurEmail = "quelquun.dautre@vitalrest.com";
+        var t = await _service.CreerAsync(f, Salarie);
+        Assert.Equal("camille.test@vitalrest.com", t.DemandeurEmail);
+    }
 }

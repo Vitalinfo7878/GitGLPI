@@ -103,7 +103,8 @@
                 </Question>
 
                 <Question Numero="10" Libelle="Mail" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.DemandeurEmail))">
-                    <MudTextField @bind-Value="_f.DemandeurEmail" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
+                    <MudTextField Value="_u?.Email" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="Adresse de votre compte Microsoft : le suivi du ticket y est rattaché." />
                 </Question>
 
                 <Question Numero="11" Libelle="Téléphone pour vous joindre" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.DemandeurTelephone))">
@@ -148,7 +149,7 @@
 
     private void Prerenseigner()
     {
-        _f = new FormulaireTicket { DemandeurNom = _u?.Nom, DemandeurEmail = _u?.Email };
+        _f = new FormulaireTicket { DemandeurEmail = _u?.Email };
         if (_mesMateriels.Count == 1) _f.MaterielReference = _mesMateriels[0].NumInterne;
         _erreurs = [];
     }
