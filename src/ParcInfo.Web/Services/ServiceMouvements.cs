@@ -32,6 +32,8 @@ public sealed class DemandeAchat
     public List<NouveauMateriel> Materiels { get; set; } = [new()];
     public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
     public string? Fournisseur { get; set; }
+    /// <summary>Catégorie appliquée aux PC reçus (facultatif).</summary>
+    public CategoriePc? CategoriePc { get; set; }
     public string? DocumentReference { get; set; }
     public string? Commentaire { get; set; }
 }
@@ -90,6 +92,7 @@ public sealed class ServiceMouvements(
             {
                 NumInterne = num, Type = n.Type, Modele = Vide(n.Modele), NumSerie = Vide(n.NumSerie),
                 Configuration = Vide(n.Configuration), NumFacture = Vide(n.NumFacture), Statut = StatutMateriel.EnStock,
+                CategoriePc = n.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? demande.CategoriePc : null,
                 AnneeAcquisition = demande.Date.Year, CreeLe = maintenant, ModifieLe = maintenant,
             };
             db.Materiels.Add(m);
@@ -244,6 +247,28 @@ public sealed class ServiceMouvements(
                       $"{m.Mouvements.Count} mouvement(s) supprimé(s))",
         });
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Range des PC dans une catégorie (PC Site / PC Enrôlé), ou l'efface ; les autres matériels sont ignorés.</summary>
+    public async Task<int> DefinirCategoriePcAsync(IReadOnlyCollection<int> ids, CategoriePc? categorie, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var pcs = await db.Materiels
+            .Where(m => ids.Contains(m.Id) && (m.Type == TypeMateriel.PcFixe || m.Type == TypeMateriel.PcPortable))
+            .ToListAsync(ct);
+        foreach (var m in pcs)
+        {
+            m.CategoriePc = categorie;
+            m.ModifieLe = DateTime.UtcNow;
+        }
+        db.Journal.Add(new Journal
+        {
+            Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Catégorie PC",
+            Details = $"{categorie?.Libelle() ?? "non renseignée"} : {string.Join(", ", pcs.Select(m => m.NumInterne))}",
+        });
+        await db.SaveChangesAsync(ct);
+        return pcs.Count;
     }
 
     public async Task RegenererPdfAsync(int ficheId, CancellationToken ct = default)

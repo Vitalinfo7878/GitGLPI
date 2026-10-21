@@ -37,6 +37,11 @@ else
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Fournisseur" Label="Fournisseur" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.DocumentReference" Label="Devis / bon de commande" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Commentaire" Label="Commentaire" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="3">
+                <MudSelect T="CategoriePc?" @bind-Value="_d.CategoriePc" Label="Catégorie des PC reçus" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                    @foreach (var c in Enum.GetValues<CategoriePc>()) { <MudSelectItem T="CategoriePc?" Value="c">@c.Libelle()</MudSelectItem> }
+                </MudSelect>
+            </MudItem>
 
             <MudItem xs="12"><MudText Typo="Typo.subtitle2" Class="mt-2">Matériel reçu</MudText></MudItem>
             @foreach (var (m, i) in _d.Materiels.Select((m, i) => (m, i)))

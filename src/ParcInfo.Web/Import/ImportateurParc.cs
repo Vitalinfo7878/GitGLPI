@@ -194,6 +194,7 @@ public sealed class ImportateurParc
                 var site = SitePour(det.Valeur!);
                 m.Site = site;
                 site.Region ??= m.Region;
+                if (m.EstUnPc) m.CategoriePc = CategoriePc.Site;
                 if (!_infosSites.TryGetValue(site, out var infos)) _infosSites[site] = infos = [];
                 infos.Add((m.EstUnPc ? m.ProfilMicrosoft : null, Normalisation.Texte(l.Telephone), Normalisation.Texte(l.ResponsableSite)));
                 break;
@@ -201,6 +202,7 @@ public sealed class ImportateurParc
                 var p = PersonnePour(det.Valeur!);
                 m.Personne = p;
                 p.Region ??= m.Region;
+                if (m.EstUnPc) m.CategoriePc = CategoriePc.Enrole;
                 break;
         }
     }

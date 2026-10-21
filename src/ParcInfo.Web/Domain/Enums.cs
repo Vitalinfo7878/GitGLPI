@@ -51,6 +51,13 @@ public enum TypeFiche
     [Display(Name = "Fiche de mise au rebut")] MiseAuRebut,
 }
 
+/// <summary>Distinction des PC dans l'inventaire : PC de site (cuisine) ou PC enrôlé (géré dans Intune).</summary>
+public enum CategoriePc
+{
+    [Display(Name = "PC Site")] Site,
+    [Display(Name = "PC Enrôlé")] Enrole,
+}
+
 public enum TypeDetenteur
 {
     [Display(Name = "Aucun")] Aucun,

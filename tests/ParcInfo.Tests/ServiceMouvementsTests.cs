@@ -159,4 +159,14 @@ public sealed class ServiceMouvementsTests : IDisposable
         }
         Assert.NotNull(r.Fiche);
     }
+
+    [Fact]
+    public async Task Categorie_pc_appliquee_aux_seuls_pc()
+    {
+        var (pc, ecran, _) = Donnees();
+        Assert.Equal(1, await _service.DefinirCategoriePcAsync([pc, ecran], CategoriePc.Enrole, Informatique));
+        await using var db = _fabrique.CreateDbContext();
+        Assert.Equal(CategoriePc.Enrole, (await db.Materiels.FindAsync(pc))!.CategoriePc);
+        Assert.Null((await db.Materiels.FindAsync(ecran))!.CategoriePc);
+    }
 }

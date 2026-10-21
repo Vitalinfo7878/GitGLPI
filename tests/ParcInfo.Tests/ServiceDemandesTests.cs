@@ -180,4 +180,12 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.False(ServiceDemandes.PeutVoir(new Utilisateur("Autre", "autre@vitalrest.com", false), d));
     }
 
+    [Fact]
+    public async Task Mail_du_demandeur_toujours_celui_du_compte_connecte()
+    {
+        var f = Complet();
+        f.DemandeurEmail = "quelquun.dautre@vitalrest.com";
+        var d = (await _service.CreerAsync(f, Salarie)).Demande;
+        Assert.Equal("camille.test@vitalrest.com", d.DemandeurEmail);
+    }
 }

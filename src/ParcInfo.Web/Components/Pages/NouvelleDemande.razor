@@ -98,7 +98,8 @@
                 </Question>
 
                 <Question Numero="8" Libelle="Mail du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurEmail))">
-                    <MudTextField @bind-Value="_f.DemandeurEmail" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" />
+                    <MudTextField Value="_u?.Email" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="Adresse de votre compte Microsoft : les réponses à votre demande y seront envoyées." />
                 </Question>
 
                 <Question Numero="9" Libelle="Téléphone du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurTelephone))">
@@ -140,7 +141,7 @@
 
     private void Prerenseigner()
     {
-        _f = new FormulaireDemande { DemandeurNom = _u?.Nom, DemandeurEmail = _u?.Email };
+        _f = new FormulaireDemande { DemandeurEmail = _u?.Email };
         _erreurs = [];
     }
 

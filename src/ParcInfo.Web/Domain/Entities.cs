@@ -62,6 +62,7 @@ public class Materiel
     public Region? Region { get; set; }
 
     // Informations PC
+    public CategoriePc? CategoriePc { get; set; }
     public string? Configuration { get; set; }
     public int? AnneeAcquisition { get; set; }
     public DateOnly? DateMiseEnPlace { get; set; }

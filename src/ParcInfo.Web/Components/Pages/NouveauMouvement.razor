@@ -91,6 +91,15 @@ else
                             {
                                 <MudAutocomplete T="Site" Value="_site" ValueChanged="ChoisirSite" SearchFunc="ChercherSite" ToStringFunc="@(s => s?.Libelle ?? "")"
                                                  Label="Site (code ou nom)" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
+                                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.AddBusiness" OnClick="() => _nouveauSite = !_nouveauSite">Nouveau site</MudButton>
+                                @if (_nouveauSite)
+                                {
+                                    <div class="d-flex flex-wrap gap-2 align-center">
+                                        <MudTextField MaxLength="50" @bind-Value="_nsCode" Label="Code du site" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudTextField MaxLength="400" @bind-Value="_nsNom" Label="Nom (facultatif)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudButton Variant="Variant.Outlined" OnClick="CreerSite">Créer</MudButton>
+                                    </div>
+                                }
                             }
                             else
                             {
@@ -164,6 +173,8 @@ else
     private Personne? _personne;
     private bool _nouvellePersonne;
     private string? _npNom, _npEmail;
+    private bool _nouveauSite;
+    private string? _nsCode, _nsNom;
     private string? _erreur;
     private bool _envoi;
     private ResultatMouvement? _resultat;
@@ -256,6 +267,23 @@ else
         ChoisirPersonne(p);
         _nouvellePersonne = false;
         _npNom = _npEmail = null;
+    }
+
+    private async Task CreerSite()
+    {
+        if (string.IsNullOrWhiteSpace(_nsCode)) return;
+        var code = _nsCode.Replace(" ", "").ToUpperInvariant();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var s = await db.Sites.FirstOrDefaultAsync(x => x.Code == code);
+        if (s is null)
+        {
+            s = new Site { Code = code, Nom = string.IsNullOrWhiteSpace(_nsNom) ? null : _nsNom.Trim() };
+            db.Sites.Add(s);
+            await db.SaveChangesAsync();
+        }
+        ChoisirSite(s);
+        _nouveauSite = false;
+        _nsCode = _nsNom = null;
     }
 
     private async Task Valider()

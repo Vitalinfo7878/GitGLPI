@@ -19,6 +19,7 @@ else
     <div class="d-flex flex-wrap align-center gap-3 mb-4">
         <MudText Typo="Typo.h4">@_m.NumInterne</MudText>
         <ChipStatut Statut="_m.Statut" />
+        @if (_m.CategoriePc is { } cat) { <ChipCategoriePc Categorie="cat" /> }
         @if (_m.AChanger) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">À changer</MudChip> }
         <MudSpacer />
         @if (!_edition)
@@ -54,6 +55,12 @@ else
                             <MudItem xs="6" sm="3"><MudDatePicker Date="@(_form.DateMiseEnPlace?.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? d) => _form.DateMiseEnPlace = d is null ? null : DateOnly.FromDateTime(d.Value))" Label="Mise en place" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" Clearable="true" /></MudItem>
                             @if (_form.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable)
                             {
+                                <MudItem xs="12" sm="6">
+                                    <MudSelect T="CategoriePc?" @bind-Value="_form.CategoriePc" Label="Catégorie PC" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                        @foreach (var c in Enum.GetValues<CategoriePc>()) { <MudSelectItem T="CategoriePc?" Value="c">@c.Libelle()</MudSelectItem> }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" sm="6" />
                                 <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Configuration" Label="Configuration (processeur + RAM)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.ProfilMicrosoft" Label="Profil Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.LicenceMicrosoft" Label="Licence Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
@@ -88,8 +95,8 @@ else
                                 <Champ Libelle="Modèle" Valeur="@_m.Modele" />
                                 <Champ Libelle="N° de série" Valeur="@_m.NumSerie" />
                                 <Champ Libelle="Attribué à">
-                                    @if (_m.Site is { } s) { <MudLink Href="@($"/sites/{s.Id}")">@s.Libelle</MudLink> }
-                                    else if (_m.Personne is { } p) { <MudLink Href="@($"/personnes/{p.Id}")">@p.NomComplet</MudLink> }
+                                    @if (_m.Site is { } s) { @s.Libelle }
+                                    else if (_m.Personne is { } p) { @p.NomComplet }
                                     else { <span>—</span> }
                                 </Champ>
                                 <Champ Libelle="Région / service" Valeur="@(_m.Region?.Nom ?? _m.Site?.Region?.Nom)" />
@@ -103,6 +110,7 @@ else
                             @if (_m.EstUnPc)
                             {
                                 <dl class="champ-lecture">
+                                    <Champ Libelle="Catégorie PC" Valeur="@_m.CategoriePc?.Libelle()" />
                                     <Champ Libelle="Configuration" Valeur="@_m.Configuration" />
                                     <Champ Libelle="Profil Microsoft" Valeur="@_m.ProfilMicrosoft" />
                                     <Champ Libelle="Licence Microsoft" Valeur="@_m.LicenceMicrosoft" />
@@ -217,6 +225,7 @@ else
             NumInterne = _m!.NumInterne, Type = _m.Type, Modele = _m.Modele, NumSerie = _m.NumSerie, RegionId = _m.RegionId,
             AnneeAcquisition = _m.AnneeAcquisition, DateMiseEnPlace = _m.DateMiseEnPlace, Configuration = _m.Configuration,
             ProfilMicrosoft = _m.ProfilMicrosoft, LicenceMicrosoft = _m.LicenceMicrosoft, MotDePasseSession = _m.MotDePasseSession,
+            CategoriePc = _m.CategoriePc,
             VersionWindows = _m.VersionWindows, EditionWindows = _m.EditionWindows, Note = _m.Note, CleOffice = _m.CleOffice,
             OfficeEnDur = _m.OfficeEnDur, ConnexionAdmin = _m.ConnexionAdmin, Labtech = _m.Labtech, AChanger = _m.AChanger,
             NumImmo = _m.NumImmo, NumFacture = _m.NumFacture, Commentaire = _m.Commentaire,
@@ -242,6 +251,7 @@ else
         m.VersionWindows = f.VersionWindows; m.EditionWindows = f.EditionWindows; m.Note = f.Note; m.CleOffice = f.CleOffice;
         m.OfficeEnDur = f.OfficeEnDur; m.ConnexionAdmin = f.ConnexionAdmin; m.Labtech = f.Labtech; m.AChanger = f.AChanger;
         m.NumImmo = f.NumImmo; m.NumFacture = f.NumFacture; m.Commentaire = f.Commentaire;
+        m.CategoriePc = f.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? f.CategoriePc : null;
         m.ModifieLe = DateTime.UtcNow;
         var u = await Courant.ObtenirAsync();
         db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Matériel modifié", MaterielId = Id,

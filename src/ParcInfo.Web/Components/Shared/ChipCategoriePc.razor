@@ -1,0 +1,7 @@
+<MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ma-0"
+         Color="@(Categorie == CategoriePc.Enrole ? Color.Primary : Color.Secondary)"
+         Icon="@(Categorie == CategoriePc.Enrole ? Icons.Material.Outlined.VerifiedUser : Icons.Material.Outlined.Restaurant)">@Categorie.Libelle()</MudChip>
+
+@code {
+    [Parameter, EditorRequired] public CategoriePc Categorie { get; set; }
+}

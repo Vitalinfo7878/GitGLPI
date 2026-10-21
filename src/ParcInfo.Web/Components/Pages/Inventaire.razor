@@ -2,6 +2,9 @@
 @attribute [Authorize(Policy = Roles.PolitiqueGestion)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject NavigationManager Nav
+@inject ServiceMouvements Mouvements
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
 
 <PageTitle>Inventaire</PageTitle>
 
@@ -10,6 +13,14 @@
     <MudSpacer />
     <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
     <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudButton>
+    <MudMenu Label="Catégorie PC" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Category" Disabled="_selection.Count == 0"
+             AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft">
+        @foreach (var c in Enum.GetValues<CategoriePc>())
+        {
+            <MudMenuItem OnClick="() => DefinirCategorie(c)">@c.Libelle()</MudMenuItem>
+        }
+        <MudMenuItem OnClick="() => DefinirCategorie(null)">Non renseignée</MudMenuItem>
+    </MudMenu>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
                Disabled="_selection.Count == 0" OnClick="NouveauMouvement">
         Mouvement@(_selection.Count > 0 ? $" ({_selection.Count})" : "")
@@ -24,11 +35,10 @@
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
         </MudItem>
         <MudItem xs="6" md="2">
-            <MudSelect T="string" Value="_parc" ValueChanged="v => Filtrer(() => _parc = v)" Label="Parc" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelect T="string" Value="_categorie" ValueChanged="v => Filtrer(() => _categorie = v)" Label="Catégorie PC" Variant="Variant.Outlined" Margin="Margin.Dense">
                 <MudSelectItem Value="@("")">Tous</MudSelectItem>
-                <MudSelectItem Value="@("sites")">Parc sites</MudSelectItem>
-                <MudSelectItem Value="@("personnes")">Parc personnes</MudSelectItem>
-                <MudSelectItem Value="@("aucun")">Sans détenteur</MudSelectItem>
+                @foreach (var c in Enum.GetValues<CategoriePc>()) { <MudSelectItem Value="@c.ToString()">@c.Libelle()</MudSelectItem> }
+                <MudSelectItem Value="@("aucune")">PC non renseignés</MudSelectItem>
             </MudSelect>
         </MudItem>
         <MudItem xs="6" md="2">
@@ -77,6 +87,9 @@ else
             <SelectColumn T="Ligne" />
             <PropertyColumn Property="x => x.NumInterne" Title="N° interne" CellStyle="font-weight:600;white-space:nowrap" />
             <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
+            <TemplateColumn T="Ligne" Title="Catégorie PC" SortBy="x => x.CategoriePc">
+                <CellTemplate>@if (context.Item.CategoriePc is { } cat) { <ChipCategoriePc Categorie="cat" /> }</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.Modele" Title="Modèle" />
             <PropertyColumn Property="x => x.NumSerie" Title="N° série" />
             <TemplateColumn T="Ligne" Title="Site / personne" SortBy="x => x.Detenteur">
@@ -114,9 +127,14 @@ else
     [SupplyParameterFromQuery(Name = "filtre")] public string? FiltreQuery { get; set; }
 
     private sealed record Ligne(
-        int Id, string NumInterne, TypeMateriel Type, string TypeLibelle, string? Modele, string? NumSerie, TypeDetenteur Parc,
+        int Id, string NumInterne, TypeMateriel Type, string TypeLibelle, CategoriePc? CategoriePc, string? Modele, string? NumSerie, TypeDetenteur Parc,
         string Detenteur, string? Region, StatutMateriel Statut, string? ProfilMicrosoft, string? VersionWindows, int? Note,
-        int? Annee, bool AChanger, string Recherche);
+        int? Annee, bool AChanger, string Recherche)
+    {
+        // Une ligne = un matériel : la sélection de la grille survit à la mise à jour d'une ligne
+        public bool Equals(Ligne? autre) => autre?.Id == Id;
+        public override int GetHashCode() => Id;
+    }
 
     private List<Ligne>? _tous;
     private List<Ligne> _filtres = [];
@@ -124,7 +142,7 @@ else
     private List<string> _regions = [];
 
     private string? _recherche;
-    private string _parc = "";
+    private string _categorie = "";
     private TypeMateriel? _type;
     private StatutMateriel? _statut;
     private string? _region;
@@ -135,12 +153,11 @@ else
     {
         if (Enum.TryParse<StatutMateriel>(StatutQuery, out var s)) { _statut = s; _masquerRebut = false; }
         if (FiltreQuery == "achanger") _aChanger = true;
-
         await using var db = await DbFactory.CreateDbContextAsync();
         var materiels = await db.Materiels.AsNoTracking()
             .Select(m => new
             {
-                m.Id, m.NumInterne, m.Type, m.Modele, m.NumSerie, m.SiteId, m.PersonneId,
+                m.Id, m.NumInterne, m.Type, m.CategoriePc, m.Modele, m.NumSerie, m.SiteId, m.PersonneId,
                 SiteCode = m.Site!.Code, SiteNom = m.Site.Nom, SiteRegion = m.Site.Region!.Nom, Personne = m.Personne!.NomComplet,
                 Region = m.Region!.Nom, m.Statut, m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger,
             })
@@ -157,7 +174,7 @@ else
             };
             var region = m.Region ?? m.SiteRegion;
             var recherche = Normaliser($"{m.NumInterne} {m.Modele} {m.NumSerie} {detenteur} {m.ProfilMicrosoft} {region}");
-            return new Ligne(m.Id, m.NumInterne, m.Type, m.Type.Libelle(), m.Modele, m.NumSerie, parc, detenteur, region, m.Statut,
+            return new Ligne(m.Id, m.NumInterne, m.Type, m.Type.Libelle(), m.CategoriePc, m.Modele, m.NumSerie, parc, detenteur, region, m.Statut,
                 m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger, recherche);
         }).OrderBy(l => l.NumInterne).ToList();
         _regions = _tous.Select(l => l.Region).OfType<string>().Distinct().Order().ToList();
@@ -183,13 +200,8 @@ else
             var mots = Normaliser(_recherche).Split(' ', StringSplitOptions.RemoveEmptyEntries);
             q = q.Where(l => mots.All(l.Recherche.Contains));
         }
-        q = _parc switch
-        {
-            "sites" => q.Where(l => l.Parc == TypeDetenteur.Site),
-            "personnes" => q.Where(l => l.Parc == TypeDetenteur.Personne),
-            "aucun" => q.Where(l => l.Parc == TypeDetenteur.Aucun),
-            _ => q,
-        };
+        if (Enum.TryParse<CategoriePc>(_categorie, out var cat)) q = q.Where(l => l.CategoriePc == cat);
+        else if (_categorie == "aucune") q = q.Where(l => l.CategoriePc is null && l.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable);
         if (_type is { } t) q = q.Where(l => l.Type == t);
         if (_statut is { } s) q = q.Where(l => l.Statut == s);
         else if (_masquerRebut) q = q.Where(l => l.Statut != StatutMateriel.Rebute);
@@ -199,6 +211,20 @@ else
     }
 
     private void Ouvrir(DataGridRowClickEventArgs<Ligne> e) => Nav.NavigateTo($"/materiels/{e.Item.Id}");
+
+    private async Task DefinirCategorie(CategoriePc? categorie)
+    {
+        try
+        {
+            var ids = _selection.Select(l => l.Id).ToHashSet();
+            var n = await Mouvements.DefinirCategoriePcAsync(ids, categorie, await Courant.ObtenirAsync());
+            Snackbar.Add(n == 0 ? "Aucun PC dans la sélection." : $"{n} PC : {categorie?.Libelle() ?? "catégorie effacée"}.", n == 0 ? Severity.Warning : Severity.Success);
+            // Mise à jour des lignes sur place : la sélection reste en place pour enchaîner une autre action
+            _tous = _tous!.Select(l => ids.Contains(l.Id) && l.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? l with { CategoriePc = categorie } : l).ToList();
+            Appliquer();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
 
     private void NouveauMouvement() =>
         Nav.NavigateTo($"/mouvements/nouveau?ids={string.Join(',', _selection.Select(l => l.Id))}");

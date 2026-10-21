@@ -313,6 +313,10 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Property<int?>("AnneeAcquisition")
                         .HasColumnType("integer");
 
+                    b.Property<string>("CategoriePc")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<string>("CleOffice")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");

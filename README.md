@@ -9,12 +9,11 @@ Elle remplace le classeur « Informatique Vitalrest – Suivi du stock » et rep
 | Écran | Rôle |
 |---|---|
 | **Tableau de bord** | Chiffres clés, demandes et tickets à traiter, PC à changer |
-| **Inventaire** | Tout le matériel : recherche instantanée, filtres (parc sites / personnes, type, statut, région), sélection multiple → mouvement, export Excel |
+| **Inventaire** | Tout le matériel : recherche instantanée, filtres (catégorie PC Site / PC Enrôlé, type, statut, région), sélection multiple → mouvement ou catégorie PC, export Excel |
 | **Fiche matériel** | Toutes les informations, modification, mot de passe de session (affichage journalisé), historique complet des mouvements, des fiches et des tickets |
 | **Nouveau mouvement** | Achat, entrée (dans le SI), sortie (attribution), mise au rebut — sur un ou plusieurs matériels |
 | **Réception d'achat** | Entrée en stock de matériel neuf, numéro interne attribué automatiquement (PC, PO, E, I + 4 chiffres) |
 | **Fiches** | Fiches FIA (attribution), FIR (restitution), FIS (achat), FIRE (mise au rebut) : PDF stockés, régénération |
-| **Sites / Personnes** | Les deux parcs : cuisines (non présentes dans Entra ID) et salariés ; fusion des doublons de personnes |
 | **Faire une demande / Mes demandes** | Pour tous les salariés : formulaire de demande (mêmes questions et obligations que le formulaire Microsoft Forms) et suivi de ses demandes |
 | **Demandes à valider / traiter** | Pour le valideur et l'informatique : validation ou refus (avec motif), puis suivi du traitement (priorité, avancement, commentaire) |
 | **Créer un ticket / Mes tickets** | Pour tous les salariés : déclaration d'un problème, échanges avec l'informatique, confirmation de la résolution avec une note |
@@ -72,7 +71,8 @@ Ce que fait l'import :
 - **Deux parcs** : la colonne « SITES / UTILISATEURS » est classée en *site* (586, S012, G124, 440-1…) ou *personne* (Prénom NOM).
 - **Statut** : déduit de « SERVICE / LIEU » (STOCK, REBUT, Voler, Retour Amazon, réparation…) et du dernier mouvement.
 - **Sites** : téléphone, responsable et adresse mail (profil Microsoft le plus fréquent sur les PC du site) repris des lignes d'inventaire — **à vérifier**.
-- **Personnes** : sans adresse mail à l'import (la colonne « Profil Microsoft » est celle du PC, pas forcément de la personne) — à compléter dans **Personnes** pour activer « Mon matériel ».
+- **Personnes** : sans adresse mail à l'import (la colonne « Profil Microsoft » est celle du PC, pas forcément de la personne) ; « Mon matériel » ne fonctionne que pour les personnes créées avec leur adresse lors d'une attribution.
+- **Catégorie PC** : déduite du détenteur à l'import (site → PC Site, personne → PC Enrôlé), modifiable sur la fiche ou par sélection dans l'inventaire.
 - **Mouvements** : « SORTIE INITIALE » et « ENTREE (SI) » (mise en place de l'inventaire) restent distincts des sorties / entrées ordinaires. La numérotation continue à la suite du dernier numéro de l'Excel.
 
 > Le classeur contient des données personnelles et des mots de passe : il ne doit jamais être ajouté au dépôt Git (`.gitignore` exclut `*.xlsx` / `*.xlsm`).
