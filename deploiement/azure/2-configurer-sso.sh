@@ -60,10 +60,18 @@ else
 fi
 # Adresses de retour et de déconnexion : via l'API Graph (« az ad app update --set web.… » ne fonctionne pas).
 # Le bloc « web » est envoyé en entier, car Graph remplace tout le bloc à chaque modification.
+# Adresse personnalisée déjà liée (3-domaine-personnalise.sh) : conservée, et utilisée pour les liens des mails.
+ADRESSE_PUBLIQUE="$ADRESSE_APP"
+URIS="\"https://$ADRESSE_APP/signin-oidc\""
+if [[ -n "${DOMAINE_PERSONNALISE:-}" && -n "$(az containerapp hostname list -g "$GROUPE" -n "$APPLICATION" \
+        --query "[?name=='$DOMAINE_PERSONNALISE'].name" -o tsv 2>/dev/null)" ]]; then
+    ADRESSE_PUBLIQUE="$DOMAINE_PERSONNALISE"
+    URIS="\"https://$DOMAINE_PERSONNALISE/signin-oidc\", $URIS"
+fi
 az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications(appId='$ID_APPLI')" \
     --headers "Content-Type=application/json" -o none --body "{\"web\": {
-        \"redirectUris\": [\"https://$ADRESSE_APP/signin-oidc\"],
-        \"logoutUrl\": \"https://$ADRESSE_APP/signout-callback-oidc\",
+        \"redirectUris\": [$URIS],
+        \"logoutUrl\": \"https://$ADRESSE_PUBLIQUE/signout-callback-oidc\",
         \"implicitGrantSettings\": {\"enableIdTokenIssuance\": true, \"enableAccessTokenIssuance\": false}
     }}"
 info "adresses de retour et de déconnexion enregistrées"
@@ -106,7 +114,7 @@ az containerapp update -g "$GROUPE" -n "$APPLICATION" -o none --set-env-vars \
     "AzureAd__TenantId=$ID_TENANT" \
     "AzureAd__ClientId=$ID_APPLI" \
     "AzureAd__ClientSecret=secretref:azuread-secret" \
-    "Messagerie__UrlApplication=https://$ADRESSE_APP"
+    "Messagerie__UrlApplication=https://$ADRESSE_PUBLIQUE"
 info "secret valable 2 ans, enregistré dans l'application (non affiché)"
 
 # ---------------------------------------------------------------------------

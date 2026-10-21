@@ -31,6 +31,9 @@ NOM_APPLI_ENTRA="Parc informatique Vitalrest"
 GESTIONNAIRES=()   # équipe informatique, ex. ("prenom.nom@vitalrest.com" "autre.personne@vitalrest.com")
 VALIDEURS=("thomas.verchere@groupe-vitalrest.com")
 
+# --- Adresse personnalisée (3-domaine-personnalise.sh) ---
+DOMAINE_PERSONNALISE="informatique.vitalrest.com"
+
 # --- Messagerie ---
 BOITE_ENVOI="informatique@vitalrest.com"
 

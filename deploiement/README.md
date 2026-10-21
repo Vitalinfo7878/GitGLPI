@@ -102,6 +102,19 @@ Dans GitHub, dépôt **Vitalinfo7878/GitGLPI** :
 Le workflow teste, construit l'image, la publie dans **notre** registre, met à jour **notre** application et vérifie `/sante`.
 Au premier démarrage, l'application crée ses tables dans la base `parcinfo`.
 
+## Étape 3 bis – Adresse personnalisée (facultatif, ≈ 30 min dont l'attente DNS)
+
+Pour ouvrir l'application sur `https://informatique.vitalrest.com` (réglage `DOMAINE_PERSONNALISE` de `parametres.sh`) :
+
+1. `bash 3-domaine-personnalise.sh` : affiche les deux enregistrements à créer chez l'hébergeur DNS de vitalrest.com
+   (un **CNAME** vers l'adresse de l'application et un **TXT** `asuid.…` qui prouve la propriété du domaine), puis s'arrête.
+2. Créer ces deux enregistrements, attendre leur propagation (quelques minutes à 1 h).
+3. Relancer `bash 3-domaine-personnalise.sh` : certificat HTTPS gratuit (géré et renouvelé par Azure), adresse de retour
+   de la connexion Microsoft et liens des mails mis à jour. L'ancienne adresse continue de fonctionner.
+
+Seul ajout côté Vital Pilot : le certificat, rangé dans l'environnement Container Apps (Azure l'impose), sans effet
+sur les autres applications.
+
 ## Étape 4 – Envoi des mails (≈ 5 min)
 
 Tant que cette étape n'est pas faite, les mails sont **simulés** (*Administration > Courriels envoyés*).
