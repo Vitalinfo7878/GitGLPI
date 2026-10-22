@@ -25,7 +25,7 @@
 }
 else
 {
-    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-4" @bind-ActivePanelIndex="_onglet">
+    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pt-4" @bind-ActivePanelIndex="_onglet">
         <MudTabPanel Text="@($"À trancher ({_aTrancher.Count})")">
             @if (_aTrancher.Count == 0)
             {

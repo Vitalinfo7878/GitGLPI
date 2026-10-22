@@ -145,6 +145,25 @@ await InitialisationBase.AppliquerAsync(app.Services, fournisseur);
 
 app.UseForwardedHeaders();
 
+// Adresse unique : l'ancienne adresse Azure (*.azurecontainerapps.io) renvoie vers l'adresse publique
+// (Messagerie:UrlApplication, ex. https://informatique.vitalrest.com). La sonde /sante reste joignable sur les deux.
+if (Uri.TryCreate(messagerie.UrlApplication, UriKind.Absolute, out var adressePublique))
+{
+    app.Use(async (ctx, next) =>
+    {
+        var hote = ctx.Request.Host.Host;
+        if (hote.EndsWith(".azurecontainerapps.io", StringComparison.OrdinalIgnoreCase)
+            && !hote.Equals(adressePublique.Host, StringComparison.OrdinalIgnoreCase)
+            && !ctx.Request.Path.StartsWithSegments("/sante"))
+        {
+            ctx.Response.Redirect($"{adressePublique.GetLeftPart(UriPartial.Authority)}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}",
+                permanent: true, preserveMethod: true);
+            return;
+        }
+        await next();
+    });
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
