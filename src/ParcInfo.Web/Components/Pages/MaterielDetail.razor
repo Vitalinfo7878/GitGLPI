@@ -74,7 +74,10 @@ else
                                 <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Configuration" Label="Configuration (processeur + RAM)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.ProfilMicrosoft" Label="Profil Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.LicenceMicrosoft" Label="Licence Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                                <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.MotDePasseSession" Label="Mot de passe de session" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.MotDePasseSession" Label="Mot de passe de session" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                  InputType="@(_mdpVisible ? InputType.Text : InputType.Password)"
+                                                                  Adornment="Adornment.End" AdornmentIcon="@(_mdpVisible ? Icons.Material.Outlined.VisibilityOff : Icons.Material.Outlined.Visibility)"
+                                                                  AdornmentAriaLabel="Afficher le mot de passe" OnAdornmentClick="BasculerMotDePasse" /></MudItem>
                                 <MudItem xs="6" sm="3"><MudTextField MaxLength="400" @bind-Value="_form.VersionWindows" Label="Version Windows" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="6" sm="3"><MudTextField MaxLength="400" @bind-Value="_form.EditionWindows" Label="Édition (Pro / Famille)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                                 <MudItem xs="6" sm="3"><MudNumericField @bind-Value="_form.Note" Label="Note /5" Min="0" Max="5" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
@@ -323,6 +326,13 @@ else
             Nav.NavigateTo("/inventaire");
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    // Affichage depuis le formulaire de modification : journalisé comme le bouton « Afficher »
+    private async Task BasculerMotDePasse()
+    {
+        if (_mdpVisible) _mdpVisible = false;
+        else await AfficherMotDePasse();
     }
 
     private async Task AfficherMotDePasse()
