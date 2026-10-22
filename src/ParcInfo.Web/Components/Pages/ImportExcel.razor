@@ -54,10 +54,11 @@ else
         </MudGrid>
         @if (!_rapport.Enregistre)
         {
-            <MudText Typo="Typo.body2" Class="mb-3">
-                Rien n'est encore enregistré. Vérifiez les anomalies ci-dessous puis lancez l'import.
-                Les anomalies n'empêchent pas l'import : elles indiquent les lignes corrigées automatiquement ou à vérifier ensuite.
-            </MudText>
+            <MudAlert Severity="Severity.Info" Class="mb-3">
+                <b>Ceci n'est qu'un aperçu : rien n'est encore enregistré.</b> Vérifiez les anomalies ci-dessous, puis cliquez sur
+                <b>« Importer dans l'application »</b> pour charger les données. Les anomalies n'empêchent pas l'import : elles indiquent
+                les lignes corrigées automatiquement ou à vérifier ensuite.
+            </MudAlert>
             @if (_rapport.Doublons.Count > 0)
             {
                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
@@ -68,7 +69,12 @@ else
                     (détail dans les anomalies, feuille « DOUBLONS »). Ils seront à trancher après l'import, dans Administration > Doublons.
                 </MudAlert>
             }
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Importer" Disabled="_traitement">Importer dans l'application</MudButton>
+            <div class="d-flex flex-wrap align-center gap-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Outlined.CloudUpload"
+                           OnClick="Importer" Disabled="_traitement">Importer dans l'application</MudButton>
+                @if (_traitement) { <MudProgressCircular Indeterminate="true" Size="Size.Small" /> <span>@_etape</span> }
+            </div>
+            @if (_erreur is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">Import impossible : @_erreur</MudAlert> }
         }
         else
         {
