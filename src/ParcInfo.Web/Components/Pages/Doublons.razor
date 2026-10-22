@@ -1,0 +1,105 @@
+@page "/doublons"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject ControleDoublons Controle
+@inject ServiceMouvements Mouvements
+@inject UtilisateurCourant Courant
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
+
+<PageTitle>Doublons</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Doublons à trancher</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Matériels au même n° interne ou au même n° de série, et personnes ou sites détenant plusieurs appareils du même type
+    (un PC fixe et un PC portable, c'est normal ; deux imprimantes ou deux PC fixes, c'est à vérifier).
+</MudText>
+
+@if (_groupes is null)
+{
+    <Attente />
+}
+else if (_groupes.Count == 0)
+{
+    <MudAlert Severity="Severity.Success">Aucun doublon à trancher.</MudAlert>
+}
+else
+{
+    @foreach (var (type, titre, aide) in Sections)
+    {
+        var groupes = _groupes.Where(g => g.Type == type).ToList();
+        if (groupes.Count == 0) continue;
+        <MudText Typo="Typo.h6" Class="mt-4 mb-1">@titre (@groupes.Count)</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2" Style="color:var(--mud-palette-text-secondary)">@aide</MudText>
+        <MudStack Spacing="2">
+            @foreach (var g in groupes)
+            {
+                <MudPaper Elevation="0" Class="carte pa-3" @key="g.Cle">
+                    <div class="d-flex flex-wrap align-center gap-2 mb-1">
+                        <MudText Typo="Typo.subtitle1"><b>@g.Titre</b></MudText>
+                        <MudSpacer />
+                        @if (g.Type == TypeDoublon.MemeDetenteur)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.SwapHoriz"
+                                       Href="@($"/mouvements/nouveau?type=Restitution&ids={string.Join(',', g.Materiels.Select(m => m.Id))}")">Entrée dans le SI</MudButton>
+                        }
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => Ignorer(g)">Ce n'est pas un doublon</MudButton>
+                    </div>
+                    <MudSimpleTable Dense="true" Elevation="0" Hover="true">
+                        <thead><tr><th>N° interne</th><th>Type</th><th>Modèle</th><th>N° de série</th><th>Détenteur</th><th>Statut</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var m in g.Materiels)
+                            {
+                                <tr>
+                                    <td><MudLink Href="@($"/materiels/{m.Id}")"><b>@m.NumInterne</b></MudLink></td>
+                                    <td>@m.Type.Libelle()</td>
+                                    <td>@m.Modele</td>
+                                    <td>@m.NumSerie</td>
+                                    <td>@m.Detenteur</td>
+                                    <td><ChipStatut Statut="m.Statut" /></td>
+                                    <td class="text-right">
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"/materiels/{m.Id}")">Modifier</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="() => Supprimer(m)">Supprimer</MudButton>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </MudPaper>
+            }
+        </MudStack>
+    }
+}
+
+@code {
+    private List<GroupeDoublon>? _groupes;
+
+    private static readonly (TypeDoublon, string, string)[] Sections =
+    [
+        (TypeDoublon.NumInterne, "Même n° interne", "Le même nom de PC figure plusieurs fois dans l'Excel : à l'import, le second a été renommé « …-DOUBLON-L… ». Supprimez la ligne en trop, ou renommez-la avec « Modifier »."),
+        (TypeDoublon.NumSerie, "Même n° de série", "Un même appareil enregistré deux fois, ou une erreur de saisie du n° de série."),
+        (TypeDoublon.MemeDetenteur, "Même type chez un même détenteur", "Matériel en trop chez une personne ou un site : à récupérer (entrée dans le SI), ou à garder s'il est justifié."),
+    ];
+
+    protected override async Task OnInitializedAsync() => _groupes = await Controle.ListerAsync();
+
+    private async Task Ignorer(GroupeDoublon g)
+    {
+        await Controle.IgnorerAsync(g, await Courant.ObtenirAsync());
+        Snackbar.Add("Groupe marqué « pas un doublon » : il ne réapparaîtra que si sa composition change.", Severity.Success);
+        _groupes = await Controle.ListerAsync();
+    }
+
+    private async Task Supprimer(LigneControle m)
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync($"Supprimer {m.NumInterne} ?",
+            $"{m.NumInterne} ({m.Type.Libelle()} {m.Modele}, n° de série {m.NumSerie ?? "—"}) et son historique seront définitivement supprimés.",
+            yesText: "Supprimer définitivement", cancelText: "Annuler");
+        if (ok != true) return;
+        try
+        {
+            await Mouvements.SupprimerMaterielAsync(m.Id, await Courant.ObtenirAsync());
+            Snackbar.Add($"{m.NumInterne} supprimé.", Severity.Success);
+            _groupes = await Controle.ListerAsync();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+}

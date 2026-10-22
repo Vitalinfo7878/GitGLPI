@@ -125,6 +125,7 @@ if (entraConfigure)
 }
 else builder.Services.AddSingleton<IAnnuaireMicrosoft, AnnuaireDemo>();
 builder.Services.AddScoped<ServiceComptesMicrosoft>();
+builder.Services.AddScoped<ControleDoublons>();
 builder.Services.AddScoped<UtilisateurCourant>();
 builder.Services.AddMudServices();
 

@@ -191,3 +191,11 @@ public class Journal
     public string? Details { get; set; }
     public int? MaterielId { get; set; }
 }
+
+/// <summary>Groupe de matériels déclaré « pas un doublon » sur la page « Doublons » (clé = type, valeur et matériels concernés).</summary>
+public class DoublonIgnore
+{
+    public string Cle { get; set; } = "";
+    public string Par { get; set; } = "";
+    public DateTime Le { get; set; }
+}

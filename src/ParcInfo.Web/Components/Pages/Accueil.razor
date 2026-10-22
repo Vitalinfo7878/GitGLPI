@@ -1,4 +1,5 @@
 @page "/"
+@inject ControleDoublons Doublons
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject UtilisateurCourant Courant
 
@@ -69,6 +70,12 @@ else
                                 <b>@_departs</b> départ(s) à traiter : compte Microsoft désactivé, matériel encore attribué
                             </MudListItem>
                         }
+                        @if (_doublons > 0)
+                        {
+                            <MudListItem Icon="@Icons.Material.Outlined.ContentCopy" IconColor="Color.Warning" Href="/doublons">
+                                <b>@_doublons</b> doublon(s) de matériel à trancher
+                            </MudListItem>
+                        }
                         @if (_aTrancher > 0)
                         {
                             <MudListItem Icon="@Icons.Material.Outlined.ManageAccounts" IconColor="Color.Warning" Href="/comptes-microsoft">
@@ -112,7 +119,7 @@ else
     private Stats? _stats;
     private int _demandesAValider, _demandesATraiter;
     private int _ticketsOuverts, _ticketsNouveaux;
-    private int _departs, _aTrancher;
+    private int _departs, _aTrancher, _doublons;
 
     private sealed record Stats(
         Dictionary<TypeMateriel, int> EnService, Dictionary<TypeMateriel, int> EnStock, Dictionary<StatutMateriel, int> ParStatut,
@@ -147,6 +154,7 @@ else
         await CompterTickets(db);
         _departs = await db.Personnes.CountAsync(p => p.CompteMicrosoft != null && (p.CompteMicrosoft.Supprime || !p.CompteMicrosoft.Actif)
             && p.Materiels.Any(m => m.Statut == StatutMateriel.Attribue));
+        _doublons = (await Doublons.ListerAsync()).Count;
         // À trancher seulement une fois l'annuaire synchronisé
         if (await db.ComptesMicrosoft.AnyAsync())
             _aTrancher = await db.Personnes.CountAsync(p => p.EntraObjectId == null && !p.SansCompteMicrosoft)

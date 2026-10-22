@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ParcInfo.Web.Data;
 using ParcInfo.Web.Domain;
+using ParcInfo.Web.Services;
 
 namespace ParcInfo.Web.Import;
 
@@ -14,6 +15,8 @@ public sealed class RapportImport
     public int Regions { get; set; }
     public int Mouvements { get; set; }
     public List<Anomalie> Anomalies { get; } = [];
+    /// <summary>Doublons à trancher après l'import (page « Doublons ») : n° interne, n° de série, même type chez un détenteur.</summary>
+    public List<GroupeDoublon> Doublons { get; set; } = [];
     public bool Enregistre { get; set; }
 
     public void Signaler(string feuille, int ligne, string message) => Anomalies.Add(new(feuille, ligne, message));
@@ -71,6 +74,9 @@ public sealed class ImportateurParc
         ImporterMouvements(mouvements, utilisateur, maintenant);
         CompleterSites();
         SignalerDoublonsProbables();
+        _rapport.Doublons = ControleDoublons.Analyser(_materiels.Values.Select(ControleDoublons.Ligne));
+        foreach (var d in _rapport.Doublons)
+            _rapport.Signaler("DOUBLONS", 0, $"À trancher : {d.Titre} ({string.Join(", ", d.Materiels.Select(m => m.NumInterne))}).");
 
         _rapport.Materiels = _materiels.Count;
         _rapport.Sites = _sites.Count;
@@ -111,7 +117,7 @@ public sealed class ImportateurParc
         }
         if (_materiels.ContainsKey(num))
         {
-            var nouveau = $"{num}-DOUBLON-L{l.Ligne}";
+            var nouveau = $"{num}{ControleDoublons.MarqueDoublonImport}L{l.Ligne}";
             _rapport.Signaler(Inv, l.Ligne, $"Numéro interne {num} en double : renommé {nouveau}.");
             num = nouveau;
         }

@@ -307,6 +307,25 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("Demandes");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.DoublonIgnore", b =>
+                {
+                    b.Property<string>("Cle")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("Le")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Par")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.HasKey("Cle");
+
+                    b.ToTable("DoublonsIgnores");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Fiche", b =>
                 {
                     b.Property<int>("Id")

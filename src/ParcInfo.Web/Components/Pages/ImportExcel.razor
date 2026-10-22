@@ -58,11 +58,27 @@ else
                 Rien n'est encore enregistré. Vérifiez les anomalies ci-dessous puis lancez l'import.
                 Les anomalies n'empêchent pas l'import : elles indiquent les lignes corrigées automatiquement ou à vérifier ensuite.
             </MudText>
+            @if (_rapport.Doublons.Count > 0)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    <b>@_rapport.Doublons.Count doublon(s) à trancher</b> :
+                    @_rapport.Doublons.Count(d => d.Type == TypeDoublon.NumInterne) même n° interne,
+                    @_rapport.Doublons.Count(d => d.Type == TypeDoublon.NumSerie) même n° de série,
+                    @_rapport.Doublons.Count(d => d.Type == TypeDoublon.MemeDetenteur) détenteur(s) avec deux appareils du même type
+                    (détail dans les anomalies, feuille « DOUBLONS »). Ils seront à trancher après l'import, dans Administration > Doublons.
+                </MudAlert>
+            }
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Importer" Disabled="_traitement">Importer dans l'application</MudButton>
         }
         else
         {
-            <MudButton Href="/inventaire" Variant="Variant.Filled" Color="Color.Primary">Voir l'inventaire</MudButton>
+            <div class="d-flex flex-wrap gap-2">
+                <MudButton Href="/inventaire" Variant="Variant.Filled" Color="Color.Primary">Voir l'inventaire</MudButton>
+                @if (_rapport.Doublons.Count > 0)
+                {
+                    <MudButton Href="/doublons" Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Outlined.ContentCopy">Trancher les doublons (@_rapport.Doublons.Count)</MudButton>
+                }
+            </div>
         }
     </MudPaper>
 
