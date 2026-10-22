@@ -17,6 +17,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<Journal> Journal => Set<Journal>();
     public DbSet<Demande> Demandes => Set<Demande>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<CompteMicrosoft> ComptesMicrosoft => Set<CompteMicrosoft>();
     public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
     /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
@@ -40,6 +41,8 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.Code).HasMaxLength(50);
             e.HasIndex(x => x.Code).IsUnique();
             e.Ignore(x => x.Libelle);
+            e.HasOne(x => x.CompteMicrosoft).WithMany().HasForeignKey(x => x.EntraObjectId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.EntraObjectId).IsUnique();
         });
 
         b.Entity<Personne>(e =>
@@ -47,6 +50,23 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.NomComplet).HasMaxLength(200);
             e.HasIndex(x => x.NomComplet);
             e.HasIndex(x => x.Email);
+            e.HasOne(x => x.CompteMicrosoft).WithMany().HasForeignKey(x => x.EntraObjectId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.EntraObjectId).IsUnique();
+        });
+
+        b.Entity<CompteMicrosoft>(e =>
+        {
+            e.Property(x => x.Id).HasMaxLength(36);
+            e.Property(x => x.AutresAdresses).HasMaxLength(4000);
+            e.Property(x => x.Groupes).HasMaxLength(4000);
+            e.Property(x => x.Licences).HasMaxLength(1000);
+            e.HasIndex(x => x.Email);
+            e.HasIndex(x => x.Upn);
+            e.Ignore(x => x.EstParti);
+            e.Ignore(x => x.ListeGroupes);
+            e.Ignore(x => x.ListeLicences);
+            e.Ignore(x => x.Adresses);
+            e.Ignore(x => x.AdressePrincipale);
         });
 
         b.Entity<Materiel>(e =>

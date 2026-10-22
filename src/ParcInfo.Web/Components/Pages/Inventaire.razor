@@ -159,7 +159,7 @@ else
             .Select(m => new
             {
                 m.Id, m.NumInterne, m.Type, m.CategoriePc, m.Modele, m.NumSerie, m.SiteId, m.PersonneId,
-                SiteCode = m.Site!.Code, SiteNom = m.Site.Nom, SiteRegion = m.Site.Region!.Nom, Personne = m.Personne!.NomComplet,
+                SiteCode = m.Site!.Code, SiteNom = m.Site.Nom, SiteRelie = m.Site.EntraObjectId != null, SiteRegion = m.Site.Region!.Nom, Personne = m.Personne!.NomComplet,
                 Email = m.Personne.Email ?? m.Site.Email,
                 Region = m.Region!.Nom, m.Statut, m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger,
             })
@@ -170,7 +170,7 @@ else
             var parc = m.SiteId != null ? TypeDetenteur.Site : m.PersonneId != null ? TypeDetenteur.Personne : TypeDetenteur.Aucun;
             var detenteur = parc switch
             {
-                TypeDetenteur.Site => string.IsNullOrEmpty(m.SiteNom) ? $"Site {m.SiteCode}" : $"{m.SiteCode} – {m.SiteNom}",
+                TypeDetenteur.Site => Site.LibelleDe(m.SiteCode, m.SiteNom, m.SiteRelie),
                 TypeDetenteur.Personne => m.Personne ?? "",
                 _ => "",
             };

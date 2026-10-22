@@ -1,0 +1,42 @@
+@* Profil d'un compte de l'annuaire Microsoft (contact, poste, responsable, groupes, licences, état). *@
+<div class="d-flex flex-wrap align-center gap-2 mb-2">
+    <MudIcon Icon="@Icons.Custom.Brands.Microsoft" Size="Size.Small" />
+    <MudText Typo="Typo.subtitle1"><b>@Compte.NomAffichage</b></MudText>
+    @if (Compte.Supprime)
+    {
+        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Class="ma-0">Compte supprimé</MudChip>
+    }
+    else if (!Compte.Actif)
+    {
+        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Class="ma-0">Compte désactivé</MudChip>
+    }
+    else
+    {
+        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">Actif</MudChip>
+    }
+</div>
+<dl class="champ-lecture">
+    <Champ Libelle="Poste" Valeur="@Compte.Poste" />
+    <Champ Libelle="Service" Valeur="@(string.Join(" · ", new[] { Compte.Service, Compte.Societe }.Where(x => x != null)))" />
+    <Champ Libelle="Responsable" Valeur="@Compte.ResponsableNom" />
+    <Champ Libelle="Mail">@if (Compte.AdressePrincipale is { } m) { <a href="mailto:@m">@m</a> }</Champ>
+    @if (Compte.Upn is { } upn && upn != Compte.AdressePrincipale) { <Champ Libelle="Identifiant de connexion" Valeur="@upn" /> }
+    <Champ Libelle="Téléphone">
+        @foreach (var t in new[] { Compte.TelephoneMobile, Compte.TelephonePro }.Where(x => x != null)) { <a href="tel:@t" class="mr-3">@t</a> }
+    </Champ>
+    <Champ Libelle="Bureau / adresse" Valeur="@(string.Join(" · ", new[] { Compte.Bureau, Compte.Adresse }.Where(x => x != null)))" />
+    @if (Compte.Matricule is not null) { <Champ Libelle="Matricule" Valeur="@Compte.Matricule" /> }
+    <Champ Libelle="Licences">
+        @foreach (var l in Compte.ListeLicences) { <MudChip T="string" Size="Size.Small" Class="ml-0 mr-1">@l</MudChip> }
+    </Champ>
+    <Champ Libelle="Groupes">
+        @foreach (var g in Compte.ListeGroupes) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ml-0 mr-1">@g</MudChip> }
+    </Champ>
+</dl>
+<MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">
+    Annuaire Microsoft, synchronisé le @Compte.SynchroniseLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")
+</MudText>
+
+@code {
+    [Parameter, EditorRequired] public CompteMicrosoft Compte { get; set; } = null!;
+}

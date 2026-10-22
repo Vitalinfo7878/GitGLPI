@@ -41,6 +41,110 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("DataProtectionKeys");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.CompteMicrosoft", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)");
+
+                    b.Property<bool>("Actif")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Adresse")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("AutresAdresses")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Bureau")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTime?>("CreeDansEntraLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Groupes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Licences")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Matricule")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Nom")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("NomAffichage")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Poste")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Prenom")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("ResponsableId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("ResponsableNom")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Service")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Societe")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<bool>("Supprime")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("SynchroniseLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TelephoneMobile")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("TelephonePro")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Upn")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Ville")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email");
+
+                    b.HasIndex("Upn");
+
+                    b.ToTable("ComptesMicrosoft");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Courriel", b =>
                 {
                     b.Property<int>("Id")
@@ -536,9 +640,15 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Property<int?>("RegionId")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("SansCompteMicrosoft")
+                        .HasColumnType("boolean");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Email");
+
+                    b.HasIndex("EntraObjectId")
+                        .IsUnique();
 
                     b.HasIndex("NomComplet");
 
@@ -592,6 +702,10 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<string>("EntraObjectId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
                     b.Property<string>("Nom")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
@@ -603,6 +717,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<bool>("SansCompteMicrosoft")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Telephone")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
@@ -610,6 +727,9 @@ namespace ParcInfo.Web.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("EntraObjectId")
                         .IsUnique();
 
                     b.HasIndex("RegionId");
@@ -869,18 +989,32 @@ namespace ParcInfo.Web.Data.Migrations
 
             modelBuilder.Entity("ParcInfo.Web.Domain.Personne", b =>
                 {
+                    b.HasOne("ParcInfo.Web.Domain.CompteMicrosoft", "CompteMicrosoft")
+                        .WithMany()
+                        .HasForeignKey("EntraObjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ParcInfo.Web.Domain.Region", "Region")
                         .WithMany()
                         .HasForeignKey("RegionId");
+
+                    b.Navigation("CompteMicrosoft");
 
                     b.Navigation("Region");
                 });
 
             modelBuilder.Entity("ParcInfo.Web.Domain.Site", b =>
                 {
+                    b.HasOne("ParcInfo.Web.Domain.CompteMicrosoft", "CompteMicrosoft")
+                        .WithMany()
+                        .HasForeignKey("EntraObjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ParcInfo.Web.Domain.Region", "Region")
                         .WithMany()
                         .HasForeignKey("RegionId");
+
+                    b.Navigation("CompteMicrosoft");
 
                     b.Navigation("Region");
                 });

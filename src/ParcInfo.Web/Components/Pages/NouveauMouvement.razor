@@ -1,5 +1,6 @@
 @page "/mouvements/nouveau"
 @attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject ServiceComptesMicrosoft ComptesMicrosoft
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject ServiceMouvements Service
 @inject UtilisateurCourant Courant
@@ -105,6 +106,13 @@ else
                             {
                                 <MudAutocomplete T="Personne" Value="_personne" ValueChanged="ChoisirPersonne" SearchFunc="ChercherPersonne" ToStringFunc="@(p => p?.NomComplet ?? "")"
                                                  Label="Personne" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
+                                @if (_annuaireDisponible)
+                                {
+                                    <MudAutocomplete T="CompteMicrosoft" SearchFunc="ChercherCompte" ValueChanged="ChoisirCompte"
+                                                     ToStringFunc="@(c => c is null ? "" : $"{c.NomAffichage} · {c.AdressePrincipale}")"
+                                                     Label="Ou depuis l'annuaire Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                                                     DebounceInterval="250" MinCharacters="2" ResetValueOnEmptyText="true" />
+                                }
                                 <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.PersonAdd" OnClick="() => _nouvellePersonne = !_nouvellePersonne">Nouvelle personne</MudButton>
                                 @if (_nouvellePersonne)
                                 {
@@ -177,6 +185,7 @@ else
     private bool _nouvellePersonne;
     private string? _npNom, _npEmail;
     private bool _nouveauSite;
+    private bool _annuaireDisponible;
     private string? _nsCode, _nsNom;
     private string? _erreur;
     private bool _envoi;
@@ -186,6 +195,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        await using (var dbAnnuaire = await DbFactory.CreateDbContextAsync())
+            _annuaireDisponible = await dbAnnuaire.ComptesMicrosoft.AnyAsync();
         if (Enum.TryParse<TypeMouvement>(TypeQuery, out var t) && RegleMouvement.TypesSaisissables.Contains(t)) ChangerType(t);
         else ChangerType(TypeMouvement.Attribution);
         var ids = (Ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => int.TryParse(s, out var i) ? i : 0).Where(i => i > 0).ToList();
@@ -283,6 +294,17 @@ else
         ChoisirPersonne(p);
         _nouvellePersonne = false;
         _npNom = _npEmail = null;
+    }
+
+    private Task<IEnumerable<CompteMicrosoft>> ChercherCompte(string? texte, CancellationToken ct) =>
+        ComptesMicrosoft.ChercherComptesAsync(texte, ct).ContinueWith(t => (IEnumerable<CompteMicrosoft>)t.Result, ct);
+
+    /// <summary>Personne choisie dans l'annuaire : retrouvée, ou créée avec son nom et son adresse Microsoft.</summary>
+    private async Task ChoisirCompte(CompteMicrosoft? c)
+    {
+        if (c is null) return;
+        try { ChoisirPersonne(await ComptesMicrosoft.PersonnePourCompteAsync(c.Id)); }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
     }
 
     private async Task CreerSite()

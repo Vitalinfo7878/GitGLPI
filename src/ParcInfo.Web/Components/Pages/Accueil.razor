@@ -63,6 +63,18 @@ else
                         <MudListItem Icon="@Icons.Material.Outlined.ConfirmationNumber" IconColor="Color.Warning" Href="/tickets">
                             <b>@_ticketsOuverts</b> ticket(s) ouvert(s), dont <b>@_ticketsNouveaux</b> à prendre en charge
                         </MudListItem>
+                        @if (_departs > 0)
+                        {
+                            <MudListItem Icon="@Icons.Material.Outlined.PersonOff" IconColor="Color.Error" Href="/comptes-microsoft">
+                                <b>@_departs</b> départ(s) à traiter : compte Microsoft désactivé, matériel encore attribué
+                            </MudListItem>
+                        }
+                        @if (_aTrancher > 0)
+                        {
+                            <MudListItem Icon="@Icons.Material.Outlined.ManageAccounts" IconColor="Color.Warning" Href="/comptes-microsoft">
+                                <b>@_aTrancher</b> personne(s) ou site(s) à relier à un compte Microsoft
+                            </MudListItem>
+                        }
                         <MudListItem Icon="@Icons.Material.Outlined.Autorenew" IconColor="Color.Primary" Href="/inventaire?filtre=achanger">
                             <b>@_stats.AChanger</b> PC à changer
                         </MudListItem>
@@ -100,6 +112,7 @@ else
     private Stats? _stats;
     private int _demandesAValider, _demandesATraiter;
     private int _ticketsOuverts, _ticketsNouveaux;
+    private int _departs, _aTrancher;
 
     private sealed record Stats(
         Dictionary<TypeMateriel, int> EnService, Dictionary<TypeMateriel, int> EnStock, Dictionary<StatutMateriel, int> ParStatut,
@@ -132,6 +145,12 @@ else
         _demandesATraiter = await db.Demandes.CountAsync(d => d.StatutValidation == StatutValidation.Validee
             && d.StatutRealisation != StatutRealisation.Realisee && d.StatutRealisation != StatutRealisation.Annulee);
         await CompterTickets(db);
+        _departs = await db.Personnes.CountAsync(p => p.CompteMicrosoft != null && (p.CompteMicrosoft.Supprime || !p.CompteMicrosoft.Actif)
+            && p.Materiels.Any(m => m.Statut == StatutMateriel.Attribue));
+        // À trancher seulement une fois l'annuaire synchronisé
+        if (await db.ComptesMicrosoft.AnyAsync())
+            _aTrancher = await db.Personnes.CountAsync(p => p.EntraObjectId == null && !p.SansCompteMicrosoft)
+                + await db.Sites.CountAsync(s => s.EntraObjectId == null && !s.SansCompteMicrosoft);
     }
 
     private async Task CompterTickets(ParcDbContext db)

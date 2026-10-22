@@ -1,0 +1,228 @@
+@page "/comptes-microsoft"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject ServiceComptesMicrosoft Service
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+
+<PageTitle>Comptes Microsoft</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Comptes Microsoft</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Sync" OnClick="Synchroniser" Disabled="_envoi">
+        @(_envoi ? "Synchronisation…" : "Synchroniser maintenant")
+    </MudButton>
+</div>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Personnes et sites reliés à l'annuaire Microsoft : nom, adresse, poste, responsable, groupes et licences sont actualisés chaque nuit.
+    @if (_derniere is { } d) { <span> Dernière synchronisation : @d.ToLocalTime().ToString("dd/MM/yyyy à HH:mm").</span> }
+    else { <span> Aucune synchronisation pour l'instant.</span> }
+</MudText>
+
+@if (_aTrancher is null)
+{
+    <Attente />
+}
+else
+{
+    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-4" @bind-ActivePanelIndex="_onglet">
+        <MudTabPanel Text="@($"À trancher ({_aTrancher.Count})")">
+            @if (_aTrancher.Count == 0)
+            {
+                <MudAlert Severity="Severity.Success">Rien à trancher : toutes les personnes et tous les sites sont reliés ou marqués sans compte.</MudAlert>
+            }
+            <MudStack Spacing="2">
+                @foreach (var x in _aTrancher)
+                {
+                    <MudPaper Elevation="0" Class="carte pa-3" @key="@($"{x.Type}-{x.Id}")">
+                        <div class="d-flex flex-wrap align-center gap-2 mb-2">
+                            <MudIcon Icon="@(x.Type == TypeDetenteur.Site ? Icons.Material.Outlined.Restaurant : Icons.Material.Outlined.Person)" Size="Size.Small" />
+                            <MudText Typo="Typo.subtitle1"><b>@x.Nom</b></MudText>
+                            @if (x.Email is not null) { <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@x.Email</MudText> }
+                            <MudText Typo="Typo.caption">· @x.NbMateriels matériel(s)</MudText>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => SansCompte(x.Type, x.Id, true)">Aucun compte</MudButton>
+                        </div>
+                        @if (x.Candidats.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-2">Aucun compte proche trouvé.</MudText>
+                        }
+                        @foreach (var c in x.Candidats)
+                        {
+                            <div class="d-flex flex-wrap align-center gap-2 py-1" style="border-top:1px solid var(--mud-palette-lines-default)">
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => Relier(x, c.Compte.Id)">Relier</MudButton>
+                                <span><b>@c.Compte.NomAffichage</b> · @c.Compte.AdressePrincipale</span>
+                                @if (c.Compte.Poste is not null || c.Compte.Service is not null)
+                                {
+                                    <MudText Typo="Typo.caption">@string.Join(" · ", new[] { c.Compte.Poste, c.Compte.Service }.Where(v => v != null))</MudText>
+                                }
+                                @if (!c.Compte.Actif) { <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Class="ma-0">désactivé</MudChip> }
+                                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">(@c.Raison)</MudText>
+                            </div>
+                        }
+                        <div style="max-width:420px" class="mt-2">
+                            <MudAutocomplete T="CompteMicrosoft" SearchFunc="Chercher" ToStringFunc="@(c => c is null ? "" : $"{c.NomAffichage} · {c.AdressePrincipale}")"
+                                             ValueChanged="c => { if (c is not null) _ = Relier(x, c.Id); }" Placeholder="Autre compte : rechercher dans l'annuaire"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="250" MinCharacters="2" ResetValueOnEmptyText="true" />
+                        </div>
+                    </MudPaper>
+                }
+            </MudStack>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@($"Départs à traiter ({_departs.Count})")">
+            @if (_departs.Count == 0)
+            {
+                <MudAlert Severity="Severity.Success">Aucun compte désactivé ou supprimé ne détient encore de matériel.</MudAlert>
+            }
+            <MudStack Spacing="2">
+                @foreach (var (p, materiels) in _departs)
+                {
+                    <MudPaper Elevation="0" Class="carte pa-3">
+                        <div class="d-flex flex-wrap align-center gap-2">
+                            <MudText Typo="Typo.subtitle1"><b>@p.NomComplet</b></MudText>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Class="ma-0">
+                                @(p.CompteMicrosoft!.Supprime ? "compte supprimé" : "compte désactivé")
+                            </MudChip>
+                            <MudText Typo="Typo.body2">@string.Join(", ", materiels.Select(m => $"{m.NumInterne} ({m.Type.Libelle()})"))</MudText>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
+                                       Href="@($"/mouvements/nouveau?type=Restitution&ids={string.Join(',', materiels.Select(m => m.Id))}")">Récupérer le matériel</MudButton>
+                        </div>
+                    </MudPaper>
+                }
+            </MudStack>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@($"Reliés ({_relies.Count})")">
+            <MudDataGrid T="Relie" Items="RelieFiltres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" HorizontalScrollbar="true">
+                <ToolBarContent>
+                    <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Filtrer (nom, mail, poste, service, groupe…)"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Clearable="true" />
+                </ToolBarContent>
+                <Columns>
+                    <TemplateColumn T="Relie" Title="" Sortable="false">
+                        <CellTemplate><MudIcon Icon="@(context.Item.Type == TypeDetenteur.Site ? Icons.Material.Outlined.Restaurant : Icons.Material.Outlined.Person)" Size="Size.Small" /></CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Compte.NomAffichage" Title="Nom" CellStyle="font-weight:600" />
+                    <PropertyColumn Property="x => x.Compte.AdressePrincipale" Title="Mail" />
+                    <PropertyColumn Property="x => x.Compte.Poste" Title="Poste" />
+                    <PropertyColumn Property="x => x.Compte.Service" Title="Service" />
+                    <PropertyColumn Property="x => x.Compte.ResponsableNom" Title="Responsable" />
+                    <PropertyColumn Property="x => x.Compte.TelephoneMobile" Title="Mobile" />
+                    <PropertyColumn Property="x => x.NbMateriels" Title="Matériel" />
+                    <TemplateColumn T="Relie" Title="État" SortBy="x => x.Compte.EstParti">
+                        <CellTemplate>
+                            @if (context.Item.Compte.EstParti) { <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Class="ma-0">@(context.Item.Compte.Supprime ? "supprimé" : "désactivé")</MudChip> }
+                            else { <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0">actif</MudChip> }
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn T="Relie" Title="" Sortable="false">
+                        <CellTemplate>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => SansCompte(context.Item.Type, context.Item.Id, false)">Délier</MudButton>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="Relie" PageSizeOptions="[25, 50, 100]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+                </PagerContent>
+                <NoRecordsContent><MudText>Aucune personne ni aucun site relié.</MudText></NoRecordsContent>
+            </MudDataGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@($"Sans compte ({_sansCompte.Count})")">
+            @if (_sansCompte.Count == 0) { <MudText>Aucun.</MudText> }
+            <MudStack Spacing="1">
+                @foreach (var (type, id, nom) in _sansCompte)
+                {
+                    <div class="d-flex align-center gap-2">
+                        <MudIcon Icon="@(type == TypeDetenteur.Site ? Icons.Material.Outlined.Restaurant : Icons.Material.Outlined.Person)" Size="Size.Small" />
+                        <span>@nom</span>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => SansCompte(type, id, false)">Revoir</MudButton>
+                    </div>
+                }
+            </MudStack>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    private sealed record Relie(TypeDetenteur Type, int Id, CompteMicrosoft Compte, int NbMateriels);
+
+    private List<ATrancher>? _aTrancher;
+    private List<(Personne Personne, List<Materiel> Materiels)> _departs = [];
+    private List<Relie> _relies = [];
+    private List<(TypeDetenteur Type, int Id, string Nom)> _sansCompte = [];
+    private DateTime? _derniere;
+    private int _onglet;
+    private bool _envoi;
+    private string? _recherche;
+
+    private IEnumerable<Relie> RelieFiltres => _relies.Where(r => string.IsNullOrWhiteSpace(_recherche)
+        || $"{r.Compte.NomAffichage} {r.Compte.AdressePrincipale} {r.Compte.Poste} {r.Compte.Service} {r.Compte.ResponsableNom} {r.Compte.Groupes}"
+            .Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Charger();
+        if (_aTrancher!.Count == 0 && _departs.Count > 0) _onglet = 1;
+    }
+
+    private async Task Charger()
+    {
+        _aTrancher = await Service.ListerATrancherAsync();
+        _departs = await Service.ListerDepartsAsync();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _derniere = await db.ComptesMicrosoft.MaxAsync(c => (DateTime?)c.SynchroniseLe);
+        var personnes = await db.Personnes.AsNoTracking().Where(p => p.CompteMicrosoft != null)
+            .Select(p => new { p.Id, p.CompteMicrosoft, N = p.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
+        var sites = await db.Sites.AsNoTracking().Where(s => s.CompteMicrosoft != null)
+            .Select(s => new { s.Id, s.CompteMicrosoft, N = s.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
+        _relies = personnes.Select(p => new Relie(TypeDetenteur.Personne, p.Id, p.CompteMicrosoft!, p.N))
+            .Concat(sites.Select(s => new Relie(TypeDetenteur.Site, s.Id, s.CompteMicrosoft!, s.N)))
+            .OrderBy(r => r.Compte.NomAffichage).ToList();
+        _sansCompte = (await db.Personnes.AsNoTracking().Where(p => p.SansCompteMicrosoft).Select(p => new { p.Id, p.NomComplet }).ToListAsync())
+            .Select(p => (TypeDetenteur.Personne, p.Id, p.NomComplet))
+            .Concat((await db.Sites.AsNoTracking().Where(s => s.SansCompteMicrosoft).Select(s => new { s.Id, s.Code, s.Nom }).ToListAsync())
+                .Select(s => (TypeDetenteur.Site, s.Id, Site.LibelleDe(s.Code, s.Nom, false))))
+            .OrderBy(x => x.Item3).ToList();
+    }
+
+    private Task<IEnumerable<CompteMicrosoft>> Chercher(string? texte, CancellationToken ct) =>
+        Service.ChercherComptesAsync(texte, ct).ContinueWith(t => (IEnumerable<CompteMicrosoft>)t.Result, ct);
+
+    private async Task Synchroniser()
+    {
+        _envoi = true;
+        try
+        {
+            var r = await Service.SynchroniserAsync((await Courant.ObtenirAsync()).Signature);
+            Snackbar.Add($"{r.Comptes} comptes lus, {r.ReliesAutomatiquement} rapprochement(s) automatique(s), {r.ATrancher} à trancher, {r.Departs} départ(s) à traiter.", Severity.Success);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+        catch (Exception ex) { Snackbar.Add($"Lecture de l'annuaire impossible : {ex.Message}", Severity.Error); }
+        finally { _envoi = false; }
+    }
+
+    private async Task Relier(ATrancher x, string compteId)
+    {
+        try
+        {
+            var u = await Courant.ObtenirAsync();
+            var message = x.Type == TypeDetenteur.Site
+                ? await Service.RelierSiteAsync(x.Id, compteId, u)
+                : await Service.RelierPersonneAsync(x.Id, compteId, u);
+            Snackbar.Add(message, Severity.Success);
+            await Charger();
+            StateHasChanged();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private async Task SansCompte(TypeDetenteur type, int id, bool sansCompte)
+    {
+        await Service.DefinirSansCompteAsync(type, id, sansCompte, await Courant.ObtenirAsync());
+        await Charger();
+    }
+}

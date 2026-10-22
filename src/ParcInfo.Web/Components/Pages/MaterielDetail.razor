@@ -51,7 +51,8 @@ else
                             {
                                 <MudItem xs="12">
                                     <MudTextField MaxLength="200" @bind-Value="_emailDetenteur" Label="@($"Adresse mail de {_m.DetenteurLibelle} *")" InputType="InputType.Email"
-                                                  Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Donne accès à « Mon matériel » ; s'applique à tout le matériel de ce détenteur."
+                                                  Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="@(CompteDetenteur is not null)"
+                                                  HelperText="@(CompteDetenteur is not null ? "Reprise de l'annuaire Microsoft (actualisée chaque nuit)." : "Donne accès à « Mon matériel » ; s'applique à tout le matériel de ce détenteur.")"
                                                   Error="@(_erreurs.ContainsKey("Email"))" ErrorText="@_erreurs.GetValueOrDefault("Email")" />
                                 </MudItem>
                             }
@@ -148,6 +149,19 @@ else
         </MudItem>
 
         <MudItem xs="12" lg="5">
+            @if (CompteDetenteur is { } compte)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                    <MudText Typo="Typo.h6" Class="mb-2">Profil Microsoft du détenteur</MudText>
+                    <ProfilMicrosoft Compte="compte" />
+                </MudPaper>
+            }
+            else if (_m.Site is not null || _m.Personne is not null)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    @_m.DetenteurLibelle n'est pas encore relié à un compte Microsoft. <MudLink Href="/comptes-microsoft">Comptes Microsoft</MudLink>
+                </MudAlert>
+            }
             <MudPaper Elevation="0" Class="carte pa-4">
                 <MudText Typo="Typo.h6" Class="mb-2">Historique</MudText>
                 @if (_m.Mouvements.Count == 0)
@@ -205,6 +219,7 @@ else
     private Materiel? _m;
     private List<Ticket> _tickets = [];
     private string? _emailDetenteur;
+    private CompteMicrosoft? CompteDetenteur => _m?.Personne?.CompteMicrosoft ?? _m?.Site?.CompteMicrosoft;
     private Dictionary<string, string> _erreurs = [];
     private Materiel? _form;
     private bool _edition;
@@ -220,6 +235,7 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         _m = await db.Materiels.AsNoTracking()
             .Include(m => m.Site).ThenInclude(s => s!.Region).Include(m => m.Personne).Include(m => m.Region)
+            .Include(m => m.Site).ThenInclude(s => s!.CompteMicrosoft).Include(m => m.Personne).ThenInclude(p => p!.CompteMicrosoft)
             .Include(m => m.Mouvements).ThenInclude(x => x.Fiche)
             .Include(m => m.Mouvements).ThenInclude(x => x.DestinationSite)
             .Include(m => m.Mouvements).ThenInclude(x => x.DestinationPersonne)

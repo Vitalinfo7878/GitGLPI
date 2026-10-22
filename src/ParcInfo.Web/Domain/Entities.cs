@@ -25,7 +25,17 @@ public class Site
 
     public List<Materiel> Materiels { get; set; } = [];
 
-    public string Libelle => string.IsNullOrWhiteSpace(Nom) ? $"Site {Code}" : $"{Code} – {Nom}";
+    /// <summary>Compte Microsoft du site (boîte Exchange), relié par l'annuaire.</summary>
+    public string? EntraObjectId { get; set; }
+    public CompteMicrosoft? CompteMicrosoft { get; set; }
+    /// <summary>Décision prise sur la page « Comptes Microsoft » : ce site n'a pas de compte.</summary>
+    public bool SansCompteMicrosoft { get; set; }
+
+    public string Libelle => LibelleDe(Code, Nom, EntraObjectId != null);
+
+    /// <summary>Site relié à son compte Microsoft : son nom d'affichage ; sinon « code – nom ».</summary>
+    public static string LibelleDe(string code, string? nom, bool relie) =>
+        string.IsNullOrWhiteSpace(nom) ? $"Site {code}" : relie ? nom : $"{code} – {nom}";
 }
 
 /// <summary>Personne physique (salarié), normalement présente dans Entra ID.</summary>
@@ -34,7 +44,11 @@ public class Personne
     public int Id { get; set; }
     public string NomComplet { get; set; } = "";
     public string? Email { get; set; }
+    /// <summary>Compte Microsoft relié : le nom et l'adresse sont alors ceux de l'annuaire, actualisés chaque nuit.</summary>
     public string? EntraObjectId { get; set; }
+    public CompteMicrosoft? CompteMicrosoft { get; set; }
+    /// <summary>Décision prise sur la page « Comptes Microsoft » : cette personne n'a pas de compte.</summary>
+    public bool SansCompteMicrosoft { get; set; }
     public int? RegionId { get; set; }
     public Region? Region { get; set; }
     public bool Actif { get; set; } = true;

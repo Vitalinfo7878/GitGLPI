@@ -18,6 +18,7 @@ Elle remplace le classeur « Informatique Vitalrest – Suivi du stock » et rep
 | **Demandes à valider / traiter** | Pour le valideur et l'informatique : validation ou refus (avec motif), puis suivi du traitement (priorité, avancement, commentaire) |
 | **Créer un ticket / Mes tickets** | Pour tous les salariés : déclaration d'un problème, échanges avec l'informatique, confirmation de la résolution avec une note |
 | **Tickets à traiter / Analyse** | Pour l'informatique et les administrateurs des tickets : traitement, analyse (cause, solution, mode de résolution, temps passé) et statistiques |
+| **Comptes Microsoft** | Personnes et sites reliés à l'annuaire Microsoft (nom d'affichage, contact, poste, service, responsable, groupes, licences, état du compte), synchronisés chaque nuit ; doutes à trancher ; départs à traiter (compte désactivé avec du matériel attribué) |
 | **Mon matériel** | Pour chaque salarié : le matériel qui lui est attribué |
 | **Import Excel** | Chargement initial depuis le classeur, avec aperçu et rapport d'anomalies |
 | **Courriels / Journal** | Trace des courriels envoyés et des actions sensibles |

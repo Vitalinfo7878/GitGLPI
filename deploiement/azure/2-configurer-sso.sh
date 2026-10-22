@@ -6,6 +6,7 @@
 # Ce que fait le script (rejouable) :
 #   - inscription d'application « Parc informatique Vitalrest » : adresse de retour, rôles Gestionnaire / Valideur,
 #     adresse mail dans le jeton, consentement administrateur (aucune fenêtre d'accord pour les salariés)
+#   - lecture seule de l'annuaire (Directory.Read.All) pour la synchronisation des comptes Microsoft
 #   - secret client enregistré dans l'application Container Apps (jamais affiché)
 #   - attribution des rôles aux comptes listés dans parametres.sh
 #   - affiche les commandes Exchange Online pour autoriser l'envoi de mails depuis une seule boîte
@@ -103,6 +104,18 @@ else
     Autorisations d'API > « Accorder un consentement d'administrateur », puis relancer ce script."
 fi
 info "consentement administrateur accordé ($PORTEES)"
+
+# Lecture de l'annuaire (autorisation d'application, lecture seule) : profils, responsables, groupes et licences
+# des personnes et des sites, pour la page « Comptes Microsoft »
+ROLE_ANNUAIRE=$(az ad sp show --id "$GRAPH" --query "appRoles[?value=='Directory.Read.All'].id" -o tsv)
+az ad app permission add --id "$ID_APPLI" --api "$GRAPH" --api-permissions "$ROLE_ANNUAIRE=Role" --only-show-errors 2>/dev/null || true
+if [[ -z "$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$ID_SP/appRoleAssignments" \
+        --query "value[?appRoleId=='$ROLE_ANNUAIRE'].id" -o tsv)" ]]; then
+    reessayer az rest --method POST --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$ID_SP/appRoleAssignments" \
+        --headers "Content-Type=application/json" -o none \
+        --body "{\"principalId\": \"$ID_SP\", \"resourceId\": \"$ID_SP_GRAPH\", \"appRoleId\": \"$ROLE_ANNUAIRE\"}"
+fi
+info "lecture de l'annuaire autorisée (Directory.Read.All, lecture seule)"
 
 # ---------------------------------------------------------------------------
 etape "2. Secret client et réglages de l'application"

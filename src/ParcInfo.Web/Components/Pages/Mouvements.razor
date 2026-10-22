@@ -85,13 +85,13 @@ else
             .Select(m => new
             {
                 m.Numero, m.Date, m.Type, m.MaterielId, m.Materiel.NumInterne, MType = m.Materiel.Type, m.Materiel.Modele, m.Expediteur,
-                SiteCode = m.DestinationSite!.Code, SiteNom = m.DestinationSite.Nom, Personne = m.DestinationPersonne!.NomComplet, m.DestinationLibre,
+                SiteCode = m.DestinationSite!.Code, SiteNom = m.DestinationSite.Nom, SiteRelie = m.DestinationSite.EntraObjectId != null, Personne = m.DestinationPersonne!.NomComplet, m.DestinationLibre,
                 m.Region, FicheId = (Guid?)m.Fiche!.IdPublic, Fiche = m.Fiche.Code,
             })
             .OrderByDescending(m => m.Numero).ToListAsync();
         _tous = mvts.Select(m =>
         {
-            var dest = m.SiteCode is not null ? (string.IsNullOrEmpty(m.SiteNom) ? $"Site {m.SiteCode}" : $"{m.SiteCode} – {m.SiteNom}") : m.Personne ?? m.DestinationLibre ?? "";
+            var dest = m.SiteCode is not null ? Site.LibelleDe(m.SiteCode, m.SiteNom, m.SiteRelie) : m.Personne ?? m.DestinationLibre ?? "";
             var materiel = $"{m.MType.Libelle()} {m.Modele}";
             var r = ParcInfo.Web.Import.Normalisation.SansAccents($"{m.Numero} {m.NumInterne} {materiel} {m.Expediteur} {dest} {m.Region} {m.Fiche}").ToLowerInvariant();
             return new Ligne(m.Numero, m.Date?.ToDateTime(TimeOnly.MinValue), m.Type, m.Type.Libelle(), m.MaterielId, m.NumInterne, materiel,
