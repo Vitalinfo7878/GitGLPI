@@ -1,0 +1,93 @@
+@page "/materiels/nouveau"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject ServiceMouvements Service
+@inject UtilisateurCourant Courant
+
+<PageTitle>Nouveau matériel</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Nouveau matériel</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Pour du matériel qui arrive au service informatique sans avoir jamais été inventorié (retour, matériel retrouvé…).
+    Il entre en stock ; vous pourrez ensuite l'attribuer avec une sortie. Pour du matériel neuf acheté, utilisez la
+    <MudLink Href="/achat">réception d'achat</MudLink>.
+</MudText>
+
+@if (_cree is not null)
+{
+    <MudPaper Elevation="0" Class="carte pa-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="vertical-align:middle" />
+            @_cree.NumInterne ajouté au parc, en stock
+        </MudText>
+        <div class="d-flex flex-wrap gap-2">
+            <MudButton Href="@($"/materiels/{_cree.Id}")" Variant="Variant.Filled" Color="Color.Primary">Voir la fiche</MudButton>
+            <MudButton Href="@($"/mouvements/nouveau?type=Attribution&ids={_cree.Id}")" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.SwapHoriz">L'attribuer (sortie)</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="Nouveau">Ajouter un autre matériel</MudButton>
+        </div>
+    </MudPaper>
+}
+else
+{
+    <MudPaper Elevation="0" Class="carte pa-4">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudSelect @bind-Value="_d.Type" Label="Type *" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="_d.NumInterne" MaxLength="60" Label="@(EstPc ? "Nom du PC *" : "N° interne")" Placeholder="@(EstPc ? "ex. PC0123" : "automatique")"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker Date="@(_d.Date.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? x) => _d.Date = DateOnly.FromDateTime(x ?? DateTime.Today))"
+                               Label="Date d'arrivée" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" />
+            </MudItem>
+            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_d.Modele" MaxLength="400" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_d.NumSerie" MaxLength="400" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            @if (EstPc)
+            {
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="CategoriePc?" @bind-Value="_d.CategoriePc" Label="Catégorie PC" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                        @foreach (var c in Enum.GetValues<CategoriePc>()) { <MudSelectItem T="CategoriePc?" Value="c">@c.Libelle()</MudSelectItem> }
+                    </MudSelect>
+                </MudItem>
+            }
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="_d.Provenance" MaxLength="400" Label="Provenance" Placeholder="Rendu par…, retrouvé sur le site…" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="_d.Commentaire" MaxLength="2000" Label="Commentaire" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            @if (_erreur is not null)
+            {
+                <MudItem xs="12"><MudAlert Severity="Severity.Error">@_erreur</MudAlert></MudItem>
+            }
+            <MudItem xs="12" Class="d-flex justify-space-between align-center flex-wrap gap-2">
+                <MudText Typo="Typo.caption">* obligatoire. La configuration, le mot de passe de session, etc. se complètent ensuite sur la fiche.</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Enregistrer" Disabled="_envoi" StartIcon="@Icons.Material.Outlined.AddBox">Ajouter au parc</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+@code {
+    private MaterielNonInventorie _d = new();
+    private Materiel? _cree;
+    private string? _erreur;
+    private bool _envoi;
+
+    private bool EstPc => _d.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable;
+
+    private async Task Enregistrer()
+    {
+        _erreur = null;
+        _envoi = true;
+        try { _cree = await Service.AjouterMaterielNonInventorieAsync(_d, await Courant.ObtenirAsync()); }
+        catch (ErreurMetier ex) { _erreur = ex.Message; }
+        finally { _envoi = false; }
+    }
+
+    private void Nouveau()
+    {
+        _d = new MaterielNonInventorie { Type = _d.Type, CategoriePc = _d.CategoriePc };
+        _cree = null;
+    }
+}

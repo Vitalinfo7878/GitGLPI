@@ -186,4 +186,27 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal(CategoriePc.Enrole, (await db.Materiels.FindAsync(pc))!.CategoriePc);
         Assert.Null((await db.Materiels.FindAsync(ecran))!.CategoriePc);
     }
+
+    [Fact]
+    public async Task Materiel_non_inventorie_entre_en_stock()
+    {
+        Donnees();
+        var incomplet = await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.AjouterMaterielNonInventorieAsync(new MaterielNonInventorie { Type = TypeMateriel.PcPortable }, Informatique));
+        Assert.Equal("À renseigner : le nom du PC ; le n° de série.", incomplet.Message);
+        await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.AjouterMaterielNonInventorieAsync(new MaterielNonInventorie { Type = TypeMateriel.PcFixe, NumInterne = "pc0001", NumSerie = "X" }, Informatique));
+
+        var ecran = await _service.AjouterMaterielNonInventorieAsync(
+            new MaterielNonInventorie { Type = TypeMateriel.Ecran, NumSerie = "CN123", Provenance = "Retrouvé au site 087" }, Informatique);
+        Assert.Equal("E0002", ecran.NumInterne);
+        await using var db = _fabrique.CreateDbContext();
+        var m = await db.Materiels.Include(x => x.Mouvements).SingleAsync(x => x.Id == ecran.Id);
+        Assert.Equal(StatutMateriel.EnStock, m.Statut);
+        var mv = Assert.Single(m.Mouvements);
+        Assert.Equal(TypeMouvement.EntreeInitiale, mv.Type);
+        Assert.Equal(101, mv.Numero);
+        Assert.Equal("Retrouvé au site 087", mv.Expediteur);
+        Assert.Null(mv.FicheId);
+    }
 }

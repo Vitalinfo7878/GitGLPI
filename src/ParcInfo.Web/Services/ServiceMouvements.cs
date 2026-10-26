@@ -42,6 +42,21 @@ public sealed class DemandeAchat
 
 public sealed class ErreurMetier(string message) : Exception(message);
 
+/// <summary>Matériel arrivé hors achat et jamais inventorié (retour, matériel retrouvé…) : entre directement en stock.</summary>
+public sealed class MaterielNonInventorie
+{
+    public TypeMateriel Type { get; set; } = TypeMateriel.PcPortable;
+    /// <summary>Nom du PC (obligatoire pour les PC) ; vide pour un écran ou une imprimante = numéro suivant de la nomenclature.</summary>
+    public string? NumInterne { get; set; }
+    public string? Modele { get; set; }
+    public string? NumSerie { get; set; }
+    public CategoriePc? CategoriePc { get; set; }
+    /// <summary>D'où vient le matériel (rendu par…, retrouvé sur le site…).</summary>
+    public string? Provenance { get; set; }
+    public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    public string? Commentaire { get; set; }
+}
+
 public sealed record ResultatMouvement(List<int> Numeros, Fiche? Fiche, string? Avertissement);
 
 public sealed class ServiceMouvements(
@@ -119,6 +134,43 @@ public sealed class ServiceMouvements(
             Type = TypeMouvement.Achat, MaterielIds = crees.Select(m => m.Id).ToList(), Date = demande.Date,
             Expediteur = demande.Fournisseur, DocumentReference = demande.DocumentReference, Commentaire = demande.Commentaire,
         }, auteur, ct);
+    }
+
+    /// <summary>
+    /// Ajoute au parc un matériel qui n'avait pas été inventorié : il entre en stock avec un mouvement
+    /// « Entrée initiale (inventaire) », sans fiche ni facture. Il peut ensuite être attribué par une sortie.
+    /// </summary>
+    public async Task<Materiel> AjouterMaterielNonInventorieAsync(MaterielNonInventorie d, Utilisateur auteur, CancellationToken ct = default)
+    {
+        if (!auteur.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        var estPc = d.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable;
+        var manquants = new List<string>();
+        if (estPc && string.IsNullOrWhiteSpace(d.NumInterne)) manquants.Add("le nom du PC");
+        if (string.IsNullOrWhiteSpace(d.NumSerie)) manquants.Add("le n° de série");
+        if (manquants.Count > 0) throw new ErreurMetier($"À renseigner : {string.Join(" ; ", manquants)}.");
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var num = string.IsNullOrWhiteSpace(d.NumInterne) ? await ProchainNumInterneAsync(d.Type) : d.NumInterne.Trim().ToUpperInvariant();
+        if (await db.Materiels.AnyAsync(m => m.NumInterne == num, ct)) throw new ErreurMetier($"Le numéro interne {num} existe déjà.");
+        var maintenant = DateTime.UtcNow;
+        var m = new Materiel
+        {
+            NumInterne = num, Type = d.Type, Modele = Vide(d.Modele), NumSerie = Vide(d.NumSerie), Statut = StatutMateriel.EnStock,
+            CategoriePc = estPc ? d.CategoriePc : null, Commentaire = Vide(d.Commentaire), CreeLe = maintenant, ModifieLe = maintenant,
+        };
+        m.Mouvements.Add(new Mouvement
+        {
+            Numero = (await db.Mouvements.MaxAsync(x => (int?)x.Numero, ct) ?? 0) + 1,
+            Type = TypeMouvement.EntreeInitiale, Date = d.Date, Expediteur = Vide(d.Provenance),
+            DestinationLibre = RegleMouvement.ServiceInformatique, Commentaire = "Matériel non inventorié ajouté au parc",
+            CreePar = auteur.Signature, CreeLe = maintenant,
+        });
+        db.Materiels.Add(m);
+        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouveau matériel (non inventorié)",
+            Details = $"{num} – {d.Type.Libelle()} {m.Modele} (n° série {m.NumSerie})" });
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) { throw new ErreurMetier("Un autre enregistrement vient d'avoir lieu en même temps : réessayez."); }
+        return m;
     }
 
     public async Task<ResultatMouvement> CreerMouvementsAsync(DemandeMouvement d, Utilisateur auteur, CancellationToken ct = default)

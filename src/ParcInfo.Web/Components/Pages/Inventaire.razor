@@ -13,6 +13,7 @@
     <MudSpacer />
     <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
     <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudButton>
+    <MudButton Href="/materiels/nouveau" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddBox">Nouveau matériel</MudButton>
     <MudMenu Label="Catégorie PC" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Category" Disabled="_selection.Count == 0"
              AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft">
         @foreach (var c in Enum.GetValues<CategoriePc>())
