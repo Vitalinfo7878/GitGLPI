@@ -1,8 +1,10 @@
 <MudNavMenu Class="pt-2">
     <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard">Accueil</MudNavLink>
-    <MudNavLink Href="/mon-materiel" Icon="@Icons.Material.Outlined.Person">Mon matériel</MudNavLink>
-    <MudNavLink Href="/demandes/nouvelle" Icon="@Icons.Material.Outlined.AddShoppingCart">Faire une demande</MudNavLink>
-    <MudNavLink Href="/mes-demandes" Icon="@Icons.Material.Outlined.ListAlt">Mes demandes</MudNavLink>
+    <AuthorizeView Policy="@Roles.PolitiqueSalarie">
+        <MudNavLink Href="/mon-materiel" Icon="@Icons.Material.Outlined.Person">Mon matériel</MudNavLink>
+        <MudNavLink Href="/demandes/nouvelle" Icon="@Icons.Material.Outlined.AddShoppingCart">Faire une demande</MudNavLink>
+        <MudNavLink Href="/mes-demandes" Icon="@Icons.Material.Outlined.ListAlt">Mes demandes</MudNavLink>
+    </AuthorizeView>
     <MudNavLink Href="/tickets/nouveau" Icon="@Icons.Material.Outlined.ReportProblem">Créer un ticket</MudNavLink>
     <MudNavLink Href="/mes-tickets" Icon="@Icons.Material.Outlined.SupportAgent">Mes tickets</MudNavLink>
     <AuthorizeView Policy="@Roles.PolitiqueTickets">

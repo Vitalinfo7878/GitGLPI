@@ -95,6 +95,7 @@ public sealed class ServiceDemandes(
 {
     public async Task<ResultatDemande> CreerAsync(FormulaireDemande f, Utilisateur auteur, CancellationToken ct = default)
     {
+        if (auteur.EstSite) throw new ErreurMetier("Les comptes de site ne peuvent pas faire de demande informatique : créez un ticket.");
         // Le mail du demandeur est toujours celui du compte connecté (non modifiable dans le formulaire)
         f.DemandeurEmail = auteur.Email;
         var erreurs = f.Valider();

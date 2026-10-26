@@ -1,6 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using ParcInfo.Web.Data;
 
 namespace ParcInfo.Web.Services;
 
@@ -16,6 +19,10 @@ public static class Roles
     /// <summary>Administration des tickets : gestionnaires et comptes listés dans « Tickets:Administrateurs ».</summary>
     public const string AdminTickets = "AdminTickets";
     public const string PolitiqueTickets = "Tickets";
+    /// <summary>Compte Microsoft d'un site (cuisine) : uniquement les tickets, ni demandes ni « Mon matériel ».</summary>
+    public const string Site = "Site";
+    /// <summary>Espace salarié (« Mon matériel », demandes) : tout le monde sauf les comptes de site.</summary>
+    public const string PolitiqueSalarie = "Salarie";
 }
 
 /// <summary>Utilisateur connecté (compte Microsoft 365 / Entra ID, en SSO).</summary>
@@ -32,6 +39,9 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
     /// <summary>Accès à l'administration des tickets (traitement, notes internes, analyse).</summary>
     public bool EstAdminTickets { get; init; }
 
+    /// <summary>Compte d'un site : n'a accès qu'aux tickets (l'informatique garde tous ses droits).</summary>
+    public bool EstSite { get; init; }
+
     public static Utilisateur Depuis(ClaimsPrincipal p)
     {
         var adresses = new[] { "email", ClaimTypes.Email, "preferred_username", ClaimTypes.Upn, "upn" }
@@ -47,6 +57,7 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
         {
             Adresses = adresses,
             EstAdminTickets = gestionnaire || p.IsInRole(Roles.AdminTickets),
+            EstSite = !gestionnaire && p.IsInRole(Roles.Site),
         };
     }
 
@@ -76,7 +87,8 @@ public sealed class UtilisateurCourant(AuthenticationStateProvider auth)
 /// « Authentification:Gestionnaires » → Gestionnaire (pratique avant d'avoir configuré les rôles d'application Entra ID),
 /// « Demandes:Valideurs » → Valideur, « Tickets:Administrateurs » → AdminTickets.
 /// </summary>
-public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransformation
+public sealed class AjoutRolesConfigures(IConfiguration config, IDbContextFactory<ParcDbContext>? dbFactory = null, IMemoryCache? cache = null)
+    : IClaimsTransformation
 {
     private readonly HashSet<string> _gestionnaires = new(
         config.GetSection("Authentification:Gestionnaires").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
@@ -85,7 +97,7 @@ public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransfo
     private readonly HashSet<string> _adminTickets = new(
         config.GetSection("Tickets:Administrateurs").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
 
-    public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         if (principal.Identity is ClaimsIdentity { IsAuthenticated: true } id)
         {
@@ -95,8 +107,23 @@ public sealed class AjoutRolesConfigures(IConfiguration config) : IClaimsTransfo
             Ajouter(id, principal, Roles.Gestionnaire, u.ToutesAdresses.Any(_gestionnaires.Contains));
             Ajouter(id, principal, Roles.Valideur, u.ToutesAdresses.Any(_valideurs.Contains));
             Ajouter(id, principal, Roles.AdminTickets, u.ToutesAdresses.Any(_adminTickets.Contains));
+            Ajouter(id, principal, Roles.Site, await EstCompteDeSiteAsync(principal, u));
         }
-        return Task.FromResult(principal);
+        return principal;
+    }
+
+    /// <summary>Compte relié à un site (identifiant Microsoft) ou portant la boîte mail d'un site. Résultat gardé 10 minutes.</summary>
+    private async Task<bool> EstCompteDeSiteAsync(ClaimsPrincipal p, Utilisateur u)
+    {
+        if (dbFactory is null) return false;
+        var oid = p.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value ?? p.FindFirst("oid")?.Value;
+        var adresses = u.ToutesAdresses;
+        var cle = $"compte-site:{oid}:{string.Join(',', adresses)}";
+        if (cache?.TryGetValue(cle, out bool connu) == true) return connu;
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var estSite = await db.Sites.AnyAsync(s => (oid != null && s.EntraObjectId == oid) || (s.Email != null && adresses.Contains(s.Email.ToLower())));
+        cache?.Set(cle, estSite, TimeSpan.FromMinutes(10));
+        return estSite;
     }
 
     private static readonly string[] TypesRole = ["roles", "role", ClaimTypes.Role];

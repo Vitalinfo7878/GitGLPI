@@ -1,4 +1,5 @@
 @page "/demandes/nouvelle"
+@attribute [Authorize(Policy = Roles.PolitiqueSalarie)]
 @inject ServiceDemandes Service
 @inject UtilisateurCourant Courant
 @inject OptionsDemandes Options

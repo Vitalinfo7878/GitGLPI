@@ -1,4 +1,5 @@
 @page "/mon-materiel"
+@attribute [Authorize(Policy = Roles.PolitiqueSalarie)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject UtilisateurCourant Courant
 

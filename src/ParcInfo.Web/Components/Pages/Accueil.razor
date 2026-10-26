@@ -9,6 +9,16 @@
 {
     <Attente />
 }
+else if (_u.EstSite)
+{
+    @* Compte de site : uniquement les tickets *@
+    <MudText Typo="Typo.h4" Class="mb-1">Bonjour @_u.Nom</MudText>
+    <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">Un problème informatique sur le site ? Créez un ticket, le service informatique vous répondra ici.</MudText>
+    <div class="d-flex flex-wrap gap-2 mb-6">
+        <MudButton Href="/tickets/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ReportProblem">Créer un ticket</MudButton>
+        <MudButton Href="/mes-tickets" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.SupportAgent">Suivre mes tickets</MudButton>
+    </div>
+}
 else if (!_u.EstGestionnaire)
 {
     <MudText Typo="Typo.h4" Class="mb-1">Bonjour @_u.Nom</MudText>

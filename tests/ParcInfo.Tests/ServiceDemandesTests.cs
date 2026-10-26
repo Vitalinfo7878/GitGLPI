@@ -188,4 +188,8 @@ public sealed class ServiceDemandesTests : IDisposable
         var d = (await _service.CreerAsync(f, Salarie)).Demande;
         Assert.Equal("camille.test@vitalrest.com", d.DemandeurEmail);
     }
+
+    [Fact]
+    public async Task Compte_de_site_ne_peut_pas_faire_de_demande() =>
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerAsync(Complet(), new Utilisateur("Site 087", "site087@vitalrest.com", false) { EstSite = true }));
 }

@@ -141,7 +141,8 @@
         _u = await Courant.ObtenirAsync();
         var adresses = _u.ToutesAdresses;
         await using var db = await DbFactory.CreateDbContextAsync();
-        _mesMateriels = await db.Materiels.AsNoTracking()
+        // Les comptes de site ne voient pas leur matériel : ils saisissent le n° d'étiquette
+        if (!_u.EstSite) _mesMateriels = await db.Materiels.AsNoTracking()
             .Where(m => m.Statut == StatutMateriel.Attribue && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
             .OrderBy(m => m.NumInterne).ToListAsync();
         Prerenseigner();

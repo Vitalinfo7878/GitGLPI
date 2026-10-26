@@ -48,4 +48,20 @@ public class UtilisateurTests
         var t = await new AjoutRolesConfigures(new ConfigurationBuilder().Build()).TransformAsync(p);
         Assert.True(Utilisateur.Depuis(t).EstGestionnaire);
     }
+
+    [Fact]
+    public async Task Compte_de_site_reconnu_par_sa_boite_mail()
+    {
+        using var fabrique = new BaseDeTest();
+        await using (var db = fabrique.CreateDbContext())
+        {
+            db.Sites.Add(new ParcInfo.Web.Domain.Site { Code = "087", Email = "site087@vitalrest.com" });
+            await db.SaveChangesAsync();
+        }
+        var transformation = new AjoutRolesConfigures(new ConfigurationBuilder().Build(), fabrique);
+        var site = await transformation.TransformAsync(new ClaimsPrincipal(new ClaimsIdentity([new Claim("email", "Site087@vitalrest.com")], "test")));
+        var salarie = await transformation.TransformAsync(new ClaimsPrincipal(new ClaimsIdentity([new Claim("email", "camille@vitalrest.com")], "test")));
+        Assert.True(Utilisateur.Depuis(site).EstSite);
+        Assert.False(Utilisateur.Depuis(salarie).EstSite);
+    }
 }

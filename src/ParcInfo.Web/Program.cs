@@ -92,11 +92,13 @@ else
     throw new InvalidOperationException(
         "Authentification non configurée : renseignez la section AzureAd (TenantId, ClientId, ClientSecret) ou activez Authentification:ModeDemo.");
 }
+builder.Services.AddMemoryCache();
 builder.Services.AddTransient<IClaimsTransformation, AjoutRolesConfigures>();
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Roles.PolitiqueGestion, p => p.RequireRole(Roles.Gestionnaire))
     .AddPolicy(Roles.PolitiqueValidation, p => p.RequireRole(Roles.Gestionnaire, Roles.Valideur))
     .AddPolicy(Roles.PolitiqueTickets, p => p.RequireRole(Roles.Gestionnaire, Roles.AdminTickets))
+    .AddPolicy(Roles.PolitiqueSalarie, p => p.RequireAssertion(c => !c.User.IsInRole(Roles.Site) || c.User.IsInRole(Roles.Gestionnaire)))
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 builder.Services.AddCascadingAuthenticationState();
 

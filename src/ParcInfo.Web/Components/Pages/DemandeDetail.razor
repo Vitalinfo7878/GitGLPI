@@ -1,4 +1,5 @@
 @page "/demandes/{IdPublic:guid}"
+@attribute [Authorize(Policy = Roles.PolitiqueSalarie)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject ServiceDemandes Service
 @inject UtilisateurCourant Courant
