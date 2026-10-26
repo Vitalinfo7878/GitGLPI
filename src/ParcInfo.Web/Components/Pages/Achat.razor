@@ -21,7 +21,7 @@
             <MudButton Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf">Fiche @f.Code</MudButton>
         }
         <div class="d-flex gap-2 mt-4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => { _resultat = null; _d = new(); }">Nouvelle réception</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="NouvelleReception">Nouvelle réception</MudButton>
             <MudButton Href="/inventaire?statut=EnStock" Variant="Variant.Text">Voir le stock</MudButton>
         </div>
     </MudPaper>
@@ -47,22 +47,23 @@ else
             @foreach (var (m, i) in _d.Materiels.Select((m, i) => (m, i)))
             {
                 <MudItem xs="12" sm="6" md="2">
-                    <MudSelect @bind-Value="m.Type" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelect T="TypeMateriel" Value="m.Type" ValueChanged="t => ChangerType(m, t)" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
                         @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumInterne" Label="@(m.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? "Nom du PC *" : "N° interne")" Placeholder="@(m.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? "ex. PC0123" : "automatique")" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" sm="6" md="2"><MudTextField T="string" MaxLength="400" Value="m.NumInterne" ValueChanged="v => SaisirNumero(m, v)" Label="@(m.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? "Nom du PC *" : "N° interne")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                  HelperText="@(_proposes.Contains(m) ? "proposé (suite de la numérotation)" : null)" /></MudItem>
                 <MudItem xs="12" sm="6" md="3"><MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                 <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
                     <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>
-                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => _d.Materiels.RemoveAt(i)" aria-label="Supprimer" />
+                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => Retirer(i)" aria-label="Supprimer" />
                 </MudItem>
             }
             <MudItem xs="12">
                 <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add" OnClick="AjouterLigne">Ajouter une ligne</MudButton>
-                <MudText Typo="Typo.caption" Class="d-block">* obligatoire. Écrans et imprimantes : n° interne vide = numéro suivant de la nomenclature (E, I).</MudText>
+                <MudText Typo="Typo.caption" Class="d-block">* obligatoire. Le n° interne suivant de la nomenclature (PC, PO, E, I) est proposé automatiquement ; vous pouvez le modifier.</MudText>
             </MudItem>
             @if (_erreur is not null)
             {
@@ -81,11 +82,70 @@ else
     private string? _erreur;
     private bool _envoi;
 
-    private void Dupliquer(NouveauMateriel m) =>
-        _d.Materiels.Add(new NouveauMateriel { Type = m.Type, Modele = m.Modele, Configuration = m.Configuration, NumFacture = m.NumFacture });
+    // Lignes dont le n° interne a été proposé par l'application (et pas saisi) : recalculées à chaque changement
+    private readonly HashSet<NouveauMateriel> _proposes = [];
+
+    protected override Task OnInitializedAsync() => NouvelleReception();
+
+    private async Task NouvelleReception()
+    {
+        _resultat = null;
+        _d = new();
+        _proposes.Clear();
+        _proposes.Add(_d.Materiels[0]);
+        await ProposerNumeros();
+    }
+
+    /// <summary>Numéros suivants de la nomenclature pour les lignes proposées, en tenant compte des autres lignes.</summary>
+    private async Task ProposerNumeros()
+    {
+        var reserves = _d.Materiels.Where(x => !_proposes.Contains(x) && !string.IsNullOrWhiteSpace(x.NumInterne))
+            .Select(x => x.NumInterne!.Trim().ToUpperInvariant()).ToList();
+        foreach (var m in _d.Materiels.Where(_proposes.Contains))
+        {
+            m.NumInterne = await Service.ProchainNumInterneAsync(m.Type, reserves);
+            reserves.Add(m.NumInterne);
+        }
+    }
+
+    private async Task ChangerType(NouveauMateriel m, TypeMateriel t)
+    {
+        m.Type = t;
+        if (string.IsNullOrWhiteSpace(m.NumInterne)) _proposes.Add(m);
+        await ProposerNumeros();
+    }
+
+    private async Task SaisirNumero(NouveauMateriel m, string? v)
+    {
+        m.NumInterne = v;
+        if (string.IsNullOrWhiteSpace(v)) _proposes.Add(m); else _proposes.Remove(m);
+        await ProposerNumeros();
+    }
+
+    private async Task Retirer(int i)
+    {
+        _proposes.Remove(_d.Materiels[i]);
+        _d.Materiels.RemoveAt(i);
+        await ProposerNumeros();
+    }
+
+    private async Task Dupliquer(NouveauMateriel m)
+    {
+        var copie = new NouveauMateriel { Type = m.Type, Modele = m.Modele, Configuration = m.Configuration, NumFacture = m.NumFacture };
+        _d.Materiels.Add(copie);
+        _proposes.Add(copie);
+        await ProposerNumeros();
+    }
 
     // Nouvelle ligne : même facture que la précédente (le plus souvent une seule facture par réception)
-    private void AjouterLigne() => _d.Materiels.Add(new NouveauMateriel { NumFacture = _d.Materiels.LastOrDefault()?.NumFacture });
+    private async Task AjouterLigne()
+    {
+        var precedente = _d.Materiels.LastOrDefault();
+        var ligne = new NouveauMateriel { Type = precedente?.Type ?? TypeMateriel.PcPortable, NumFacture = precedente?.NumFacture };
+        _d.Materiels.Add(ligne);
+        _proposes.Add(ligne);
+        await ProposerNumeros();
+    }
 
     private async Task Valider()
     {

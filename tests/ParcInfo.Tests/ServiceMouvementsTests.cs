@@ -209,4 +209,12 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal("Retrouvé au site 087", mv.Expediteur);
         Assert.Null(mv.FicheId);
     }
+
+    [Fact]
+    public void Numero_interne_suivant_propose()
+    {
+        Assert.Equal("PC0455", ServiceMouvements.ProchainNumero("PC", ["PC0453", "PC0454", "PO0999", "PC0012-DOUBLON-L3"]));
+        Assert.Equal("PC0456", ServiceMouvements.ProchainNumero("PC", ["PC0454", "PC0455"])); // n° déjà réservés sur la réception
+        Assert.Equal("E0001", ServiceMouvements.ProchainNumero("E", []));
+    }
 }

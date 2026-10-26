@@ -30,13 +30,13 @@ else
     <MudPaper Elevation="0" Class="carte pa-4">
         <MudGrid Spacing="2">
             <MudItem xs="12" sm="4">
-                <MudSelect @bind-Value="_d.Type" Label="Type *" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelect T="TypeMateriel" Value="_d.Type" ValueChanged="ChangerType" Label="Type *" Variant="Variant.Outlined" Margin="Margin.Dense">
                     @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
                 </MudSelect>
             </MudItem>
             <MudItem xs="12" sm="4">
-                <MudTextField @bind-Value="_d.NumInterne" MaxLength="60" Label="@(EstPc ? "Nom du PC *" : "N° interne")" Placeholder="@(EstPc ? "ex. PC0123" : "automatique")"
-                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudTextField T="string" Value="_d.NumInterne" ValueChanged="SaisirNumero" MaxLength="60" Label="@(EstPc ? "Nom du PC *" : "N° interne")"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@(_propose ? "proposé (suite de la numérotation)" : null)" />
             </MudItem>
             <MudItem xs="12" sm="4">
                 <MudDatePicker Date="@(_d.Date.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? x) => _d.Date = DateOnly.FromDateTime(x ?? DateTime.Today))"
@@ -74,7 +74,31 @@ else
     private string? _erreur;
     private bool _envoi;
 
+    // Vrai tant que le n° interne est celui proposé par l'application (et non saisi)
+    private bool _propose = true;
+
     private bool EstPc => _d.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable;
+
+    protected override Task OnInitializedAsync() => Proposer();
+
+    private async Task Proposer()
+    {
+        if (_propose) _d.NumInterne = await Service.ProchainNumInterneAsync(_d.Type);
+    }
+
+    private async Task ChangerType(TypeMateriel t)
+    {
+        _d.Type = t;
+        if (string.IsNullOrWhiteSpace(_d.NumInterne)) _propose = true;
+        await Proposer();
+    }
+
+    private async Task SaisirNumero(string? v)
+    {
+        _d.NumInterne = v;
+        _propose = string.IsNullOrWhiteSpace(v);
+        await Proposer();
+    }
 
     private async Task Enregistrer()
     {
@@ -85,9 +109,11 @@ else
         finally { _envoi = false; }
     }
 
-    private void Nouveau()
+    private async Task Nouveau()
     {
         _d = new MaterielNonInventorie { Type = _d.Type, CategoriePc = _d.CategoriePc };
         _cree = null;
+        _propose = true;
+        await Proposer();
     }
 }
