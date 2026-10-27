@@ -1,11 +1,16 @@
 @page "/journal-inventaire"
 @attribute [Authorize(Policy = Roles.PolitiqueInventaire)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
+@inject ServiceMouvements Mouvements
+@inject UtilisateurCourant Courant
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
 
 <PageTitle>Journal d'inventaire</PageTitle>
 <MudText Typo="Typo.h4" Class="mb-1">Journal d'inventaire</MudText>
 <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
     Toutes les modifications et suppressions de matériel (avec l'ancienne et la nouvelle valeur), les mouvements et les changements des comptes Microsoft.
+    @if (_gestionnaire) { <span>Une suppression ou une modification peut être annulée avec « Restaurer ».</span> }
 </MudText>
 
 @if (_lignes is null)
@@ -35,7 +40,7 @@ else
             <TemplateColumn T="Journal" Title="Action" SortBy="x => x.Action">
                 <CellTemplate>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
-                             Color="@(context.Item.Action == "Matériel supprimé" ? Color.Error : JournalInventaire.Domaine(context.Item.Action) switch
+                             Color="@(context.Item.Action == JournalInventaire.MaterielSupprime ? Color.Error : JournalInventaire.Domaine(context.Item.Action) switch
                              { DomaineJournal.Mouvement => Color.Info, DomaineJournal.CompteMicrosoft => Color.Secondary, _ => Color.Default })">@context.Item.Action</MudChip>
                 </CellTemplate>
             </TemplateColumn>
@@ -45,6 +50,19 @@ else
                         @if (context.Item.MaterielId is { } id && _existants.Contains(id)) { <MudLink Href="@($"/materiels/{id}")">@Lignes(context.Item.Details)</MudLink> }
                         else { @Lignes(context.Item.Details) }
                     </div>
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="Journal" Title="">
+                <CellTemplate>
+                    @if (context.Item.RestaureLe is { } r)
+                    {
+                        <MudText Typo="Typo.caption" Style="white-space:nowrap">Restauré le @r.ToLocalTime().ToString("dd/MM/yyyy HH:mm")<br />par @Nom(context.Item.RestaurePar)</MudText>
+                    }
+                    else if (context.Item.Instantane is not null && _gestionnaire)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Outlined.Restore"
+                                   OnClick="() => Restaurer(context.Item)" Disabled="_envoi">Restaurer</MudButton>
+                    }
                 </CellTemplate>
             </TemplateColumn>
         </Columns>
@@ -61,10 +79,14 @@ else
     private DomaineJournal? _domaine;
     private bool _suppressions;
     private string? _recherche;
+    private bool _gestionnaire;
+    private bool _envoi;
+
+    private static string? Nom(string? signature) => signature?.Split(" <")[0];
 
     private IEnumerable<Journal> Filtrees => (_lignes ?? [])
         .Where(j => _domaine is null || JournalInventaire.Domaine(j.Action) == _domaine)
-        .Where(j => !_suppressions || j.Action == "Matériel supprimé")
+        .Where(j => !_suppressions || j.Action == JournalInventaire.MaterielSupprime)
         .Where(j => string.IsNullOrWhiteSpace(_recherche)
             || $"{j.Utilisateur} {j.Action} {j.Details}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
 
@@ -73,10 +95,42 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _gestionnaire = (await Courant.ObtenirAsync()).EstGestionnaire;
+        await Charger();
+    }
+
+    private async Task Charger()
+    {
         await using var db = await DbFactory.CreateDbContextAsync();
         var actions = JournalInventaire.Actions.ToList();
-        _lignes = await db.Journal.AsNoTracking().Where(j => actions.Contains(j.Action)).OrderByDescending(j => j.Date).ThenByDescending(j => j.Id).Take(5000).ToListAsync();
+        // L'état enregistré (instantané) n'est pas chargé : seule sa présence compte ici
+        _lignes = await db.Journal.AsNoTracking().Where(j => actions.Contains(j.Action)).OrderByDescending(j => j.Date).ThenByDescending(j => j.Id).Take(5000)
+            .Select(j => new Journal
+            {
+                Id = j.Id, Date = j.Date, Utilisateur = j.Utilisateur, Action = j.Action, Details = j.Details, MaterielId = j.MaterielId,
+                Instantane = j.Instantane != null ? "" : null, RestaureLe = j.RestaureLe, RestaurePar = j.RestaurePar,
+            })
+            .ToListAsync();
         var ids = _lignes.Where(j => j.MaterielId != null).Select(j => j.MaterielId!.Value).Distinct().ToList();
         _existants = (await db.Materiels.Where(m => ids.Contains(m.Id)).Select(m => m.Id).ToListAsync()).ToHashSet();
+    }
+
+    private async Task Restaurer(Journal j)
+    {
+        var suppression = j.Action == JournalInventaire.MaterielSupprime;
+        var ok = await Dialogues.ShowMessageBoxAsync(suppression ? "Annuler la suppression ?" : "Remettre les anciennes valeurs ?",
+            suppression
+                ? "Le matériel est recréé dans l'inventaire avec ses mouvements, tel qu'il était au moment de sa suppression."
+                : "Les valeurs d'avant cette modification sont remises, y compris si d'autres modifications ont eu lieu depuis. La restauration est notée dans le journal et peut être annulée à son tour.",
+            yesText: "Restaurer", cancelText: "Annuler");
+        if (ok != true) return;
+        _envoi = true;
+        try
+        {
+            Snackbar.Add(await Mouvements.RestaurerAsync(j.Id, await Courant.ObtenirAsync()), Severity.Success);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _envoi = false; }
     }
 }

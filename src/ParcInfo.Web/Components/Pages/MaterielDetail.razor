@@ -332,7 +332,8 @@ else
             changements.Add($"Mail de {_m.DetenteurLibelle} : {emailAvant ?? "—"} → {email}");
         if (changements.Count > 0)
             db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = JournalInventaire.MaterielModifie, MaterielId = Id,
-                Details = JournalInventaire.Tronquer($"{num} : {string.Join(" ; ", changements)}") });
+                Details = JournalInventaire.Tronquer($"{num} : {string.Join(" ; ", changements)}"),
+                Instantane = InstantaneMateriel.Depuis(avant, emailAvant).Serialiser() });
         await db.SaveChangesAsync();
         _edition = false;
         Snackbar.Add("Modifications enregistrées.", Severity.Success);

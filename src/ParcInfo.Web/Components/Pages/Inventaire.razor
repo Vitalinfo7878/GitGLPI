@@ -12,9 +12,9 @@
     <MudText Typo="Typo.h4">Inventaire</MudText>
     <MudSpacer />
     <MudButton Href="/journal-inventaire" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.History">Journal d'inventaire</MudButton>
+    <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
     @if (_gestionnaire)
     {
-    <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
     <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudButton>
     <MudButton Href="/materiels/nouveau" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddBox">Nouveau matériel</MudButton>
     <MudMenu Label="Catégorie PC" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Category" Disabled="_selection.Count == 0"

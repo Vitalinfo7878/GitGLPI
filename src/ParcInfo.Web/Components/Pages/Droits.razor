@@ -10,7 +10,7 @@
 <MudText Typo="Typo.h4" Class="mb-1">Droits</MudText>
 <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
     Qui a accès à quoi. Tout le monde peut créer des tickets et faire des demandes ; les droits ci-dessous donnent les accès supplémentaires.
-    Un changement s'applique à la page suivante que la personne ouvre.
+    Un droit accordé ou retiré prend effet dès la page suivante de la personne, sans qu'elle ait à se reconnecter.
 </MudText>
 
 <MudGrid Spacing="3">
@@ -93,7 +93,7 @@
                 <MudText Typo="Typo.subtitle2">@d.Libelle()</MudText>
                 <MudText Typo="Typo.body2" Class="mb-3">@d.Description()</MudText>
             }
-            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">Chaque changement est noté dans le Journal.</MudText>
+            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">Chaque changement de droit est noté dans le Journal.</MudText>
         </MudPaper>
     </MudItem>
 </MudGrid>

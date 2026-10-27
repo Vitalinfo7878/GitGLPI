@@ -320,16 +320,101 @@ public sealed class ServiceMouvements(
     {
         if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var m = await db.Materiels.Include(x => x.Mouvements).FirstOrDefaultAsync(x => x.Id == id, ct)
+        var m = await db.Materiels.Include(x => x.Mouvements).Include(x => x.Personne).Include(x => x.Site).FirstOrDefaultAsync(x => x.Id == id, ct)
             ?? throw new ErreurMetier("Matériel introuvable.");
         db.Materiels.Remove(m);
         db.Journal.Add(new Journal
         {
-            Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Matériel supprimé", MaterielId = m.Id,
+            Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = JournalInventaire.MaterielSupprime, MaterielId = m.Id,
+            Instantane = InstantaneMateriel.Depuis(m, m.Personne?.Email ?? m.Site?.Email, m.Mouvements).Serialiser(),
             Details = $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele} (n° série {m.NumSerie ?? "?"}, statut {m.Statut.Libelle()}, " +
                       $"{m.Mouvements.Count} mouvement(s) supprimé(s))",
         });
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Restaure depuis le journal d'inventaire : annule une suppression (matériel et mouvements recréés), ou remet les valeurs
+    /// d'avant une modification. La restauration est elle-même tracée, et une restauration de modification peut être annulée à son tour.
+    /// </summary>
+    public async Task<string> RestaurerAsync(int journalId, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var j = await db.Journal.FirstOrDefaultAsync(x => x.Id == journalId, ct) ?? throw new ErreurMetier("Entrée du journal introuvable.");
+        if (j.Instantane is null) throw new ErreurMetier("Cette entrée ne peut pas être restaurée.");
+        if (j.RestaureLe is not null) throw new ErreurMetier($"Déjà restauré par {j.RestaurePar}.");
+        var inst = InstantaneMateriel.Lire(j.Instantane);
+        var maintenant = DateTime.UtcNow;
+        var trace = new Journal { Date = maintenant, Utilisateur = u.Signature, Action = JournalInventaire.MaterielRestaure };
+        string message;
+
+        if (j.Action == JournalInventaire.MaterielSupprime)
+        {
+            if (await db.Materiels.AnyAsync(m => m.NumInterne == inst.NumInterne, ct))
+                throw new ErreurMetier($"Le n° interne {inst.NumInterne} est repris par un autre matériel : renommez-le d'abord.");
+            // Même identifiant qu'avant la suppression (jamais réattribué) : l'historique du journal et les liens restent rattachés
+            var ancienId = j.MaterielId is { } a && !await db.Materiels.AnyAsync(x => x.Id == a, ct) ? a : 0;
+            var m = new Materiel { Id = ancienId, Statut = inst.Statut, CreeLe = inst.CreeLe, ModifieLe = maintenant };
+            inst.AppliquerChampsA(m);
+            // Détenteur, région ou fiche supprimés depuis : laissés vides
+            m.SiteId = inst.SiteId is { } sid && await db.Sites.AnyAsync(x => x.Id == sid, ct) ? sid : null;
+            m.PersonneId = inst.PersonneId is { } pid && await db.Personnes.AnyAsync(x => x.Id == pid, ct) ? pid : null;
+            if (m.RegionId is { } rid && !await db.Regions.AnyAsync(x => x.Id == rid, ct)) m.RegionId = null;
+            var sites = await db.Sites.Select(x => x.Id).ToListAsync(ct);
+            var personnes = await db.Personnes.Select(x => x.Id).ToListAsync(ct);
+            var fiches = await db.Fiches.Select(x => x.Id).ToListAsync(ct);
+            var numeros = (await db.Mouvements.Select(x => x.Numero).ToListAsync(ct)).ToHashSet();
+            var prochain = numeros.DefaultIfEmpty(0).Max() + 1;
+            foreach (var x in inst.Mouvements)
+                m.Mouvements.Add(new Mouvement
+                {
+                    Numero = numeros.Contains(x.Numero) ? prochain++ : x.Numero, NumeroOrigine = x.NumeroOrigine, Type = x.Type, Date = x.Date,
+                    Expediteur = x.Expediteur, DestinationLibre = x.DestinationLibre, Region = x.Region, DocumentReference = x.DocumentReference,
+                    DestinationSiteId = x.DestinationSiteId is { } ds && sites.Contains(ds) ? ds : null,
+                    DestinationPersonneId = x.DestinationPersonneId is { } dp && personnes.Contains(dp) ? dp : null,
+                    FicheId = x.FicheId is { } f && fiches.Contains(f) ? f : null,
+                    DateReception = x.DateReception, Commentaire = x.Commentaire, CreePar = x.CreePar, CreeLe = x.CreeLe,
+                });
+            db.Materiels.Add(m);
+            await db.SaveChangesAsync(ct);
+            trace.MaterielId = m.Id;
+            trace.Details = $"{m.NumInterne} : suppression annulée ({m.Mouvements.Count} mouvement(s) restauré(s))";
+            message = $"{m.NumInterne} restauré avec ses {m.Mouvements.Count} mouvement(s).";
+        }
+        else if (j.Action is JournalInventaire.MaterielModifie or JournalInventaire.MaterielRestaure)
+        {
+            var m = await db.Materiels.Include(x => x.Personne).Include(x => x.Site).FirstOrDefaultAsync(x => x.Id == j.MaterielId, ct)
+                ?? throw new ErreurMetier("Ce matériel a été supprimé depuis : restaurez d'abord sa suppression.");
+            if (inst.NumInterne != m.NumInterne && await db.Materiels.AnyAsync(x => x.NumInterne == inst.NumInterne && x.Id != m.Id, ct))
+                throw new ErreurMetier($"Le n° interne {inst.NumInterne} est repris par un autre matériel : renommez-le d'abord.");
+            var regions = await db.Regions.ToDictionaryAsync(r => r.Id, r => r.Nom, ct);
+            var emailActuel = m.Personne?.Email ?? m.Site?.Email;
+            var avant = (Materiel)db.Entry(m).CurrentValues.ToObject();
+            trace.Instantane = InstantaneMateriel.Depuis(m, emailActuel).Serialiser();
+            inst.AppliquerChampsA(m);
+            var changements = JournalInventaire.Differences(avant, m, id => id is { } r ? regions.GetValueOrDefault(r) : null);
+            // Adresse du détenteur : seulement s'il s'agit toujours du même détenteur
+            if (inst.EmailDetenteur is { } e && m.SiteId == inst.SiteId && m.PersonneId == inst.PersonneId
+                && !string.Equals(e, emailActuel, StringComparison.OrdinalIgnoreCase))
+            {
+                if (m.Personne is not null) m.Personne.Email = e;
+                else if (m.Site is not null) m.Site.Email = e;
+                changements.Add($"Mail de {m.DetenteurLibelle} : {emailActuel ?? "—"} → {e}");
+            }
+            if (changements.Count == 0) throw new ErreurMetier("Le matériel a déjà ces valeurs : rien à restaurer.");
+            m.ModifieLe = maintenant;
+            trace.MaterielId = m.Id;
+            trace.Details = JournalInventaire.Tronquer($"{m.NumInterne} : valeurs d'avant la modification de {j.Utilisateur.Split(" <")[0]} du {j.Date:dd/MM/yyyy} remises ; {string.Join(" ; ", changements)}");
+            message = $"{m.NumInterne} : {changements.Count} valeur(s) restaurée(s).";
+        }
+        else throw new ErreurMetier("Cette entrée ne peut pas être restaurée.");
+
+        j.RestaureLe = maintenant;
+        j.RestaurePar = u.Signature;
+        db.Journal.Add(trace);
+        await db.SaveChangesAsync(ct);
+        return message;
     }
 
     /// <summary>Range des PC dans une catégorie (PC Site / PC Enrôlé), ou l'efface ; les autres matériels sont ignorés.</summary>

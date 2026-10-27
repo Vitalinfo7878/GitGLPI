@@ -5,6 +5,8 @@ using ParcInfo.Web.Services;
 
 namespace ParcInfo.Tests;
 
+// Clé de chiffrement globale : pas en parallèle des tests qui chiffrent (mouvements, journal)
+[Collection("Chiffrement")]
 public sealed class ChiffrementTests : IDisposable
 {
     // Même clé pour tous les tests (le réglage est global à l'application)

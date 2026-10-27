@@ -457,8 +457,18 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<string>("Instantane")
+                        .HasColumnType("text");
+
                     b.Property<int?>("MaterielId")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RestaureLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RestaurePar")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
 
                     b.Property<string>("Utilisateur")
                         .IsRequired()

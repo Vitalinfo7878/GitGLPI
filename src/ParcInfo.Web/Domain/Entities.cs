@@ -199,6 +199,13 @@ public class Journal
     public string Action { get; set; } = "";
     public string? Details { get; set; }
     public int? MaterielId { get; set; }
+    /// <summary>
+    /// État du matériel avant une modification ou une suppression (JSON, mot de passe chiffré) : permet de le restaurer
+    /// depuis le journal d'inventaire.
+    /// </summary>
+    public string? Instantane { get; set; }
+    public DateTime? RestaureLe { get; set; }
+    public string? RestaurePar { get; set; }
 }
 
 /// <summary>Groupe de matériels déclaré « pas un doublon » sur la page « Doublons » (clé = type, valeur et matériels concernés).</summary>

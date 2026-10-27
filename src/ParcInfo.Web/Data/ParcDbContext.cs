@@ -169,6 +169,8 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
         b.Entity<Journal>(e =>
         {
             e.Property(x => x.Details).HasMaxLength(4000);
+            e.Property(x => x.Instantane).Metadata.SetMaxLength(null);
+            e.Property(x => x.RestaurePar).HasMaxLength(400);
             e.HasIndex(x => x.Date);
             e.HasIndex(x => x.Action);
         });

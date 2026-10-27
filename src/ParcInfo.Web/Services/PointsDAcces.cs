@@ -46,8 +46,10 @@ public static class PointsDAcces
             return Results.Text(string.Join('\n', lignes), "text/plain; charset=utf-8");
         });
 
-        app.MapGet("/export/inventaire.xlsx", async (IDbContextFactory<ParcDbContext> f) =>
+        // Inventaire : service informatique et consultation (sans la clé Office, réservée au service informatique)
+        app.MapGet("/export/inventaire.xlsx", async (ClaimsPrincipal user, IDbContextFactory<ParcDbContext> f) =>
         {
+            var gestionnaire = Utilisateur.Depuis(user).EstGestionnaire;
             await using var db = await f.CreateDbContextAsync();
             var materiels = await db.Materiels.AsNoTracking()
                 .Include(m => m.Site).ThenInclude(s => s!.Region).Include(m => m.Personne).Include(m => m.Region)
@@ -57,6 +59,8 @@ public static class PointsDAcces
             string[] entetes = ["N° interne", "Type", "Statut", "Catégorie PC", "Site / personne", "Mail", "Région / service", "Modèle", "N° série",
                 "Configuration", "Année", "Mise en place", "Profil Microsoft", "Licence", "Office en dur", "Note /5", "Admin local",
                 "Windows", "Édition", "À changer", "Labtech", "N° immo", "N° facture", "Clé Office", "Commentaire"];
+            var colonnes = Enumerable.Range(0, entetes.Length).Where(i => gestionnaire || entetes[i] != "Clé Office").ToArray();
+            entetes = [.. colonnes.Select(i => entetes[i])];
             for (var i = 0; i < entetes.Length; i++) ws.Cell(1, i + 1).Value = entetes[i];
             var r = 2;
             foreach (var m in materiels)
@@ -66,11 +70,11 @@ public static class PointsDAcces
                     m.DateMiseEnPlace?.ToDateTime(TimeOnly.MinValue), m.ProfilMicrosoft, m.LicenceMicrosoft, OuiNon(m.OfficeEnDur), m.Note,
                     OuiNon(m.ConnexionAdmin), m.VersionWindows, m.EditionWindows, m.AChanger ? "oui" : "non", OuiNon(m.Labtech),
                     m.NumImmo, m.NumFacture, m.CleOffice, m.Commentaire];
-                for (var i = 0; i < v.Length; i++) ws.Cell(r, i + 1).Value = XLCellValue.FromObject(v[i]);
+                for (var i = 0; i < colonnes.Length; i++) ws.Cell(r, i + 1).Value = XLCellValue.FromObject(v[colonnes[i]]);
                 r++;
             }
             return Classeur(wb, ws, "inventaire");
-        }).RequireAuthorization(Roles.PolitiqueGestion);
+        }).RequireAuthorization(Roles.PolitiqueInventaire);
 
         app.MapGet("/export/mouvements.xlsx", async (IDbContextFactory<ParcDbContext> f) =>
         {

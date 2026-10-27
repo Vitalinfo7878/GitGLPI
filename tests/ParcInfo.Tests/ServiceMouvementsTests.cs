@@ -6,6 +6,7 @@ using ParcInfo.Web.Services;
 
 namespace ParcInfo.Tests;
 
+[Collection("Chiffrement")]
 public sealed class ServiceMouvementsTests : IDisposable
 {
     private readonly BaseDeTest _fabrique = new();
@@ -246,5 +247,94 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal($"{ServiceMouvements.MentionCorrection} — Erreur d'import", mv.Commentaire);
         Assert.Equal("Camille TEST", mv.Expediteur);
         Assert.True(await db2.Journal.AnyAsync(j => j.Action == "Correction du détenteur"));
+    }
+
+    [Fact]
+    public async Task Suppression_annulee_depuis_le_journal()
+    {
+        var (pc, _, personne) = Donnees();
+        var r = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        await _service.SupprimerMaterielAsync(pc, Informatique);
+
+        int journal;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.False(await db.Materiels.AnyAsync(x => x.Id == pc));
+            var j = await db.Journal.SingleAsync(x => x.Action == JournalInventaire.MaterielSupprime);
+            if (ChiffrementSecrets.Actif) Assert.DoesNotContain("secret", j.Instantane!); // mot de passe chiffré dans le journal, comme en base
+            journal = j.Id;
+        }
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.RestaurerAsync(journal, new Utilisateur("Thomas", "thomas@vitalrest.com", false)));
+
+        Assert.Contains("2 mouvement(s)", await _service.RestaurerAsync(journal, Informatique));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.RestaurerAsync(journal, Informatique)); // une seule fois
+
+        await using var db2 = _fabrique.CreateDbContext();
+        var m = await db2.Materiels.Include(x => x.Mouvements).ThenInclude(x => x.Fiche).SingleAsync(x => x.NumInterne == "PC0001");
+        Assert.Equal(pc, m.Id); // même identifiant : l'historique du journal reste rattaché
+        Assert.Equal("secret", m.MotDePasseSession);
+        Assert.Equal(StatutMateriel.Attribue, m.Statut);
+        Assert.Equal(personne, m.PersonneId);
+        Assert.Equal([100, 101], m.Mouvements.Select(x => x.Numero).Order());
+        Assert.Equal(r.Fiche!.Code, m.Mouvements.Single(x => x.Numero == 101).Fiche!.Code); // la fiche conservée est rattachée à nouveau
+        var trace = await db2.Journal.SingleAsync(x => x.Action == JournalInventaire.MaterielRestaure);
+        Assert.Equal(m.Id, trace.MaterielId);
+        Assert.NotNull((await db2.Journal.SingleAsync(x => x.Id == journal)).RestaureLe);
+
+        // Le matériel restauré reçoit de nouveaux mouvements normalement (identifiants et numéros sans conflit)
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        Assert.Equal("E0002", (await _service.AjouterMaterielNonInventorieAsync(new MaterielNonInventorie { Type = TypeMateriel.Ecran, NumSerie = "Y" }, Informatique)).NumInterne);
+    }
+
+    [Fact]
+    public async Task Modification_annulee_puis_retablie()
+    {
+        var (pc, _, _) = Donnees();
+        int journal;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            // Comme la fiche matériel : instantané de l'état d'avant, puis modification
+            var m = await db.Materiels.SingleAsync(x => x.Id == pc);
+            var avant = InstantaneMateriel.Depuis(m, null).Serialiser();
+            m.Modele = "Dell OptiPlex"; m.NumSerie = "SN-NOUVEAU"; m.MotDePasseSession = "autre"; m.AChanger = true;
+            var j = new Journal { Date = DateTime.UtcNow, Utilisateur = "Informatique", Action = JournalInventaire.MaterielModifie, MaterielId = pc, Instantane = avant };
+            db.Journal.Add(j);
+            await db.SaveChangesAsync();
+            journal = j.Id;
+        }
+
+        Assert.Contains("valeur(s) restaurée(s)", await _service.RestaurerAsync(journal, Informatique));
+        int restauration;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = await db.Materiels.SingleAsync(x => x.Id == pc);
+            Assert.Null(m.Modele);
+            Assert.Null(m.NumSerie);
+            Assert.Equal("secret", m.MotDePasseSession);
+            Assert.False(m.AChanger);
+            var trace = await db.Journal.SingleAsync(x => x.Action == JournalInventaire.MaterielRestaure);
+            Assert.Contains("Modèle : Dell OptiPlex → —", trace.Details);
+            Assert.Contains("Mot de passe de session modifié(e)", trace.Details);
+            restauration = trace.Id;
+        }
+
+        // La restauration s'annule à son tour
+        await _service.RestaurerAsync(restauration, Informatique);
+        await using var db2 = _fabrique.CreateDbContext();
+        var apres = await db2.Materiels.SingleAsync(x => x.Id == pc);
+        Assert.Equal("Dell OptiPlex", apres.Modele);
+        Assert.Equal("autre", apres.MotDePasseSession);
+    }
+
+    [Fact]
+    public async Task Restauration_refusee_si_le_numero_interne_est_repris()
+    {
+        var (pc, _, _) = Donnees();
+        await _service.SupprimerMaterielAsync(pc, Informatique);
+        await _service.AjouterMaterielNonInventorieAsync(new MaterielNonInventorie { Type = TypeMateriel.PcFixe, NumInterne = "PC0001", NumSerie = "X" }, Informatique);
+        await using var db = _fabrique.CreateDbContext();
+        var journal = (await db.Journal.SingleAsync(x => x.Action == JournalInventaire.MaterielSupprime)).Id;
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.RestaurerAsync(journal, Informatique));
+        Assert.Contains("PC0001", ex.Message);
     }
 }
