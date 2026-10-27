@@ -130,16 +130,16 @@ public sealed class ServiceDemandesTests : IDisposable
     {
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
 
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, Salarie));
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, Informatique)); // seul le valideur décide
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Salarie));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Informatique)); // seul le valideur décide
 
-        var r = await _service.DeciderAsync(d.IdPublic, true, Valideur);
+        var r = await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
         Assert.Equal(StatutValidation.Validee, r.Demande.StatutValidation);
         Assert.Equal(StatutRealisation.AFaire, r.Demande.StatutRealisation);
         Assert.Equal("Thomas Verchère", r.Demande.DecisionPar);
 
         // Le second clic (autre valideur) est refusé et ne change rien
-        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false,
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, null,
             new Utilisateur("Autre valideur", "autre.valideur@vitalrest.com", false, true)));
         Assert.Contains("déjà", ex.Message);
 
@@ -151,14 +151,35 @@ public sealed class ServiceDemandesTests : IDisposable
     }
 
     [Fact]
-    public async Task Refus_sans_motif_ni_mail_au_demandeur()
+    public async Task Refus_avec_commentaire_interne_sans_mail_au_demandeur()
     {
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
-        var r = await _service.DeciderAsync(d.IdPublic, false, Valideur);
+        var r = await _service.DeciderAsync(d.IdPublic, false, "Budget dépassé, voir en janvier", Valideur);
         Assert.Equal(StatutValidation.Refusee, r.Demande.StatutValidation);
-        Assert.Null(r.Demande.CommentaireDecision);
+        Assert.Equal("Budget dépassé, voir en janvier", r.Demande.CommentaireDecision);
         await using var db = _fabrique.CreateDbContext();
-        Assert.False(await db.Courriels.AnyAsync(c => c.Sujet.Contains("refusée") && c.Destinataire == "camille.test@vitalrest.com"));
+        Assert.False(await db.Courriels.AnyAsync(c => c.Destinataire == "camille.test@vitalrest.com" && c.Sujet.Contains("refusée")));
+        Assert.Contains("Budget dépassé", System.Net.WebUtility.HtmlDecode((await db.Courriels.SingleAsync(c => c.Sujet.Contains("refusée"))).CorpsHtml)); // mail au service informatique
+    }
+
+    [Fact]
+    public async Task Le_valideur_commente_puis_doit_decider_une_fois_qu_on_lui_a_repondu()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        await _service.AjouterMessageAsync(d.IdPublic, "Validez-vous ?", Valideur);
+        await _service.AjouterMessageAsync(d.IdPublic, "Je précise : pour le site 440", Valideur); // toujours possible sans réponse
+        await _service.AjouterMessageAsync(d.IdPublic, "Oui", Informatique);
+
+        var messages = await _service.ListerMessagesAsync(d.Id, Valideur);
+        Assert.True(ServiceDemandes.ValideurDoitDecider(Valideur, d, messages));
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterMessageAsync(d.IdPublic, "Vraiment ?", Valideur));
+        Assert.Contains("validez ou refusez", ex.Message);
+        await _service.AjouterMessageAsync(d.IdPublic, "Complément", Informatique); // l'informatique peut toujours écrire
+
+        await _service.DeciderAsync(d.IdPublic, true, "OK suite à votre réponse", Valideur);
+        var validee = await _service.ListerMessagesAsync(d.Id, Valideur);
+        Assert.False(ServiceDemandes.ValideurDoitDecider(Valideur, (await _service.CreerAsync(Complet(), Salarie)).Demande, []));
+        Assert.Equal(4, validee.Count);
     }
 
     [Fact]
@@ -167,7 +188,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var ancienne = (await _service.CreerAsync(Complet(), Salarie)).Demande;
         var recente = (await _service.CreerAsync(Complet(), Salarie)).Demande;
         var decidee = (await _service.CreerAsync(Complet(), Salarie)).Demande;
-        await _service.DeciderAsync(decidee.IdPublic, true, Valideur);
+        await _service.DeciderAsync(decidee.IdPublic, true, null, Valideur);
         await using (var db = _fabrique.CreateDbContext())
         {
             await db.Demandes.Where(x => x.Id != recente.Id).ExecuteUpdateAsync(x => x.SetProperty(p => p.CreeLe, DateTime.UtcNow.AddDays(-8)));
@@ -192,7 +213,7 @@ public sealed class ServiceDemandesTests : IDisposable
     {
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Informatique)); // pas encore validée
-        await _service.DeciderAsync(d.IdPublic, true, Valideur);
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Valideur));      // réservé à l'informatique
 
         var r = await _service.NotifierEnvoiAsync(d.Id, Informatique);
@@ -217,7 +238,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
         await Assert.ThrowsAsync<ErreurMetier>(() =>
             _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Informatique)); // pas encore validée
-        await _service.DeciderAsync(d.IdPublic, true, Valideur);
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
         await Assert.ThrowsAsync<ErreurMetier>(() =>
             _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Valideur));
 

@@ -164,6 +164,13 @@ public sealed class ServiceDemandes(
     }
 
     /// <summary>
+    /// Le valideur peut commenter une demande en attente sans la trancher, tant que personne ne lui a répondu ;
+    /// une fois que le service informatique a répondu, il doit valider ou refuser (son commentaire accompagne alors la décision).
+    /// </summary>
+    public static bool ValideurDoitDecider(Utilisateur u, Demande d, IEnumerable<MessageDemande> messages) =>
+        u.EstValideur && !u.EstGestionnaire && d.StatutValidation == StatutValidation.EnAttente && messages.Any(m => !u.AEmail(m.AuteurEmail));
+
+    /// <summary>
     /// Message interne (ex. « Validez-vous ? ») : enregistré sur la demande et envoyé par mail aux autres destinataires
     /// des demandes (service informatique, valideurs), qui répondent depuis la demande.
     /// </summary>
@@ -175,6 +182,8 @@ public sealed class ServiceDemandes(
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var d = await db.Demandes.FirstOrDefaultAsync(x => x.IdPublic == idPublic, ct) ?? throw new ErreurMetier("Demande introuvable.");
+        if (ValideurDoitDecider(u, d, await db.MessagesDemandes.Where(x => x.DemandeId == d.Id).ToListAsync(ct)))
+            throw new ErreurMetier("Le service informatique vous a répondu : validez ou refusez la demande (vous pouvez joindre un commentaire).");
         var m = new MessageDemande { DemandeId = d.Id, Le = DateTime.UtcNow, Auteur = u.Nom, AuteurEmail = u.Email, Texte = texte.Trim() };
         db.MessagesDemandes.Add(m);
         db.Journal.Add(new Journal { Date = m.Le, Utilisateur = u.Signature, Action = "Échange interne sur une demande", Details = $"n° {d.Numero}" });
@@ -187,10 +196,10 @@ public sealed class ServiceDemandes(
     }
 
     /// <summary>
-    /// Validation ou refus, sans commentaire : le demandeur n'est pas prévenu automatiquement (le service informatique l'informe) ;
-    /// les autres destinataires des demandes reçoivent la décision.
+    /// Validation ou refus, avec un commentaire facultatif réservé aux gestionnaires et valideurs.
+    /// Le demandeur n'est pas prévenu automatiquement (le service informatique l'informe) ; les autres destinataires des demandes reçoivent la décision.
     /// </summary>
-    public async Task<ResultatDemande> DeciderAsync(Guid idPublic, bool valider, Utilisateur u, CancellationToken ct = default)
+    public async Task<ResultatDemande> DeciderAsync(Guid idPublic, bool valider, string? commentaire, Utilisateur u, CancellationToken ct = default)
     {
         if (!u.EstValideur) throw new ErreurMetier("Vous n'êtes pas autorisé à valider les demandes.");
 
@@ -205,6 +214,7 @@ public sealed class ServiceDemandes(
         d.DecisionLe = maintenant;
         d.DecisionPar = u.Nom;
         d.DecisionParEmail = u.Email;
+        d.CommentaireDecision = Vide(commentaire);
         d.ModifieLe = maintenant;
 
         // Mise à jour conditionnelle : si deux valideurs cliquent en même temps, seule la première décision compte.
@@ -216,6 +226,7 @@ public sealed class ServiceDemandes(
                 .SetProperty(p => p.DecisionLe, d.DecisionLe)
                 .SetProperty(p => p.DecisionPar, d.DecisionPar)
                 .SetProperty(p => p.DecisionParEmail, d.DecisionParEmail)
+                .SetProperty(p => p.CommentaireDecision, d.CommentaireDecision)
                 .SetProperty(p => p.ModifieLe, d.ModifieLe), ct);
         if (modifiees == 0)
             throw new ErreurMetier("Cette demande vient d'être traitée par quelqu'un d'autre : rechargez la page.");

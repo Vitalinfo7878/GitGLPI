@@ -144,6 +144,7 @@ public sealed class ServiceNotifications(
         var info = Gabarit($"""
             <p style="margin:0 0 12px">La demande <b>n° {d.Numero}</b> de {E(d.DemandeurNom)} a été
             <b style="color:{(validee ? "#2e7d32" : "#c62828")}">{(validee ? "validée" : "refusée")}</b> par {E(d.DecisionPar)} le {d.DecisionLe?.ToLocalTime():dd/MM/yyyy à HH:mm}.</p>
+            {(string.IsNullOrWhiteSpace(d.CommentaireDecision) ? "" : $"""<p style="margin:0 0 12px"><b>Commentaire</b> (non transmis au demandeur) : <span style="white-space:pre-line">{E(d.CommentaireDecision)}</span></p>""")}
             <p style="margin:0 0 12px">Le demandeur n'est pas prévenu automatiquement.</p>
             {Recapitulatif(d)}
             <p style="margin:16px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Ouvrir la demande", "#233d8e")}</p>

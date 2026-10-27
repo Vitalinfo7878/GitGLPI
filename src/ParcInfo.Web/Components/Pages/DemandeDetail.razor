@@ -69,13 +69,27 @@ else
                 {
                     <MudPaper Elevation="0" Class="carte pa-4 mb-3">
                         <MudText Typo="Typo.h6" Class="mb-2">Votre décision</MudText>
-                        <MudToggleGroup T="string" @bind-Value="_choix" Color="@(_choix == "refuser" ? Color.Error : Color.Success)" Class="mb-3">
+                        @if (DoitDecider)
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">Le service informatique vous a répondu : validez ou refusez la demande.</MudAlert>
+                        }
+                        <MudToggleGroup T="string" @bind-Value="_choix" Color="@(_choix switch { "refuser" => Color.Error, "commenter" => Color.Primary, _ => Color.Success })" Class="mb-3">
                             <MudToggleItem Value="@("valider")" Text="Valider" />
                             <MudToggleItem Value="@("refuser")" Text="Refuser" />
+                            @if (!DoitDecider) { <MudToggleItem Value="@("commenter")" Text="Commenter" /> }
                         </MudToggleGroup>
-                        @if (_choix is not null)
+                        @if (_choix == "commenter" && !DoitDecider)
                         {
-                            <MudText Typo="Typo.caption" Class="d-block">Le demandeur n'est pas prévenu automatiquement : le service informatique reçoit la décision et l'en informe.</MudText>
+                            <MudTextField @bind-Value="_commentaire" Immediate="true" MaxLength="4000" Label="Votre commentaire (ex. « Validez-vous ? »)" Lines="3"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudText Typo="Typo.caption" Class="d-block">Envoyé au service informatique, sans valider ni refuser. Non visible du demandeur.</MudText>
+                            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Send" OnClick="Commenter"
+                                       Disabled="@(_envoi || string.IsNullOrWhiteSpace(_commentaire))" FullWidth="true">Envoyer le commentaire</MudButton>
+                        }
+                        else if (_choix is "valider" or "refuser")
+                        {
+                            <MudTextField @bind-Value="_commentaire" MaxLength="2000" Label="Commentaire (facultatif)" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudText Typo="Typo.caption" Class="d-block">Commentaire visible uniquement du service informatique et des valideurs. Le demandeur n'est pas prévenu automatiquement : le service informatique reçoit la décision et l'en informe.</MudText>
                             <MudButton Class="mt-3" Variant="Variant.Filled" Color="@(_choix == "refuser" ? Color.Error : Color.Success)" OnClick="Decider" Disabled="_envoi" FullWidth="true">
                                 @(_choix == "refuser" ? "Confirmer le refus" : "Confirmer la validation")
                             </MudButton>
@@ -98,7 +112,7 @@ else
                     <MudText Typo="Typo.body2">par @_d.DecisionPar le @_d.DecisionLe?.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")</MudText>
                     @if (!string.IsNullOrEmpty(_d.CommentaireDecision) && _u.VoitToutesLesDemandes)
                     {
-                        <MudText Typo="Typo.body2" Class="mt-2" Style="white-space:pre-line"><b>@(_d.StatutValidation == StatutValidation.Refusee ? "Motif" : "Commentaire") :</b> @_d.CommentaireDecision</MudText>
+                        <MudText Typo="Typo.body2" Class="mt-2" Style="white-space:pre-line"><b>Commentaire</b> <small>(non visible du demandeur)</small> : @_d.CommentaireDecision</MudText>
                     }
                 </MudPaper>
             }
@@ -174,12 +188,19 @@ else
                             <MudText Typo="Typo.body2" Style="white-space:pre-line">@m.Texte</MudText>
                         </div>
                     }
-                    <MudTextField @bind-Value="_nouveauMessage" Immediate="true" MaxLength="4000" Label="@(_messages.Count == 0 ? "Message (ex. « Validez-vous ? »)" : "Répondre")" Lines="2"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
-                    <div class="d-flex justify-end mt-2">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Send" OnClick="EnvoyerMessage"
-                                   Disabled="@(_envoi || string.IsNullOrWhiteSpace(_nouveauMessage))">Envoyer le message</MudButton>
-                    </div>
+                    @if (_u.EstValideur && !_u.EstGestionnaire && _d.StatutValidation == StatutValidation.EnAttente)
+                    {
+                        @if (_messages.Count == 0) { <MudText Typo="Typo.body2" Class="mt-2">Aucun échange. Pour écrire au service informatique, choisissez « Commenter » ci-dessus.</MudText> }
+                    }
+                    else
+                    {
+                        <MudTextField @bind-Value="_nouveauMessage" Immediate="true" MaxLength="4000" Label="@(_messages.Count == 0 ? "Message (ex. « Validez-vous ? »)" : "Répondre")" Lines="2"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+                        <div class="d-flex justify-end mt-2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Send" OnClick="EnvoyerMessage"
+                                       Disabled="@(_envoi || string.IsNullOrWhiteSpace(_nouveauMessage))">Envoyer le message</MudButton>
+                        </div>
+                    }
                 </MudPaper>
             }
         </MudItem>
@@ -195,6 +216,8 @@ else
     private Demande? _d;
     private Utilisateur? _u;
     private string? _choix;
+    private string? _commentaire;
+    private bool DoitDecider => _d is not null && ServiceDemandes.ValideurDoitDecider(_u!, _d, _messages);
     private Priorite _priorite;
     private StatutRealisation _statut;
     private string? _commentaireInfo;
@@ -233,7 +256,7 @@ else
         _envoi = true;
         try
         {
-            var r = await Service.DeciderAsync(IdPublic, _choix == "valider", _u!);
+            var r = await Service.DeciderAsync(IdPublic, _choix == "valider", _commentaire, _u!);
             Afficher(r.AvertissementCourriel is null
                 ? $"Demande {(_choix == "valider" ? "validée" : "refusée")}. Le service informatique a été prévenu."
                 : $"Décision enregistrée, mais un courriel n'a pas pu partir : {r.AvertissementCourriel}",
@@ -248,18 +271,37 @@ else
         finally { _envoi = false; }
     }
 
+    private async Task Commenter()
+    {
+        if (await PublierAsync(_commentaire))
+        {
+            _commentaire = null;
+            _choix = null;
+        }
+    }
+
     private async Task EnvoyerMessage()
+    {
+        if (await PublierAsync(_nouveauMessage)) _nouveauMessage = null;
+    }
+
+    private async Task<bool> PublierAsync(string? texte)
     {
         _envoi = true;
         try
         {
-            var r = await Service.AjouterMessageAsync(IdPublic, _nouveauMessage, _u!);
-            _nouveauMessage = null;
+            var r = await Service.AjouterMessageAsync(IdPublic, texte, _u!);
             Snackbar.Add(r.AvertissementCourriel is null ? "Message envoyé." : $"Message enregistré, mais un courriel n'a pas pu partir : {r.AvertissementCourriel}",
                 r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
             await Charger();
+            return true;
         }
-        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        catch (ErreurMetier ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            await Charger();
+            return false;
+        }
         finally { _envoi = false; }
     }
 

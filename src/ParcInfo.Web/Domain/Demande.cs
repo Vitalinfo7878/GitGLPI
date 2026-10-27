@@ -66,7 +66,7 @@ public class Demande
     public DateTime? DecisionLe { get; set; }
     public string? DecisionPar { get; set; }
     public string? DecisionParEmail { get; set; }
-    /// <summary>Ancien commentaire de décision (n'est plus saisi : le service informatique informe lui-même le demandeur).</summary>
+    /// <summary>Commentaire facultatif du valideur sur sa décision : réservé au service informatique et aux valideurs, jamais montré au demandeur.</summary>
     public string? CommentaireDecision { get; set; }
     /// <summary>Dernière relance du valideur pour une demande restée en attente.</summary>
     public DateTime? DerniereRelanceLe { get; set; }
