@@ -81,7 +81,7 @@ public sealed class ServiceComptesMicrosoftTests : IDisposable
 
         await _service.RelierPersonneAsync(martin, "a2", Informatique);
         await _service.RelierSiteAsync(s087, "a5", Informatique);
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.RelierSiteAsync(s440, "a5", Informatique));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.RelierSiteAsync(s440, "a1", Informatique)); // compte d'une personne
         Assert.Empty(await _service.ListerATrancherAsync());
     }
 
@@ -149,6 +149,44 @@ public sealed class ServiceComptesMicrosoftTests : IDisposable
         Assert.Equal("Camille Dupont", p2.NomComplet);
         Assert.Equal(p2.Id, (await _service.PersonnePourCompteAsync("a1")).Id);
     }
+
+    [Fact]
+    public async Task Sous_sites_partagent_le_compte_du_site()
+    {
+        _annuaire.Comptes.Add(Compte("a1", "440 - EHPAD SAINTE MONIQUE", "ndbs.saintemonique@vitalrest.com"));
+        int principal, sousSite, aRelier;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var s1 = new Site { Code = "440", Email = "ndbs.saintemonique@vitalrest.com" };
+            var s2 = new Site { Code = "440-1", Email = "NDBS.SainteMonique@vitalrest.com" };
+            var s3 = new Site { Code = "440-2" };
+            db.Sites.AddRange(s1, s2, s3);
+            await db.SaveChangesAsync();
+            (principal, sousSite, aRelier) = (s1.Id, s2.Id, s3.Id);
+        }
+
+        var r = await _service.SynchroniserAsync("test");
+        Assert.Equal(2, r.ReliesAutomatiquement); // même adresse : les deux sites sont reliés au même compte
+
+        // Le site encore à trancher se voit proposer le compte déjà relié, signalé comme partagé
+        var x = Assert.Single(await _service.ListerATrancherAsync());
+        Assert.Contains("déjà relié au site 440, 440-1", Assert.Single(x.Candidats).Raison);
+        Assert.Contains("partagé", await _service.RelierSiteAsync(aRelier, "a1", Informatique));
+
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Equal("440 - EHPAD SAINTE MONIQUE", (await db2.Sites.FindAsync(principal))!.Libelle);
+        Assert.Equal("440 - EHPAD SAINTE MONIQUE (440-1)", (await db2.Sites.FindAsync(sousSite))!.Libelle);
+        Assert.Equal(3, await db2.Sites.CountAsync(s => s.EntraObjectId == "a1"));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.PersonnePourCompteAsync("a1"));
+    }
+
+    [Theory]
+    [InlineData("087", "Site 087 - EHPAD", "Site 087 - EHPAD")]
+    [InlineData("087", "Site 87 - EHPAD", "Site 87 - EHPAD")]
+    [InlineData("440-1", "440 - EHPAD SAINTE MONIQUE", "440 - EHPAD SAINTE MONIQUE (440-1)")]
+    [InlineData("440", "440-1 Annexe", "440-1 Annexe (440)")]
+    public void Libelle_du_site_relie(string code, string nomAffichage, string attendu) =>
+        Assert.Equal(attendu, Site.LibelleDe(code, nomAffichage, true));
 
     [Theory]
     [InlineData("DUPONT Camille", "Camille Dupont")]

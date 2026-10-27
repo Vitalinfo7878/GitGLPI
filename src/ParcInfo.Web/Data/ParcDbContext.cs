@@ -43,7 +43,8 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.HasIndex(x => x.Code).IsUnique();
             e.Ignore(x => x.Libelle);
             e.HasOne(x => x.CompteMicrosoft).WithMany().HasForeignKey(x => x.EntraObjectId).OnDelete(DeleteBehavior.SetNull);
-            e.HasIndex(x => x.EntraObjectId).IsUnique();
+            // Non unique : les sous-sites (440, 440-1…) partagent le compte Microsoft du site
+            e.HasIndex(x => x.EntraObjectId);
         });
 
         b.Entity<Personne>(e =>

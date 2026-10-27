@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace ParcInfo.Web.Domain;
 
 /// <summary>Région ou service (« SITE IDF », « DR IDF », « SIEGE »…), colonne « SERVICE / LIEU » de l'Excel.</summary>
@@ -33,9 +35,16 @@ public class Site
 
     public string Libelle => LibelleDe(Code, Nom, EntraObjectId != null);
 
-    /// <summary>Site relié à son compte Microsoft : son nom d'affichage ; sinon « code – nom ».</summary>
+    /// <summary>
+    /// Site relié à son compte Microsoft : son nom d'affichage, suivi du code s'il n'y figure pas
+    /// (sous-sites qui partagent la boîte du site : « 440 - EHPAD SAINTE MONIQUE (440-1) ») ; sinon « code – nom ».
+    /// </summary>
     public static string LibelleDe(string code, string? nom, bool relie) =>
-        string.IsNullOrWhiteSpace(nom) ? $"Site {code}" : relie ? nom : $"{code} – {nom}";
+        string.IsNullOrWhiteSpace(nom) ? $"Site {code}" : !relie ? $"{code} – {nom}" : ContientCode(nom, code) ? nom : $"{nom} ({code})";
+
+    private static bool ContientCode(string nom, string code) =>
+        new[] { code, code.TrimStart('0') }.Where(c => c.Length > 0).Any(c =>
+            Regex.IsMatch(nom, $@"(?<![\w-]){Regex.Escape(c)}(?![\w-])", RegexOptions.IgnoreCase));
 }
 
 /// <summary>Personne physique (salarié), normalement présente dans Entra ID.</summary>

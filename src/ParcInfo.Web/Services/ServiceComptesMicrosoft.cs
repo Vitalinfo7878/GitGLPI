@@ -80,8 +80,8 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
 
     private static async Task<int> RelierAutomatiquementAsync(ParcDbContext db, List<CompteMicrosoft> comptes, CancellationToken ct)
     {
-        var dejaPris = (await db.Personnes.Where(p => p.EntraObjectId != null).Select(p => p.EntraObjectId!).ToListAsync(ct))
-            .Concat(await db.Sites.Where(s => s.EntraObjectId != null).Select(s => s.EntraObjectId!).ToListAsync(ct)).ToHashSet();
+        var prisParPersonne = (await db.Personnes.Where(p => p.EntraObjectId != null).Select(p => p.EntraObjectId!).ToListAsync(ct)).ToHashSet();
+        var dejaPris = prisParPersonne.Concat(await db.Sites.Where(s => s.EntraObjectId != null).Select(s => s.EntraObjectId!).ToListAsync(ct)).ToHashSet();
         var parAdresse = comptes.SelectMany(c => c.Adresses.Select(a => (a, c))).GroupBy(x => x.a).Where(g => g.Count() == 1)
             .ToDictionary(g => g.Key, g => g.First().c);
         var parNom = comptes.GroupBy(c => CleNom(c.NomAffichage)).Where(g => g.Key.Length > 0).ToDictionary(g => g.Key, g => g.ToList());
@@ -104,10 +104,11 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
             relies++;
         }
 
-        // Sites : seulement par adresse mail (le nom d'un site ne suffit pas à être certain)
+        // Sites : seulement par adresse mail (le nom d'un site ne suffit pas à être certain).
+        // Les sous-sites (440, 440-1…) partagent la boîte du site : un même compte peut être relié à plusieurs sites.
         foreach (var s in await db.Sites.Where(s => s.EntraObjectId == null && !s.SansCompteMicrosoft && s.Email != null).ToListAsync(ct))
         {
-            if (!parAdresse.TryGetValue(s.Email!.Trim().ToLowerInvariant(), out var c) || !Libre(c)) continue;
+            if (!parAdresse.TryGetValue(s.Email!.Trim().ToLowerInvariant(), out var c) || prisParPersonne.Contains(c.Id)) continue;
             s.EntraObjectId = c.Id;
             dejaPris.Add(c.Id);
             relies++;
@@ -170,10 +171,12 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
         Verifier(u);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var compte = await db.ComptesMicrosoft.FirstOrDefaultAsync(c => c.Id == compteId, ct) ?? throw new ErreurMetier("Compte introuvable.");
-        if (await db.Personnes.AnyAsync(p => p.EntraObjectId == compteId, ct) || await db.Sites.AnyAsync(s => s.EntraObjectId == compteId && s.Id != siteId, ct))
-            throw new ErreurMetier($"{compte.NomAffichage} est déjà relié à une autre personne ou un autre site.");
+        // Plusieurs sites peuvent partager un compte (sous-sites 440, 440-1…), mais pas une personne et un site
+        if (await db.Personnes.AnyAsync(p => p.EntraObjectId == compteId, ct))
+            throw new ErreurMetier($"{compte.NomAffichage} est déjà relié à une personne.");
         var s = await db.Sites.FirstOrDefaultAsync(x => x.Id == siteId, ct) ?? throw new ErreurMetier("Site introuvable.");
-        var message = $"Site {s.Code} relié à {compte.NomAffichage}.";
+        var autres = await db.Sites.Where(x => x.EntraObjectId == compteId && x.Id != siteId).Select(x => x.Code).OrderBy(c => c).ToListAsync(ct);
+        var message = $"Site {s.Code} relié à {compte.NomAffichage}" + (autres.Count > 0 ? $" (compte partagé avec le site {string.Join(", ", autres)})." : ".");
         s.EntraObjectId = compte.Id;
         s.SansCompteMicrosoft = false;
         s.Nom = compte.NomAffichage;
@@ -230,15 +233,17 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var comptes = await db.ComptesMicrosoft.AsNoTracking().Where(c => !c.Supprime).ToListAsync(ct);
-        var pris = (await db.Personnes.Where(p => p.EntraObjectId != null).Select(p => p.EntraObjectId!).ToListAsync(ct))
-            .Concat(await db.Sites.Where(s => s.EntraObjectId != null).Select(s => s.EntraObjectId!).ToListAsync(ct)).ToHashSet();
+        var prisParPersonne = (await db.Personnes.Where(p => p.EntraObjectId != null).Select(p => p.EntraObjectId!).ToListAsync(ct)).ToHashSet();
+        var sitesParCompte = (await db.Sites.Where(s => s.EntraObjectId != null).Select(s => new { s.EntraObjectId, s.Code }).ToListAsync(ct))
+            .GroupBy(s => s.EntraObjectId!).ToDictionary(g => g.Key, g => g.Select(s => s.Code).Order().ToList());
+        var pris = prisParPersonne.Concat(sitesParCompte.Keys).ToHashSet();
         var personnes = await db.Personnes.AsNoTracking().Where(p => p.EntraObjectId == null && !p.SansCompteMicrosoft)
             .Select(p => new { p.Id, p.NomComplet, p.Email, N = p.Materiels.Count }).ToListAsync(ct);
         var sites = await db.Sites.AsNoTracking().Where(s => s.EntraObjectId == null && !s.SansCompteMicrosoft)
             .Select(s => new { s.Id, s.Code, s.Nom, s.Email, N = s.Materiels.Count }).ToListAsync(ct);
 
         return personnes.Select(p => new ATrancher(TypeDetenteur.Personne, p.Id, p.NomComplet, p.Email, p.N, CandidatsPersonne(p.NomComplet, p.Email, comptes, pris)))
-            .Concat(sites.Select(s => new ATrancher(TypeDetenteur.Site, s.Id, Site.LibelleDe(s.Code, s.Nom, false), s.Email, s.N, CandidatsSite(s.Code, s.Nom, s.Email, comptes, pris))))
+            .Concat(sites.Select(s => new ATrancher(TypeDetenteur.Site, s.Id, Site.LibelleDe(s.Code, s.Nom, false), s.Email, s.N, CandidatsSite(s.Code, s.Nom, s.Email, comptes, prisParPersonne, sitesParCompte))))
             .OrderByDescending(x => x.NbMateriels).ThenBy(x => x.Nom).ToList();
     }
 
@@ -298,16 +303,22 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
             .Take(6).Select(x => new Candidat(x.c, pris.Contains(x.c.Id) ? $"{x.Raison} – déjà relié (doublon ?)" : x.Raison)).ToList();
     }
 
-    public static List<Candidat> CandidatsSite(string code, string? nom, string? email, IEnumerable<CompteMicrosoft> comptes, IReadOnlySet<string> pris)
+    /// <param name="prisParPersonne">Comptes reliés à une personne : exclus.</param>
+    /// <param name="sitesParCompte">Codes des sites déjà reliés à chaque compte : proposés quand même (sous-sites qui partagent la boîte du site).</param>
+    public static List<Candidat> CandidatsSite(string code, string? nom, string? email, IEnumerable<CompteMicrosoft> comptes, IReadOnlySet<string> prisParPersonne,
+        IReadOnlyDictionary<string, List<string>>? sitesParCompte = null)
     {
         var codes = new[] { code.ToLowerInvariant(), code.TrimStart('0').ToLowerInvariant() }.Where(c => c.Length > 0).ToHashSet();
         var motsNom = Mots(nom).Where(m => m.Length >= 4).ToHashSet();
-        return comptes.Where(c => !pris.Contains(c.Id))
+        var principal = code.IndexOf('-') is > 0 and var i ? code[..i].TrimStart('0').ToLowerInvariant() : null;
+        return comptes.Where(c => !prisParPersonne.Contains(c.Id))
             .Select(c =>
             {
                 if (email is not null && c.Adresses.Contains(email.Trim().ToLowerInvariant())) return (c, Score: 100, Raison: "même adresse mail");
                 var motsCompte = Mots($"{c.NomAffichage} {c.Email} {c.Upn}").SelectMany(m => new[] { m, m.TrimStart('0') }).ToHashSet();
                 if (codes.Any(motsCompte.Contains)) return (c, Score: 50, Raison: $"code {code} dans le nom ou l'adresse");
+                // Sous-site « 440-1 » : compte du site principal « 440 »
+                if (principal is not null && motsCompte.Contains(principal)) return (c, Score: 45, Raison: $"site principal {code[..code.IndexOf('-')]}");
                 // Code collé à des lettres dans l'adresse : « site087@… »
                 if (codes.Any(cd => cd.Any(char.IsDigit) && motsCompte.Any(m => m.EndsWith(cd) && m.Length > cd.Length && char.IsLetter(m[^(cd.Length + 1)]))))
                     return (c, Score: 40, Raison: $"code {code} dans l'adresse");
@@ -316,7 +327,8 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
             })
             .Where(x => x.Score > 0)
             .OrderByDescending(x => x.Score).ThenBy(x => x.c.NomAffichage)
-            .Take(6).Select(x => new Candidat(x.c, x.Raison)).ToList();
+            .Take(6).Select(x => new Candidat(x.c, sitesParCompte?.GetValueOrDefault(x.c.Id) is { Count: > 0 } codes
+                ? $"{x.Raison} – déjà relié au site {string.Join(", ", codes)} (sous-site ?)" : x.Raison)).ToList();
     }
 
     private static void Verifier(Utilisateur u)
