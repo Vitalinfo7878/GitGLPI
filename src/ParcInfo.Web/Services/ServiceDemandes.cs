@@ -142,7 +142,7 @@ public sealed class ServiceDemandes(
         await db.SaveChangesAsync(ct);
 
         var avertissements = new List<string>();
-        try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, ct); }
+        try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, options.Valideurs, ct); }
         catch (Exception ex) { log.LogError(ex, "Courriel de nouvelle demande"); avertissements.Add(ex.Message); }
         try { await notifications.AccuseReceptionDemandeAsync(d, ct); }
         catch (Exception ex) { log.LogError(ex, "Accusé de réception de demande"); avertissements.Add(ex.Message); }
@@ -151,7 +151,38 @@ public sealed class ServiceDemandes(
     }
 
     /// <summary>Peut voir la demande : son auteur / demandeur, les valideurs et l'informatique.</summary>
-    public static bool PeutVoir(Utilisateur u, Demande d) => u.EstValideur || u.AEmail(d.SaisiePar) || u.AEmail(d.DemandeurEmail);
+    public static bool PeutVoir(Utilisateur u, Demande d) => u.VoitToutesLesDemandes || u.AEmail(d.SaisiePar) || u.AEmail(d.DemandeurEmail);
+
+    /// <summary>Échanges internes de la demande : réservés au valideur et au service informatique, jamais au demandeur.</summary>
+    public async Task<List<MessageDemande>> ListerMessagesAsync(int demandeId, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.VoitToutesLesDemandes) return [];
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.MessagesDemandes.AsNoTracking().Where(m => m.DemandeId == demandeId).OrderBy(m => m.Le).ThenBy(m => m.Id).ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Message interne (ex. « Validez-vous ? ») : enregistré sur la demande et envoyé par mail aux autres destinataires
+    /// des demandes (service informatique, valideurs), qui répondent depuis la demande.
+    /// </summary>
+    public async Task<ResultatDemande> AjouterMessageAsync(Guid idPublic, string? texte, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.VoitToutesLesDemandes) throw new ErreurMetier("Réservé au valideur et au service informatique.");
+        if (string.IsNullOrWhiteSpace(texte)) throw new ErreurMetier("Écrivez votre message.");
+        if (texte.Trim().Length > 4000) throw new ErreurMetier("Message trop long (4000 caractères maximum).");
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var d = await db.Demandes.FirstOrDefaultAsync(x => x.IdPublic == idPublic, ct) ?? throw new ErreurMetier("Demande introuvable.");
+        var m = new MessageDemande { DemandeId = d.Id, Le = DateTime.UtcNow, Auteur = u.Nom, AuteurEmail = u.Email, Texte = texte.Trim() };
+        db.MessagesDemandes.Add(m);
+        db.Journal.Add(new Journal { Date = m.Le, Utilisateur = u.Signature, Action = "Échange interne sur une demande", Details = $"n° {d.Numero}" });
+        await db.SaveChangesAsync(ct);
+
+        string? avertissement = null;
+        try { await notifications.MessageDemandeAsync(d, m, options.Destinataires.Concat(options.Valideurs).Where(x => !u.AEmail(x)), ct); }
+        catch (Exception ex) { log.LogError(ex, "Courriel d'échange interne"); avertissement = ex.Message; }
+        return new ResultatDemande(d, avertissement);
+    }
 
     public async Task<ResultatDemande> DeciderAsync(Guid idPublic, bool valider, string? commentaire, Utilisateur u, CancellationToken ct = default)
     {

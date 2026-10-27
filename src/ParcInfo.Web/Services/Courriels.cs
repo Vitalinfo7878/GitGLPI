@@ -72,10 +72,27 @@ public sealed class ServiceNotifications(
 
     // --- Demandes informatiques ---
 
-    /// <summary>Courriel aux valideurs : récapitulatif de la demande + boutons « Valider » / « Refuser ».</summary>
-    public async Task NouvelleDemandeAsync(Demande d, IEnumerable<string> destinataires, CancellationToken ct = default)
+    /// <summary>
+    /// Nouvelle demande : les valideurs reçoivent les boutons « Valider » / « Refuser » ;
+    /// les autres destinataires (service informatique) une simple information, avec le lien vers la demande.
+    /// </summary>
+    public async Task NouvelleDemandeAsync(Demande d, IEnumerable<string> destinataires, IEnumerable<string> valideurs, CancellationToken ct = default)
     {
         var lien = Url($"demandes/{d.IdPublic}");
+        var tous = destinataires.Concat(valideurs).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var aValider = tous.Where(x => valideurs.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
+        var sujet = $"Nouvelle demande informatique n° {d.Numero} – {d.Objets} – {d.DemandeurNom}";
+        var erreurs = new List<string>();
+
+        var information = Gabarit($"""
+            <p style="margin:0 0 12px">Une nouvelle demande informatique (<b>n° {d.Numero}</b>) a été reçue. Elle est en attente de validation.</p>
+            {Recapitulatif(d)}
+            <p style="margin:20px 0 8px">{Bouton(lien, "Ouvrir la demande", "#233d8e")}</p>
+            <p style="margin:0;color:#5b6478;font-size:12px">Pour échanger avec le valideur, utilisez « Échanges internes » sur la demande (non visibles du demandeur).</p>
+            """);
+        try { await EnvoyerATousAsync(tous.Except(aValider, StringComparer.OrdinalIgnoreCase), sujet, information, ct); }
+        catch (InvalidOperationException ex) { erreurs.Add(ex.Message); }
+
         var corps = Gabarit($"""
             <p style="margin:0 0 12px">Une nouvelle demande informatique (<b>n° {d.Numero}</b>) attend votre validation.</p>
             {Recapitulatif(d)}
@@ -84,9 +101,24 @@ public sealed class ServiceNotifications(
               &nbsp;
               {Bouton($"{lien}?choix=refuser", "✖ Refuser", "#c62828")}
             </p>
-            <p style="margin:0;color:#5b6478;font-size:12px">Le bouton ouvre la demande dans l'application (connexion avec votre compte Microsoft) pour confirmer votre décision.</p>
+            <p style="margin:0;color:#5b6478;font-size:12px">Le bouton ouvre la demande dans l'application (connexion avec votre compte Microsoft) pour confirmer votre décision.
+            Pour poser une question au service informatique avant de décider, utilisez « Échanges internes » sur la demande.</p>
             """);
-        await EnvoyerATousAsync(destinataires, $"Nouvelle demande informatique n° {d.Numero} – {d.Objets} – {d.DemandeurNom}", corps, ct);
+        try { await EnvoyerATousAsync(aValider, sujet, corps, ct); }
+        catch (InvalidOperationException ex) { erreurs.Add(ex.Message); }
+        if (erreurs.Count > 0) throw new InvalidOperationException(string.Join(" ", erreurs));
+    }
+
+    /// <summary>Message interne sur une demande, envoyé au valideur et au service informatique (jamais au demandeur).</summary>
+    public async Task MessageDemandeAsync(Demande d, MessageDemande m, IEnumerable<string> destinataires, CancellationToken ct = default)
+    {
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px"><b>{E(m.Auteur)}</b> a écrit au sujet de la demande <b>n° {d.Numero}</b> de {E(d.DemandeurNom)} ({E(d.Objets)}) :</p>
+            <blockquote style="margin:0 0 16px;padding:8px 14px;border-left:4px solid #233d8e;background:#f3f5fa;white-space:pre-line">{E(m.Texte)}</blockquote>
+            <p style="margin:0 0 8px">{Bouton(Url($"demandes/{d.IdPublic}#echanges"), "Répondre", "#233d8e")}</p>
+            <p style="margin:0;color:#5b6478;font-size:12px">Échange interne : il n'est pas visible du demandeur. Répondez depuis la demande (une réponse à ce mail n'est pas enregistrée dans l'application).</p>
+            """);
+        await EnvoyerATousAsync(destinataires, $"Demande n° {d.Numero} – message de {m.Auteur}", corps, ct);
     }
 
     public async Task AccuseReceptionDemandeAsync(Demande d, CancellationToken ct = default)

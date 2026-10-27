@@ -19,7 +19,7 @@ public sealed class ServiceDemandesTests : IDisposable
 
     private static readonly Utilisateur Salarie = new("Camille TEST", "camille.test@vitalrest.com", false);
     private static readonly Utilisateur Valideur = new("Thomas Verchère", "thomas.verchere@groupe-vitalrest.com", false, true);
-    private static readonly Utilisateur Informatique = new("Service Informatique", "anthony@vitalrest.com", true, true);
+    private static readonly Utilisateur Informatique = new("Service Informatique", "informatique@vitalrest.com", true);
 
     public ServiceDemandesTests()
     {
@@ -107,9 +107,13 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Equal(
             new[] { "camille.test@vitalrest.com", "informatique@vitalrest.com", "thomas.verchere@groupe-vitalrest.com" },
             courriels.Select(c => c.Destinataire).Order().ToArray());
-        var avecBoutons = courriels.First(c => c.Destinataire == "informatique@vitalrest.com");
+        // Seul le valideur reçoit les boutons ; le service informatique est simplement informé
+        var avecBoutons = courriels.First(c => c.Destinataire == "thomas.verchere@groupe-vitalrest.com");
         Assert.Contains($"/demandes/{r1.Demande.IdPublic}?choix=valider", avecBoutons.CorpsHtml);
         Assert.Contains($"/demandes/{r1.Demande.IdPublic}?choix=refuser", avecBoutons.CorpsHtml);
+        var information = courriels.First(c => c.Destinataire == "informatique@vitalrest.com");
+        Assert.DoesNotContain("choix=", information.CorpsHtml);
+        Assert.Contains($"/demandes/{r1.Demande.IdPublic}", information.CorpsHtml);
     }
 
     [Fact]
@@ -127,6 +131,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
 
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Salarie));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Informatique)); // seul le valideur décide
 
         var r = await _service.DeciderAsync(d.IdPublic, true, "OK, PC Dell", Valideur);
         Assert.Equal(StatutValidation.Validee, r.Demande.StatutValidation);
@@ -134,7 +139,8 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Equal("Thomas Verchère", r.Demande.DecisionPar);
 
         // Le second clic (autre valideur) est refusé et ne change rien
-        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, "Non", Informatique));
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, "Non",
+            new Utilisateur("Autre valideur", "autre.valideur@vitalrest.com", false, true)));
         Assert.Contains("déjà", ex.Message);
 
         await using var db = _fabrique.CreateDbContext();
@@ -177,6 +183,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var d = new Demande { SaisiePar = "camille.test@vitalrest.com", DemandeurEmail = "camille.test@vitalrest.com" };
         Assert.True(ServiceDemandes.PeutVoir(Salarie, d));
         Assert.True(ServiceDemandes.PeutVoir(Valideur, d));
+        Assert.True(ServiceDemandes.PeutVoir(Informatique, d));
         Assert.False(ServiceDemandes.PeutVoir(new Utilisateur("Autre", "autre@vitalrest.com", false), d));
     }
 
@@ -192,4 +199,29 @@ public sealed class ServiceDemandesTests : IDisposable
     [Fact]
     public async Task Compte_de_site_ne_peut_pas_faire_de_demande() =>
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerAsync(Complet(), new Utilisateur("Site 087", "site087@vitalrest.com", false) { EstSite = true }));
+
+    [Fact]
+    public async Task Echanges_internes_entre_valideur_et_informatique()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+
+        // Le valideur pose sa question : le service informatique est prévenu par mail
+        await _service.AjouterMessageAsync(d.IdPublic, "Validez-vous ?", Valideur);
+        // Le service informatique répond : le valideur reçoit la réponse
+        await _service.AjouterMessageAsync(d.IdPublic, "Oui, le PC actuel a 7 ans.", Informatique);
+
+        Assert.Equal(["Validez-vous ?", "Oui, le PC actuel a 7 ans."], (await _service.ListerMessagesAsync(d.Id, Valideur)).Select(m => m.Texte));
+        Assert.Equal(2, (await _service.ListerMessagesAsync(d.Id, Informatique)).Count);
+        // Jamais visibles ni accessibles au demandeur
+        Assert.Empty(await _service.ListerMessagesAsync(d.Id, Salarie));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterMessageAsync(d.IdPublic, "Et alors ?", Salarie));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterMessageAsync(d.IdPublic, " ", Valideur));
+
+        await using var db = _fabrique.CreateDbContext();
+        var mails = await db.Courriels.Where(c => c.Sujet.Contains("message de")).ToListAsync();
+        Assert.Equal("informatique@vitalrest.com", Assert.Single(mails, c => c.Sujet.Contains("Thomas")).Destinataire);
+        Assert.Equal("thomas.verchere@groupe-vitalrest.com", Assert.Single(mails, c => c.Sujet.Contains("Service Informatique")).Destinataire);
+        Assert.Contains("Validez-vous ?", mails.First(c => c.Sujet.Contains("Thomas")).CorpsHtml);
+        Assert.DoesNotContain(mails, c => c.Destinataire == "camille.test@vitalrest.com");
+    }
 }

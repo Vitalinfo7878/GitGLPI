@@ -12,10 +12,10 @@ public static class Roles
 {
     /// <summary>Rôle d'application Entra ID donnant accès à la gestion du parc (équipe informatique).</summary>
     public const string Gestionnaire = "Gestionnaire";
-    /// <summary>Rôle donnant le droit de valider ou refuser les demandes (en plus des gestionnaires).</summary>
+    /// <summary>Seul rôle autorisé à valider ou refuser les demandes (« Demandes:Valideurs »).</summary>
     public const string Valideur = "Valideur";
     public const string PolitiqueGestion = "Gestion";
-    /// <summary>Accès à la liste des demandes et à leur validation : gestionnaires et valideurs.</summary>
+    /// <summary>Accès à la liste des demandes et aux échanges internes : gestionnaires et valideurs (seuls les valideurs décident).</summary>
     public const string PolitiqueValidation = "Validation";
     /// <summary>Administration des tickets : gestionnaires et comptes listés dans « Tickets:Administrateurs ».</summary>
     public const string AdminTickets = "AdminTickets";
@@ -54,6 +54,9 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
     /// <summary>Compte d'un site : n'a accès qu'aux tickets (l'informatique garde tous ses droits).</summary>
     public bool EstSite { get; init; }
 
+    /// <summary>Voit toutes les demandes et leurs échanges internes : service informatique et valideurs.</summary>
+    public bool VoitToutesLesDemandes => EstGestionnaire || EstValideur;
+
     public static Utilisateur Depuis(ClaimsPrincipal p)
     {
         var adresses = new[] { "email", ClaimTypes.Email, "preferred_username", ClaimTypes.Upn, "upn" }
@@ -65,7 +68,7 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
         var email = adresses.FirstOrDefault() ?? p.Identity?.Name?.ToLowerInvariant() ?? "";
         var nom = p.FindFirst("name")?.Value ?? p.FindFirst(ClaimTypes.Name)?.Value ?? email;
         var gestionnaire = p.IsInRole(Roles.Gestionnaire);
-        return new Utilisateur(nom, email, gestionnaire, gestionnaire || p.IsInRole(Roles.Valideur))
+        return new Utilisateur(nom, email, gestionnaire, p.IsInRole(Roles.Valideur))
         {
             Adresses = adresses,
             EstAdminTickets = gestionnaire || p.IsInRole(Roles.AdminTickets),

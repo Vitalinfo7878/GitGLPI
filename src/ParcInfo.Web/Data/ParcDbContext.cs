@@ -20,6 +20,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<CompteMicrosoft> ComptesMicrosoft => Set<CompteMicrosoft>();
     public DbSet<DoublonIgnore> DoublonsIgnores => Set<DoublonIgnore>();
     public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
+    public DbSet<MessageDemande> MessagesDemandes => Set<MessageDemande>();
     /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -141,6 +142,14 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.SatisfactionCommentaire).HasMaxLength(2000);
             e.HasOne(x => x.Materiel).WithMany().HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.SetNull);
             e.Ignore(x => x.EstOuvert);
+        });
+
+        b.Entity<MessageDemande>(e =>
+        {
+            e.Property(x => x.Texte).HasMaxLength(4000);
+            e.Property(x => x.Auteur).HasMaxLength(200);
+            e.Property(x => x.AuteurEmail).HasMaxLength(200);
+            e.HasOne(x => x.Demande).WithMany(d => d.Messages).HasForeignKey(x => x.DemandeId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<TicketMessage>(e =>

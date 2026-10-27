@@ -17,7 +17,7 @@ else if (_d is null || !ServiceDemandes.PeutVoir(_u!, _d))
 }
 else
 {
-    @if (_u!.EstValideur)
+    @if (_u!.VoitToutesLesDemandes)
     {
         <MudBreadcrumbs Items="@([new("Demandes", "/demandes"), new($"n° {_d.Numero}", null, true)])" Class="px-0 pt-0" />
     }
@@ -82,6 +82,10 @@ else
                         }
                     </MudPaper>
                 }
+                else if (_u.EstGestionnaire)
+                {
+                    <MudAlert Severity="Severity.Info" Class="mb-3">En attente de validation par le valideur. Pour lui répondre ou lui poser une question, utilisez « Échanges internes ».</MudAlert>
+                }
                 else
                 {
                     <MudAlert Severity="Severity.Info" Class="mb-3">Votre demande est en attente de validation.</MudAlert>
@@ -137,6 +141,28 @@ else
                     }
                 </MudPaper>
             }
+
+            @* --- Échanges internes valideur / service informatique --- *@
+            @if (_u.VoitToutesLesDemandes)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mt-3" id="echanges">
+                    <MudText Typo="Typo.h6">Échanges internes</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block mb-2">Entre le valideur et le service informatique : non visibles du demandeur. Chaque message est envoyé par mail aux autres.</MudText>
+                    @foreach (var m in _messages)
+                    {
+                        <div class="py-2" style="border-top:1px solid var(--mud-palette-lines-default)">
+                            <MudText Typo="Typo.caption"><b>@m.Auteur</b> · @m.Le.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")</MudText>
+                            <MudText Typo="Typo.body2" Style="white-space:pre-line">@m.Texte</MudText>
+                        </div>
+                    }
+                    <MudTextField @bind-Value="_nouveauMessage" Immediate="true" MaxLength="4000" Label="@(_messages.Count == 0 ? "Message (ex. « Validez-vous ? »)" : "Répondre")" Lines="2"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+                    <div class="d-flex justify-end mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Send" OnClick="EnvoyerMessage"
+                                   Disabled="@(_envoi || string.IsNullOrWhiteSpace(_nouveauMessage))">Envoyer</MudButton>
+                    </div>
+                </MudPaper>
+            }
         </MudItem>
     </MudGrid>
 }
@@ -156,6 +182,8 @@ else
     private string? _commentaireInfo;
     private string? _message;
     private Severity _severite;
+    private List<MessageDemande> _messages = [];
+    private string? _nouveauMessage;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -170,6 +198,7 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         _d = await db.Demandes.AsNoTracking().FirstOrDefaultAsync(x => x.IdPublic == IdPublic);
         if (_d is null) return;
+        _messages = await Service.ListerMessagesAsync(_d.Id, _u!);
         _priorite = _d.Priorite;
         _statut = _d.StatutRealisation;
         _commentaireInfo = _d.CommentaireInformatique;
@@ -198,6 +227,21 @@ else
             Afficher(ex.Message, Severity.Error);
             await Charger();
         }
+        finally { _envoi = false; }
+    }
+
+    private async Task EnvoyerMessage()
+    {
+        _envoi = true;
+        try
+        {
+            var r = await Service.AjouterMessageAsync(IdPublic, _nouveauMessage, _u!);
+            _nouveauMessage = null;
+            Snackbar.Add(r.AvertissementCourriel is null ? "Message envoyé." : $"Message enregistré, mais un courriel n'a pas pu partir : {r.AvertissementCourriel}",
+                r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
         finally { _envoi = false; }
     }
 

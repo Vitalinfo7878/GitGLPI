@@ -75,10 +75,25 @@ public class Demande
     public DateTime? RealiseeLe { get; set; }
     public DateTime ModifieLe { get; set; }
 
+    /// <summary>Échanges internes entre le valideur et le service informatique (jamais visibles du demandeur).</summary>
+    public List<MessageDemande> Messages { get; set; } = [];
+
     public IEnumerable<string> ListeObjets => Objets.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>Statut lisible combinant validation et traitement.</summary>
     public string StatutLibelle => StatutValidation == StatutValidation.Validee
         ? $"Validée – {StatutRealisation.Libelle().ToLowerInvariant()}"
         : StatutValidation.Libelle();
+}
+
+/// <summary>Message interne sur une demande (ex. « Validez-vous ? ») : visible du valideur et du service informatique uniquement.</summary>
+public class MessageDemande
+{
+    public int Id { get; set; }
+    public int DemandeId { get; set; }
+    public Demande Demande { get; set; } = null!;
+    public DateTime Le { get; set; }
+    public string Auteur { get; set; } = "";
+    public string AuteurEmail { get; set; } = "";
+    public string Texte { get; set; } = "";
 }

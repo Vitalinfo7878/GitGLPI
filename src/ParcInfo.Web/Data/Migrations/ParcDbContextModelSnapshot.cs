@@ -551,6 +551,42 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("Materiels");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.MessageDemande", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Auteur")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("AuteurEmail")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("DemandeId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("Le")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Texte")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DemandeId");
+
+                    b.ToTable("MessagesDemandes");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Mouvement", b =>
                 {
                     b.Property<int>("Id")
@@ -973,6 +1009,17 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Navigation("Site");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.MessageDemande", b =>
+                {
+                    b.HasOne("ParcInfo.Web.Domain.Demande", "Demande")
+                        .WithMany("Messages")
+                        .HasForeignKey("DemandeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Demande");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Mouvement", b =>
                 {
                     b.HasOne("ParcInfo.Web.Domain.Personne", "DestinationPersonne")
@@ -1056,6 +1103,11 @@ namespace ParcInfo.Web.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("ParcInfo.Web.Domain.Demande", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("ParcInfo.Web.Domain.Fiche", b =>
