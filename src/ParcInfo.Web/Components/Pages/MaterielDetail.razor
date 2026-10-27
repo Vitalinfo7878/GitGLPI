@@ -54,8 +54,13 @@ else
                                                   Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="@(CompteDetenteur is not null)"
                                                   HelperText="@(CompteDetenteur is not null ? "Reprise de l'annuaire Microsoft (actualisée chaque nuit)." : "Donne accès à « Mon matériel » ; s'applique à tout le matériel de ce détenteur.")"
                                                   Error="@(_erreurs.ContainsKey("Email"))" ErrorText="@_erreurs.GetValueOrDefault("Email")" />
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonSearch"
-                                               Href="@LienChangerDetenteur">Changer de détenteur</MudButton>
+                                    @if (_m.Statut == StatutMateriel.Attribue)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonSearch"
+                                                   Href="@LienChangerDetenteur">Changer de détenteur</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning" StartIcon="@Icons.Material.Outlined.EditNote"
+                                                   Href="@($"{LienChangerDetenteur}&correction=true")">Corriger le détenteur (sans fiche)</MudButton>
+                                    }
                                 </MudItem>
                             }
                             <MudItem xs="12" sm="6">

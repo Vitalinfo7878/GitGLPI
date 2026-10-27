@@ -17,6 +17,8 @@ public sealed class DemandeMouvement
     public string? Commentaire { get; set; }
     /// <summary>Attribution : adresse mail du destinataire (obligatoire), enregistrée sur la personne ou le site.</summary>
     public string? EmailDetenteur { get; set; }
+    /// <summary>Correction du détenteur d'un matériel déjà attribué (erreur de saisie ou d'import) : mouvement tracé, sans fiche.</summary>
+    public bool Correction { get; set; }
 }
 
 public sealed class NouveauMateriel
@@ -173,6 +175,8 @@ public sealed class ServiceMouvements(
         return m;
     }
 
+    public const string MentionCorrection = "Correction du détenteur (sans fiche)";
+
     public async Task<ResultatMouvement> CreerMouvementsAsync(DemandeMouvement d, Utilisateur auteur, CancellationToken ct = default)
     {
         if (d.MaterielIds.Count == 0) throw new ErreurMetier("Sélectionnez au moins un matériel.");
@@ -188,6 +192,9 @@ public sealed class ServiceMouvements(
         if (refuses.Count > 0)
             throw new ErreurMetier($"« {d.Type.Libelle()} » impossible pour : " +
                 string.Join(", ", refuses.Select(m => $"{m.NumInterne} ({m.Statut.Libelle()})")));
+
+        if (d.Correction && (d.Type != TypeMouvement.Attribution || materiels.Any(m => m.Statut != StatutMateriel.Attribue)))
+            throw new ErreurMetier("La correction sans fiche ne s'applique qu'au changement de détenteur d'un matériel déjà attribué.");
 
         var site = d.DestinationSiteId is { } sid ? await db.Sites.Include(s => s.Region).FirstAsync(s => s.Id == sid, ct) : null;
         var personne = d.DestinationPersonneId is { } pid ? await db.Personnes.Include(p => p.Region).FirstAsync(p => p.Id == pid, ct) : null;
@@ -225,7 +232,7 @@ public sealed class ServiceMouvements(
                 DestinationLibre = site == null && personne == null ? Vide(d.DestinationLibre) ?? regle.DestinationParDefaut : null,
                 Region = (site?.Region ?? personne?.Region)?.Nom ?? (await RegionDe(db, m, ct)),
                 DocumentReference = Vide(d.DocumentReference),
-                Commentaire = Vide(d.Commentaire),
+                Commentaire = d.Correction ? string.Join(" — ", new[] { MentionCorrection, Vide(d.Commentaire) }.OfType<string>()) : Vide(d.Commentaire),
                 CreePar = auteur.Signature,
                 CreeLe = maintenant,
             };
@@ -248,7 +255,7 @@ public sealed class ServiceMouvements(
         }
 
         Fiche? fiche = null;
-        if (regle.Fiche is { } typeFiche)
+        if (regle.Fiche is { } typeFiche && !d.Correction)
         {
             var numero = mouvements[0].Numero;
             fiche = new Fiche
@@ -268,7 +275,7 @@ public sealed class ServiceMouvements(
 
         db.Journal.Add(new Journal
         {
-            Date = maintenant, Utilisateur = auteur.Signature, Action = d.Type.Libelle(),
+            Date = maintenant, Utilisateur = auteur.Signature, Action = d.Correction ? "Correction du détenteur" : d.Type.Libelle(),
             Details = $"Mouvements {mouvements[0].Numero}–{mouvements[^1].Numero} : {string.Join(", ", materiels.Select(m => m.NumInterne))}" +
                       (fiche is null ? "" : $" — fiche {fiche.Code}"),
         });

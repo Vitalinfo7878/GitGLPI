@@ -131,6 +131,15 @@ else
                                           Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
                                           HelperText="Obligatoire : enregistrée sur la personne ou le site, elle donne accès à « Mon matériel »." />
                         </MudItem>
+                        @if (ChangementDetenteur)
+                        {
+                            <MudItem xs="12">
+                                <MudSwitch T="bool" @bind-Value="_d.Correction" Color="Color.Warning" Label="Correction du détenteur, sans fiche" />
+                                <MudText Typo="Typo.caption" Class="d-block">
+                                    Pour corriger une erreur de saisie ou d'import : le changement reste tracé dans l'historique du matériel, mais aucune fiche FIA n'est générée.
+                                </MudText>
+                            </MudItem>
+                        }
                     }
                     else
                     {
@@ -155,7 +164,7 @@ else
                     }
                     <MudItem xs="12" Class="d-flex justify-end">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="Valider" Disabled="@(_envoi || _materiels.Count == 0)">
-                            Enregistrer @(_regle.Fiche is not null ? "et générer la fiche" : "")
+                            @(Correction ? "Enregistrer la correction" : _regle.Fiche is not null ? "Enregistrer et générer la fiche" : "Enregistrer")
                         </MudButton>
                     </MudItem>
                 </MudGrid>
@@ -165,7 +174,11 @@ else
             <MudPaper Elevation="0" Class="carte pa-4">
                 <MudText Typo="Typo.h6" Class="mb-2">@_d.Type.Libelle()</MudText>
                 <MudText Typo="Typo.body2">Après ce mouvement, le matériel passera au statut <ChipStatut Statut="_regle.StatutResultant" />.</MudText>
-                @if (_regle.Fiche is { } tf)
+                @if (Correction)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">Correction : aucune fiche ne sera générée ; le mouvement est noté « @ServiceMouvements.MentionCorrection » dans l'historique.</MudText>
+                }
+                else if (_regle.Fiche is { } tf)
                 {
                     <MudText Typo="Typo.body2" Class="mt-2">Une <b>@tf.Libelle().ToLowerInvariant()</b> (@RegleMouvement.PrefixeFiche(tf)) sera générée en PDF et conservée.</MudText>
                 }
@@ -178,6 +191,7 @@ else
 @code {
     [SupplyParameterFromQuery(Name = "ids")] public string? Ids { get; set; }
     [SupplyParameterFromQuery(Name = "type")] public string? TypeQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "correction")] public bool CorrectionQuery { get; set; }
 
     private DemandeMouvement _d = new();
     private RegleMouvement _regle = RegleMouvement.Pour(TypeMouvement.Attribution);
@@ -197,7 +211,8 @@ else
 
     /// <summary>Attribution d'un matériel déjà attribué : passage direct de l'ancien au nouveau détenteur.</summary>
     private bool ChangementDetenteur => _d.Type == TypeMouvement.Attribution && _materiels.Count > 0 && _materiels.All(m => m.Statut == StatutMateriel.Attribue);
-    private string Titre => _resultat is null && ChangementDetenteur ? "Changer de détenteur" : "Nouveau mouvement";
+    private bool Correction => _d.Correction && ChangementDetenteur;
+    private string Titre => _resultat is not null || !ChangementDetenteur ? "Nouveau mouvement" : Correction ? "Corriger le détenteur" : "Changer de détenteur";
 
     private string LibelleDestinationLibre => _d.Type == TypeMouvement.Achat ? "Destination (stock)" : "Destination";
 
@@ -219,6 +234,7 @@ else
             // Changement de détenteur : l'expéditeur est le détenteur actuel
             if (ChangementDetenteur && _materiels.Select(m => m.DetenteurLibelle).Distinct().ToList() is [{ Length: > 0 } detenteur])
                 _d.Expediteur = detenteur;
+            _d.Correction = CorrectionQuery;
         }
     }
 
@@ -342,6 +358,7 @@ else
         try
         {
             _d.MaterielIds = _materiels.Select(m => m.Id).ToList();
+            _d.Correction = Correction;
             _d.DestinationSiteId = _regle.DestinationEstDetenteur && _typeDest == TypeDetenteur.Site ? _site?.Id : null;
             _d.DestinationPersonneId = _regle.DestinationEstDetenteur && _typeDest == TypeDetenteur.Personne ? _personne?.Id : null;
             _resultat = await Service.CreerMouvementsAsync(_d, await Courant.ObtenirAsync());

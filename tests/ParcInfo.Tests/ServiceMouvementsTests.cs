@@ -217,4 +217,34 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal("PC0456", ServiceMouvements.ProchainNumero("PC", ["PC0454", "PC0455"])); // n° déjà réservés sur la réception
         Assert.Equal("E0001", ServiceMouvements.ProchainNumero("E", []));
     }
+
+    [Fact]
+    public async Task Correction_du_detenteur_sans_fiche()
+    {
+        var (pc, ecran, personne) = Donnees();
+        int autre;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var p = new Personne { NomComplet = "Dominique AUTRE", Email = "dominique.autre@vitalrest.com" };
+            db.Personnes.Add(p);
+            await db.SaveChangesAsync();
+            autre = p.Id;
+        }
+        // Matériel en stock : une correction n'a pas lieu d'être (attribution normale avec fiche)
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerMouvementsAsync(new DemandeMouvement
+            { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = autre, Correction = true }, Informatique));
+
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        var r = await _service.CreerMouvementsAsync(new DemandeMouvement
+            { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = autre, Expediteur = "Camille TEST", Correction = true, Commentaire = "Erreur d'import" }, Informatique);
+
+        Assert.Null(r.Fiche);
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Equal(autre, (await db2.Materiels.FindAsync(pc))!.PersonneId);
+        Assert.Equal(1, await db2.Fiches.CountAsync()); // seule la fiche de la première attribution
+        var mv = await db2.Mouvements.SingleAsync(m => m.Numero == r.Numeros[0]);
+        Assert.Equal($"{ServiceMouvements.MentionCorrection} — Erreur d'import", mv.Commentaire);
+        Assert.Equal("Camille TEST", mv.Expediteur);
+        Assert.True(await db2.Journal.AnyAsync(j => j.Action == "Correction du détenteur"));
+    }
 }
