@@ -241,12 +241,18 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<DateTime?>("DerniereRelanceLe")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("DestinataireLivraison")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
                     b.Property<DateOnly?>("Echeance")
                         .HasColumnType("date");
+
+                    b.Property<DateTime?>("EnvoiNotifieLe")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("IdPublic")
                         .HasColumnType("uuid");

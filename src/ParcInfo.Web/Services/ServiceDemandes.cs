@@ -14,6 +14,8 @@ public sealed class OptionsDemandes
     public string[] Valideurs { get; set; } = [];
     /// <summary>Premier numéro attribué (suite de la feuille ETAT DEMANDES).</summary>
     public int PremierNumero { get; set; } = 1;
+    /// <summary>Une demande ni validée ni refusée depuis ce nombre de jours est relancée auprès des valideurs (puis à nouveau à chaque délai).</summary>
+    public int DelaiRelanceJours { get; set; } = 7;
 }
 
 /// <summary>Réponses au formulaire de demande, avec les mêmes obligations que le formulaire Microsoft Forms.</summary>
@@ -184,10 +186,13 @@ public sealed class ServiceDemandes(
         return new ResultatDemande(d, avertissement);
     }
 
-    public async Task<ResultatDemande> DeciderAsync(Guid idPublic, bool valider, string? commentaire, Utilisateur u, CancellationToken ct = default)
+    /// <summary>
+    /// Validation ou refus, sans commentaire : le demandeur n'est pas prévenu automatiquement (le service informatique l'informe) ;
+    /// les autres destinataires des demandes reçoivent la décision.
+    /// </summary>
+    public async Task<ResultatDemande> DeciderAsync(Guid idPublic, bool valider, Utilisateur u, CancellationToken ct = default)
     {
         if (!u.EstValideur) throw new ErreurMetier("Vous n'êtes pas autorisé à valider les demandes.");
-        if (!valider && string.IsNullOrWhiteSpace(commentaire)) throw new ErreurMetier("Indiquez le motif du refus.");
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var d = await db.Demandes.FirstOrDefaultAsync(x => x.IdPublic == idPublic, ct) ?? throw new ErreurMetier("Demande introuvable.");
@@ -200,7 +205,6 @@ public sealed class ServiceDemandes(
         d.DecisionLe = maintenant;
         d.DecisionPar = u.Nom;
         d.DecisionParEmail = u.Email;
-        d.CommentaireDecision = Vide(commentaire);
         d.ModifieLe = maintenant;
 
         // Mise à jour conditionnelle : si deux valideurs cliquent en même temps, seule la première décision compte.
@@ -212,7 +216,6 @@ public sealed class ServiceDemandes(
                 .SetProperty(p => p.DecisionLe, d.DecisionLe)
                 .SetProperty(p => p.DecisionPar, d.DecisionPar)
                 .SetProperty(p => p.DecisionParEmail, d.DecisionParEmail)
-                .SetProperty(p => p.CommentaireDecision, d.CommentaireDecision)
                 .SetProperty(p => p.ModifieLe, d.ModifieLe), ct);
         if (modifiees == 0)
             throw new ErreurMetier("Cette demande vient d'être traitée par quelqu'un d'autre : rechargez la page.");
@@ -223,6 +226,56 @@ public sealed class ServiceDemandes(
         try { await notifications.DecisionDemandeAsync(d, options.Destinataires.Where(x => !u.AEmail(x)), ct); }
         catch (Exception ex) { log.LogError(ex, "Courriel de décision"); avertissement = ex.Message; }
         return new ResultatDemande(d, avertissement);
+    }
+
+    /// <summary>
+    /// Bouton « Envoyer » : prévient le demandeur que le matériel est parti (réception sous 2 à 3 jours ouvrés)
+    /// et passe la demande « En cours d'envoi ».
+    /// </summary>
+    public async Task<ResultatDemande> NotifierEnvoiAsync(int id, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var d = await db.Demandes.FirstAsync(x => x.Id == id, ct);
+        if (d.StatutValidation != StatutValidation.Validee) throw new ErreurMetier("Seule une demande validée peut être envoyée.");
+        if (d.StatutRealisation is StatutRealisation.Realisee or StatutRealisation.Annulee)
+            throw new ErreurMetier($"La demande est déjà « {d.StatutRealisation.Libelle()} ».");
+
+        var maintenant = DateTime.UtcNow;
+        d.StatutRealisation = StatutRealisation.EnCoursEnvoi;
+        d.EnvoiNotifieLe = maintenant;
+        d.ModifieLe = maintenant;
+        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Demande envoyée", Details = $"n° {d.Numero} : demandeur prévenu" });
+        await db.SaveChangesAsync(ct);
+
+        string? avertissement = null;
+        try { await notifications.MaterielEnvoyeAsync(d, DateOnly.FromDateTime(DateTime.Today), ct); }
+        catch (Exception ex) { log.LogError(ex, "Courriel d'envoi du matériel"); avertissement = ex.Message; }
+        return new ResultatDemande(d, avertissement);
+    }
+
+    /// <summary>
+    /// Relance les valideurs pour les demandes ni validées ni refusées depuis <see cref="OptionsDemandes.DelaiRelanceJours"/> jours
+    /// (un seul mail récapitulatif ; chaque demande est relancée à nouveau après le même délai). Renvoie le nombre de demandes relancées.
+    /// </summary>
+    public async Task<int> RelancerAsync(DateTime maintenant, CancellationToken ct = default)
+    {
+        var limite = maintenant.AddDays(-options.DelaiRelanceJours);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var demandes = await db.Demandes
+            .Where(d => d.StatutValidation == StatutValidation.EnAttente && d.CreeLe <= limite && (d.DerniereRelanceLe == null || d.DerniereRelanceLe <= limite))
+            .OrderBy(d => d.Numero).ToListAsync(ct);
+        if (demandes.Count == 0) return 0;
+
+        await notifications.RelanceDemandesAsync(demandes, options.Valideurs.Length > 0 ? options.Valideurs : options.Destinataires, maintenant, ct);
+        foreach (var d in demandes) d.DerniereRelanceLe = maintenant;
+        db.Journal.Add(new Journal
+        {
+            Date = maintenant, Utilisateur = "Relance automatique", Action = "Relance des demandes en attente",
+            Details = string.Join(", ", demandes.Select(d => $"n° {d.Numero}")),
+        });
+        await db.SaveChangesAsync(ct);
+        return demandes.Count;
     }
 
     /// <summary>Suivi du traitement par le service informatique (priorité, avancement, commentaire).</summary>
@@ -253,4 +306,61 @@ public sealed class ServiceDemandes(
     }
 
     private static string? Vide(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}
+
+/// <summary>Relance des demandes en attente de validation, chaque jour ouvré vers 8 h 30 (heure de Paris).</summary>
+public sealed class RelanceDemandes(IServiceScopeFactory scopes, ILogger<RelanceDemandes> log) : BackgroundService
+{
+    private static readonly TimeZoneInfo Paris = TimeZoneInfo.FindSystemTimeZoneById("Europe/Paris");
+
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var maintenant = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Paris);
+            var prochaine = new DateTimeOffset(maintenant.Date.AddHours(8.5), maintenant.Offset);
+            if (prochaine <= maintenant) prochaine = prochaine.AddDays(1);
+            while (!JoursOuvres.EstOuvre(DateOnly.FromDateTime(prochaine.Date))) prochaine = prochaine.AddDays(1);
+            try { await Task.Delay(prochaine - maintenant, ct); }
+            catch (OperationCanceledException) { return; }
+
+            try
+            {
+                using var scope = scopes.CreateScope();
+                var n = await scope.ServiceProvider.GetRequiredService<ServiceDemandes>().RelancerAsync(DateTime.UtcNow, ct);
+                if (n > 0) log.LogInformation("{Nombre} demande(s) en attente relancée(s)", n);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "Relance des demandes en attente impossible");
+            }
+        }
+    }
+}
+
+/// <summary>Jours ouvrés : du lundi au vendredi, hors jours fériés en France métropolitaine.</summary>
+public static class JoursOuvres
+{
+    public static bool EstOuvre(DateOnly j) => j.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday) && !Feries(j.Year).Contains(j);
+
+    /// <summary>Date après <paramref name="n"/> jours ouvrés (ex. envoi le vendredi + 2 jours ouvrés = mardi).</summary>
+    public static DateOnly Ajouter(DateOnly depart, int n)
+    {
+        var j = depart;
+        while (n > 0) { j = j.AddDays(1); if (EstOuvre(j)) n--; }
+        return j;
+    }
+
+    private static HashSet<DateOnly> Feries(int annee)
+    {
+        // Dimanche de Pâques (algorithme de Meeus)
+        int a = annee % 19, b = annee / 100, c = annee % 100, d = b / 4, e = b % 4, f = (b + 8) / 25, g = (b - f + 1) / 3,
+            h = (19 * a + b - d - g + 15) % 30, i = c / 4, k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = (a + 11 * h + 22 * l) / 451;
+        var paques = new DateOnly(annee, (h + l - 7 * m + 114) / 31, (h + l - 7 * m + 114) % 31 + 1);
+        return
+        [
+            new(annee, 1, 1), paques.AddDays(1), new(annee, 5, 1), new(annee, 5, 8), paques.AddDays(39), paques.AddDays(50),
+            new(annee, 7, 14), new(annee, 8, 15), new(annee, 11, 1), new(annee, 11, 11), new(annee, 12, 25),
+        ];
+    }
 }

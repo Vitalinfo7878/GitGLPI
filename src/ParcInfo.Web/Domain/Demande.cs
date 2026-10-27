@@ -66,13 +66,18 @@ public class Demande
     public DateTime? DecisionLe { get; set; }
     public string? DecisionPar { get; set; }
     public string? DecisionParEmail { get; set; }
+    /// <summary>Ancien commentaire de décision (n'est plus saisi : le service informatique informe lui-même le demandeur).</summary>
     public string? CommentaireDecision { get; set; }
+    /// <summary>Dernière relance du valideur pour une demande restée en attente.</summary>
+    public DateTime? DerniereRelanceLe { get; set; }
 
     // Traitement par le service informatique
     public Priorite Priorite { get; set; } = Priorite.Normale;
     public StatutRealisation StatutRealisation { get; set; }
     public string? CommentaireInformatique { get; set; }
     public DateTime? RealiseeLe { get; set; }
+    /// <summary>Le demandeur a été prévenu que le matériel est envoyé (bouton « Envoyer »).</summary>
+    public DateTime? EnvoiNotifieLe { get; set; }
     public DateTime ModifieLe { get; set; }
 
     /// <summary>Échanges internes entre le valideur et le service informatique (jamais visibles du demandeur).</summary>

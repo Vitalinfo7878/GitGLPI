@@ -130,36 +130,86 @@ public sealed class ServiceDemandesTests : IDisposable
     {
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
 
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Salarie));
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, null, Informatique)); // seul le valideur décide
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, Salarie));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, true, Informatique)); // seul le valideur décide
 
-        var r = await _service.DeciderAsync(d.IdPublic, true, "OK, PC Dell", Valideur);
+        var r = await _service.DeciderAsync(d.IdPublic, true, Valideur);
         Assert.Equal(StatutValidation.Validee, r.Demande.StatutValidation);
         Assert.Equal(StatutRealisation.AFaire, r.Demande.StatutRealisation);
         Assert.Equal("Thomas Verchère", r.Demande.DecisionPar);
 
         // Le second clic (autre valideur) est refusé et ne change rien
-        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, "Non",
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false,
             new Utilisateur("Autre valideur", "autre.valideur@vitalrest.com", false, true)));
         Assert.Contains("déjà", ex.Message);
 
         await using var db = _fabrique.CreateDbContext();
         Assert.Equal(StatutValidation.Validee, (await db.Demandes.SingleAsync()).StatutValidation);
-        // Le demandeur est prévenu, ainsi que l'autre boîte (pas celle de la personne qui a décidé)
+        // Seul le service informatique est prévenu : il informe lui-même le demandeur
         var decision = await db.Courriels.Where(c => c.Sujet.Contains("validée")).Select(c => c.Destinataire).ToListAsync();
-        Assert.Contains("camille.test@vitalrest.com", decision);
-        Assert.Contains("informatique@vitalrest.com", decision);
-        Assert.DoesNotContain("thomas.verchere@groupe-vitalrest.com", decision);
+        Assert.Equal(["informatique@vitalrest.com"], decision);
     }
 
     [Fact]
-    public async Task Refus_exige_un_motif()
+    public async Task Refus_sans_motif_ni_mail_au_demandeur()
     {
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DeciderAsync(d.IdPublic, false, "", Valideur));
-        var r = await _service.DeciderAsync(d.IdPublic, false, "Doublon de la demande 590", Valideur);
+        var r = await _service.DeciderAsync(d.IdPublic, false, Valideur);
         Assert.Equal(StatutValidation.Refusee, r.Demande.StatutValidation);
+        Assert.Null(r.Demande.CommentaireDecision);
+        await using var db = _fabrique.CreateDbContext();
+        Assert.False(await db.Courriels.AnyAsync(c => c.Sujet.Contains("refusée") && c.Destinataire == "camille.test@vitalrest.com"));
     }
+
+    [Fact]
+    public async Task Relance_des_demandes_en_attente_depuis_une_semaine()
+    {
+        var ancienne = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        var recente = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        var decidee = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        await _service.DeciderAsync(decidee.IdPublic, true, Valideur);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            await db.Demandes.Where(x => x.Id != recente.Id).ExecuteUpdateAsync(x => x.SetProperty(p => p.CreeLe, DateTime.UtcNow.AddDays(-8)));
+        }
+
+        var maintenant = DateTime.UtcNow;
+        Assert.Equal(1, await _service.RelancerAsync(maintenant));          // seule la demande en attente depuis plus de 7 jours
+        Assert.Equal(0, await _service.RelancerAsync(maintenant.AddDays(1))); // pas de nouvelle relance le lendemain
+        Assert.Equal(2, await _service.RelancerAsync(maintenant.AddDays(7))); // une semaine plus tard : la première à nouveau, la récente à son tour
+
+        await using var db2 = _fabrique.CreateDbContext();
+        var relances = await db2.Courriels.Where(c => c.Sujet.StartsWith("Relance")).ToListAsync();
+        Assert.Equal(2, relances.Count);
+        Assert.All(relances, c => Assert.Equal("thomas.verchere@groupe-vitalrest.com", c.Destinataire));
+        Assert.Contains($"/demandes/{ancienne.IdPublic}?choix=valider", relances[0].CorpsHtml);
+        Assert.Contains($"n° {ancienne.Numero}", relances[0].Sujet);
+        Assert.Contains("2 demandes", relances[1].Sujet);
+    }
+
+    [Fact]
+    public async Task Envoi_du_materiel_previent_le_demandeur()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Informatique)); // pas encore validée
+        await _service.DeciderAsync(d.IdPublic, true, Valideur);
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Valideur));      // réservé à l'informatique
+
+        var r = await _service.NotifierEnvoiAsync(d.Id, Informatique);
+        Assert.Equal(StatutRealisation.EnCoursEnvoi, r.Demande.StatutRealisation);
+        Assert.NotNull(r.Demande.EnvoiNotifieLe);
+        await using var db = _fabrique.CreateDbContext();
+        var mail = await db.Courriels.SingleAsync(c => c.Sujet.Contains("envoyé"));
+        Assert.Equal("camille.test@vitalrest.com", mail.Destinataire);
+        Assert.Contains("2 à 3 jours ouvrés", mail.CorpsHtml);
+    }
+
+    [Theory]
+    [InlineData("2026-10-30", 2, "2026-11-03")] // vendredi + 2 : lundi 2, mardi 3 (week-end)
+    [InlineData("2026-11-10", 2, "2026-11-13")] // mardi + 2 : le 11 novembre est férié
+    [InlineData("2026-05-13", 1, "2026-05-15")] // mercredi + 1 : jeudi 14 = Ascension
+    public void Jours_ouvres(string depart, int n, string attendu) =>
+        Assert.Equal(DateOnly.Parse(attendu), JoursOuvres.Ajouter(DateOnly.Parse(depart), n));
 
     [Fact]
     public async Task Traitement_reserve_a_l_informatique_et_previent_a_la_realisation()
@@ -167,7 +217,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
         await Assert.ThrowsAsync<ErreurMetier>(() =>
             _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Informatique)); // pas encore validée
-        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        await _service.DeciderAsync(d.IdPublic, true, Valideur);
         await Assert.ThrowsAsync<ErreurMetier>(() =>
             _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Valideur));
 

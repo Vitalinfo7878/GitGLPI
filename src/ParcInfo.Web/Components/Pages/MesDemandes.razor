@@ -34,10 +34,6 @@ else
                         <MudText Typo="Typo.caption">@d.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")</MudText>
                     </div>
                     <MudText Typo="Typo.body2">@d.Objets · @d.Concerne</MudText>
-                    @if (d.StatutValidation == StatutValidation.Refusee && d.CommentaireDecision is not null)
-                    {
-                        <MudText Typo="Typo.caption" Style="color:var(--mud-palette-error)">Motif : @d.CommentaireDecision</MudText>
-                    }
                 </a>
             </MudPaper>
         }

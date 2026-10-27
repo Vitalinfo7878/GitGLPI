@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Azure.Core;
 using Azure.Identity;
@@ -126,36 +127,68 @@ public sealed class ServiceNotifications(
         var corps = Gabarit($"""
             <p style="margin:0 0 12px">Bonjour {E(d.DemandeurNom)},</p>
             <p style="margin:0 0 12px">Votre demande informatique a bien été enregistrée sous le <b>n° {d.Numero}</b>. Elle va être examinée pour validation ;
-            vous serez informé(e) par mail de la décision.</p>
+            vous serez informé(e) de la décision.</p>
             {Recapitulatif(d)}
             <p style="margin:20px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Suivre ma demande", "#233d8e")}</p>
             """);
         await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Votre demande informatique n° {d.Numero} a bien été reçue", corps, ct);
     }
 
-    /// <summary>Décision : au demandeur, et aux autres destinataires pour qu'ils sachent que la demande est traitée.</summary>
+    /// <summary>
+    /// Décision : aux autres destinataires des demandes (service informatique), qui informent eux-mêmes le demandeur.
+    /// Le demandeur ne reçoit pas de mail.
+    /// </summary>
     public async Task DecisionDemandeAsync(Demande d, IEnumerable<string> autresDestinataires, CancellationToken ct = default)
     {
         var validee = d.StatutValidation == StatutValidation.Validee;
-        var motif = string.IsNullOrWhiteSpace(d.CommentaireDecision) ? "" : $"""<p style="margin:0 0 12px"><b>{(validee ? "Commentaire" : "Motif")} :</b> {E(d.CommentaireDecision)}</p>""";
-        var demandeur = Gabarit($"""
-            <p style="margin:0 0 12px">Bonjour {E(d.DemandeurNom)},</p>
-            <p style="margin:0 0 12px">Votre demande informatique <b>n° {d.Numero}</b> ({E(d.Objets)}) a été
-            <b style="color:{(validee ? "#2e7d32" : "#c62828")}">{(validee ? "validée" : "refusée")}</b>.</p>
-            {motif}
-            <p style="margin:0 0 12px">{(validee ? "Le service informatique va la prendre en charge ; vous serez informé(e) de sa réalisation." : "Pour toute question, contactez le service informatique.")}</p>
-            <p style="margin:16px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Voir ma demande", "#233d8e")}</p>
-            """);
-        await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} {(validee ? "validée" : "refusée")}", demandeur, ct);
-
         var info = Gabarit($"""
             <p style="margin:0 0 12px">La demande <b>n° {d.Numero}</b> de {E(d.DemandeurNom)} a été
-            <b>{(validee ? "validée" : "refusée")}</b> par {E(d.DecisionPar)} le {d.DecisionLe?.ToLocalTime():dd/MM/yyyy à HH:mm}.</p>
-            {motif}
+            <b style="color:{(validee ? "#2e7d32" : "#c62828")}">{(validee ? "validée" : "refusée")}</b> par {E(d.DecisionPar)} le {d.DecisionLe?.ToLocalTime():dd/MM/yyyy à HH:mm}.</p>
+            <p style="margin:0 0 12px">Le demandeur n'est pas prévenu automatiquement.</p>
             {Recapitulatif(d)}
             <p style="margin:16px 0 0">{Bouton(Url($"demandes/{d.IdPublic}"), "Ouvrir la demande", "#233d8e")}</p>
             """);
         await EnvoyerATousAsync(autresDestinataires, $"Demande n° {d.Numero} {(validee ? "validée" : "refusée")} par {d.DecisionPar}", info, ct);
+    }
+
+    /// <summary>Relance des valideurs : demandes ni validées ni refusées depuis plus d'une semaine, avec les boutons de décision.</summary>
+    public async Task RelanceDemandesAsync(IReadOnlyList<Demande> demandes, IEnumerable<string> valideurs, DateTime maintenant, CancellationToken ct = default)
+    {
+        var blocs = string.Concat(demandes.Select(d =>
+        {
+            var lien = Url($"demandes/{d.IdPublic}");
+            var jours = (int)(maintenant - d.CreeLe).TotalDays;
+            return $"""
+                <div style="margin:0 0 14px;padding:10px 14px;border:1px solid #dde2ee;border-radius:4px">
+                  <p style="margin:0 0 4px"><b>N° {d.Numero}</b> – {E(d.Objets)} – {E(d.DemandeurNom)}</p>
+                  <p style="margin:0 0 8px;color:#5b6478;font-size:13px">Reçue le {d.CreeLe.ToLocalTime():dd/MM/yyyy}, en attente depuis {jours} jours. {E(d.Raison.Length > 200 ? d.Raison[..200] + "…" : d.Raison)}</p>
+                  {Bouton($"{lien}?choix=valider", "✔ Valider", "#2e7d32")} &nbsp; {Bouton($"{lien}?choix=refuser", "✖ Refuser", "#c62828")}
+                </div>
+                """;
+        }));
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">{(demandes.Count == 1 ? "Une demande informatique attend" : $"{demandes.Count} demandes informatiques attendent")} votre décision depuis plus d'une semaine :</p>
+            {blocs}
+            <p style="margin:0;color:#5b6478;font-size:12px">Sans décision, une nouvelle relance sera envoyée dans une semaine.</p>
+            """);
+        await EnvoyerATousAsync(valideurs, demandes.Count == 1
+            ? $"Relance : demande informatique n° {demandes[0].Numero} en attente de validation"
+            : $"Relance : {demandes.Count} demandes informatiques en attente de validation", corps, ct);
+    }
+
+    /// <summary>Bouton « Envoyer » : le matériel est parti, réception prévue sous 2 à 3 jours ouvrés.</summary>
+    public async Task MaterielEnvoyeAsync(Demande d, DateOnly envoyeLe, CancellationToken ct = default)
+    {
+        var (du, au) = (JoursOuvres.Ajouter(envoyeLe, 2), JoursOuvres.Ajouter(envoyeLe, 3));
+        var fr = CultureInfo.GetCultureInfo("fr-FR");
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Bonjour {E(d.DemandeurNom)},</p>
+            <p style="margin:0 0 12px">Le matériel de votre demande informatique <b>n° {d.Numero}</b> ({E(d.Objets)}) a été <b>envoyé</b>.</p>
+            <p style="margin:0 0 12px">Vous devriez le recevoir d'ici <b>2 à 3 jours ouvrés</b>, soit entre le {du.ToString("dddd d MMMM", fr)} et le {au.ToString("dddd d MMMM", fr)},
+            à l'adresse indiquée : {E(d.AdresseLivraison)}{(string.IsNullOrWhiteSpace(d.DestinataireLivraison) ? "" : $" (à l'attention de {E(d.DestinataireLivraison)})")}.</p>
+            <p style="margin:0">Le service informatique</p>
+            """);
+        await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} : votre matériel a été envoyé", corps, ct);
     }
 
     public async Task DemandeRealiseeAsync(Demande d, CancellationToken ct = default)
