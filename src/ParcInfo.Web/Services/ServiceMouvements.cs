@@ -276,7 +276,8 @@ public sealed class ServiceMouvements(
         db.Journal.Add(new Journal
         {
             Date = maintenant, Utilisateur = auteur.Signature, Action = d.Correction ? "Correction du détenteur" : d.Type.Libelle(),
-            Details = $"Mouvements {mouvements[0].Numero}–{mouvements[^1].Numero} : {string.Join(", ", materiels.Select(m => m.NumInterne))}" +
+            MaterielId = materiels.Count == 1 ? materiels[0].Id : null,
+            Details = $"{((site?.Libelle ?? personne?.NomComplet ?? mouvements[0].DestinationLibre) is { } vers ? $"Vers {vers} – " : "")}Mouvements {mouvements[0].Numero}–{mouvements[^1].Numero} : {string.Join(", ", materiels.Select(m => m.NumInterne))}" +
                       (fiche is null ? "" : $" — fiche {fiche.Code}"),
         });
 

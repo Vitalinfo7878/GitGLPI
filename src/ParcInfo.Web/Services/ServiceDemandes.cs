@@ -10,7 +10,10 @@ public sealed class OptionsDemandes
 {
     /// <summary>Boîtes qui reçoivent chaque nouvelle demande avec les boutons « Valider » / « Refuser ».</summary>
     public string[] Destinataires { get; set; } = [];
-    /// <summary>Comptes autorisés à valider ou refuser (en plus des gestionnaires du parc).</summary>
+    /// <summary>
+    /// Valideurs de la configuration : repris une fois sur la page « Droits », qui fait foi ensuite ;
+    /// utilisés pour les mails seulement si aucun valideur n'y est défini.
+    /// </summary>
     public string[] Valideurs { get; set; } = [];
     /// <summary>Premier numéro attribué (suite de la feuille ETAT DEMANDES).</summary>
     public int PremierNumero { get; set; } = 1;
@@ -144,7 +147,7 @@ public sealed class ServiceDemandes(
         await db.SaveChangesAsync(ct);
 
         var avertissements = new List<string>();
-        try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, options.Valideurs, ct); }
+        try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, await ValideursAsync(db, ct), ct); }
         catch (Exception ex) { log.LogError(ex, "Courriel de nouvelle demande"); avertissements.Add(ex.Message); }
         try { await notifications.AccuseReceptionDemandeAsync(d, ct); }
         catch (Exception ex) { log.LogError(ex, "Accusé de réception de demande"); avertissements.Add(ex.Message); }
@@ -190,7 +193,7 @@ public sealed class ServiceDemandes(
         await db.SaveChangesAsync(ct);
 
         string? avertissement = null;
-        try { await notifications.MessageDemandeAsync(d, m, options.Destinataires.Concat(options.Valideurs).Where(x => !u.AEmail(x)), ct); }
+        try { await notifications.MessageDemandeAsync(d, m, options.Destinataires.Concat(await ValideursAsync(db, ct)).Where(x => !u.AEmail(x)), ct); }
         catch (Exception ex) { log.LogError(ex, "Courriel d'échange interne"); avertissement = ex.Message; }
         return new ResultatDemande(d, avertissement);
     }
@@ -278,7 +281,8 @@ public sealed class ServiceDemandes(
             .OrderBy(d => d.Numero).ToListAsync(ct);
         if (demandes.Count == 0) return 0;
 
-        await notifications.RelanceDemandesAsync(demandes, options.Valideurs.Length > 0 ? options.Valideurs : options.Destinataires, maintenant, ct);
+        var valideurs = await ValideursAsync(db, ct);
+        await notifications.RelanceDemandesAsync(demandes, valideurs.Count > 0 ? valideurs : options.Destinataires, maintenant, ct);
         foreach (var d in demandes) d.DerniereRelanceLe = maintenant;
         db.Journal.Add(new Journal
         {
@@ -314,6 +318,19 @@ public sealed class ServiceDemandes(
             catch (Exception ex) { avertissement = ex.Message; }
         }
         return new ResultatDemande(d, avertissement);
+    }
+
+    /// <summary>Valideurs de la page « Droits » (à défaut, ceux de la configuration).</summary>
+    public async Task<List<string>> ValideursAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await ValideursAsync(db, ct);
+    }
+
+    private async Task<List<string>> ValideursAsync(ParcDbContext db, CancellationToken ct)
+    {
+        var valideurs = await ServiceDroits.ValideursAsync(db, ct);
+        return valideurs.Count > 0 ? valideurs : [.. options.Valideurs];
     }
 
     private static string? Vide(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

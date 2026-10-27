@@ -124,6 +124,7 @@ if (entraConfigure)
 else builder.Services.AddSingleton<IAnnuaireMicrosoft, AnnuaireDemo>();
 builder.Services.AddScoped<ServiceComptesMicrosoft>();
 builder.Services.AddScoped<ControleDoublons>();
+builder.Services.AddScoped<ServiceDroits>();
 builder.Services.AddScoped<UtilisateurCourant>();
 builder.Services.AddMudServices();
 
@@ -141,6 +142,16 @@ ChiffrementSecrets.Configurer(config["Chiffrement:Cle"]);
 if (!ChiffrementSecrets.Actif && !app.Environment.IsDevelopment())
     app.Logger.LogWarning("Chiffrement:Cle non configurée : les mots de passe de session sont stockés en clair.");
 await InitialisationBase.AppliquerAsync(app.Services, fournisseur);
+// Page « Droits » : reprise unique des rôles Entra ID et des listes de la configuration
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var repris = await scope.ServiceProvider.GetRequiredService<ServiceDroits>().InitialiserAsync();
+        if (repris > 0) app.Logger.LogInformation("Droits initialisés pour {Nombre} compte(s)", repris);
+    }
+    catch (Exception ex) { app.Logger.LogError(ex, "Initialisation des droits impossible"); }
+}
 
 app.UseForwardedHeaders();
 

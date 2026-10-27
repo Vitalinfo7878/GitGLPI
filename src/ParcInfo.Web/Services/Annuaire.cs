@@ -12,12 +12,18 @@ public sealed record CompteAnnuaire(
     string? Adresse, string? Ville, string? ResponsableId, string? ResponsableNom, IReadOnlyList<string> Groupes, IReadOnlyList<string> Licences,
     bool Actif, DateTime? CreeLe);
 
+/// <summary>Rôle d'application Entra ID (« Gestionnaire », « Valideur ») attribué à un compte.</summary>
+public sealed record RoleApplication(string Email, string? Nom, string Role);
+
 /// <summary>Lecture de l'annuaire Microsoft (lecture seule).</summary>
 public interface IAnnuaireMicrosoft
 {
     /// <summary>Faux si l'application n'est pas reliée à Entra ID (poste de développement).</summary>
     bool Disponible { get; }
     Task<IReadOnlyList<CompteAnnuaire>> LireComptesAsync(CancellationToken ct = default);
+
+    /// <summary>Rôles d'application de « Parc informatique Vitalrest » attribués dans Entra ID (reprise des droits).</summary>
+    Task<IReadOnlyList<RoleApplication>> LireRolesApplicationAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<RoleApplication>>([]);
 }
 
 public static class ClientGraph
@@ -94,6 +100,30 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
                 (u.AssignedLicenses ?? []).Where(l => l.SkuId is not null).Select(l => licences.GetValueOrDefault(l.SkuId!.Value, l.SkuId.Value.ToString())).Order().ToList(),
                 u.AccountEnabled ?? false, u.CreatedDateTime?.UtcDateTime))
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<RoleApplication>> LireRolesApplicationAsync(CancellationToken ct = default)
+    {
+        var appli = config["AzureAd:ClientId"];
+        var sps = await _graph.ServicePrincipals.GetAsync(r =>
+        {
+            r.QueryParameters.Filter = $"appId eq '{appli}'";
+            r.QueryParameters.Select = ["id", "appRoles"];
+        }, ct);
+        var sp = sps?.Value?.FirstOrDefault();
+        if (sp?.Id is null) return [];
+        var roles = (sp.AppRoles ?? []).Where(r => r.Id is not null && r.Value is not null).ToDictionary(r => r.Id!.Value, r => r.Value!);
+        var affectations = await ToutLire<AppRoleAssignment, AppRoleAssignmentCollectionResponse>(
+            await _graph.ServicePrincipals[sp.Id].AppRoleAssignedTo.GetAsync(r => r.QueryParameters.Top = 999, ct), ct);
+
+        var resultat = new List<RoleApplication>();
+        foreach (var a in affectations.Where(a => a.PrincipalType == "User" && a.PrincipalId is not null && a.AppRoleId is { } id && roles.ContainsKey(id)))
+        {
+            var u = await _graph.Users[a.PrincipalId!.Value.ToString()].GetAsync(r => r.QueryParameters.Select = ["mail", "userPrincipalName", "displayName"], ct);
+            var email = Vide(u?.Mail) ?? Vide(u?.UserPrincipalName);
+            if (email is not null) resultat.Add(new RoleApplication(email.ToLowerInvariant(), Vide(u?.DisplayName), roles[a.AppRoleId!.Value]));
+        }
+        return resultat;
     }
 
     private async Task<List<T>> ToutLire<T, TPage>(TPage? premiere, CancellationToken ct) where TPage : BaseCollectionPaginationCountResponse, new()

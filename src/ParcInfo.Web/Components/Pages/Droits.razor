@@ -1,0 +1,159 @@
+@page "/droits"
+@attribute [Authorize(Policy = Roles.PolitiqueAdministration)]
+@inject ServiceDroits Service
+@inject ServiceComptesMicrosoft ComptesMicrosoft
+@inject UtilisateurCourant Courant
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
+
+<PageTitle>Droits</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Droits</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Qui a accès à quoi. Tout le monde peut créer des tickets et faire des demandes ; les droits ci-dessous donnent les accès supplémentaires.
+    Un changement s'applique à la page suivante que la personne ouvre.
+</MudText>
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" lg="8">
+        <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+            <MudText Typo="Typo.h6" Class="mb-2">Administrateurs principaux</MudText>
+            <MudText Typo="Typo.body2" Class="mb-2">Tous les droits du service informatique, et la gestion de cette page. Fixés dans la configuration de l'application : ils ne peuvent pas être retirés ici.</MudText>
+            @foreach (var a in Service.Administrateurs)
+            {
+                <MudChip T="string" Icon="@Icons.Material.Outlined.AdminPanelSettings" Color="Color.Primary" Variant="Variant.Outlined">@a</MudChip>
+            }
+        </MudPaper>
+
+        <MudPaper Elevation="0" Class="carte pa-4">
+            <div class="d-flex flex-wrap align-center gap-2 mb-3">
+                <MudText Typo="Typo.h6">Comptes</MudText>
+                <MudSpacer />
+                <div style="min-width:320px">
+                    <MudAutocomplete T="CompteMicrosoft" SearchFunc="Chercher" ValueChanged="AjouterCompte" ResetValueOnEmptyText="true"
+                                     ToStringFunc="@(c => c is null ? "" : $"{c.NomAffichage} · {c.AdressePrincipale}")"
+                                     Placeholder="Ajouter un compte (annuaire Microsoft)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     AdornmentIcon="@Icons.Material.Outlined.PersonAdd" DebounceInterval="250" MinCharacters="2" />
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-center mb-3">
+                <MudTextField @bind-Value="_email" Immediate="true" Label="Ou adresse mail" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Email" Style="max-width:320px" />
+                <MudButton Variant="Variant.Outlined" OnClick="AjouterAdresse" Disabled="@string.IsNullOrWhiteSpace(_email)">Ajouter</MudButton>
+            </div>
+
+            @if (_droits is null)
+            {
+                <Attente />
+            }
+            else if (_droits.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">Aucun compte : ajoutez-en un ci-dessus.</MudAlert>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead>
+                        <tr>
+                            <th>Compte</th>
+                            @foreach (var d in Enum.GetValues<Droit>()) { <th style="text-align:center">@d.Libelle()</th> }
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _droits)
+                        {
+                            <tr>
+                                <td>
+                                    <b>@(c.Nom ?? c.Email)</b>
+                                    @if (c.Nom is not null) { <div><small>@c.Email</small></div> }
+                                </td>
+                                @foreach (var d in Enum.GetValues<Droit>())
+                                {
+                                    <td style="text-align:center">
+                                        <MudCheckBox T="bool" Value="c.A(d)" ValueChanged="v => Modifier(c, d, v)" Color="Color.Primary" Dense="true" aria-label="@($"{d.Libelle()} – {c.Nom ?? c.Email}")" />
+                                    </td>
+                                }
+                                <td>
+                                    <MudTooltip Text="Retirer de la liste (plus aucun droit)">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.PersonRemove" Size="Size.Small" OnClick="() => Supprimer(c)" aria-label="Retirer" />
+                                    </MudTooltip>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" lg="4">
+        <MudPaper Elevation="0" Class="carte pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">Les droits</MudText>
+            @foreach (var d in Enum.GetValues<Droit>())
+            {
+                <MudText Typo="Typo.subtitle2">@d.Libelle()</MudText>
+                <MudText Typo="Typo.body2" Class="mb-3">@d.Description()</MudText>
+            }
+            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">Chaque changement est noté dans le Journal.</MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<DroitAcces>? _droits;
+    private string? _email;
+    private Utilisateur? _u;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        _droits = await Service.ListerAsync();
+    }
+
+    private Task<IEnumerable<CompteMicrosoft>> Chercher(string? texte, CancellationToken ct) =>
+        ComptesMicrosoft.ChercherComptesAsync(texte, ct).ContinueWith(t => (IEnumerable<CompteMicrosoft>)t.Result, ct);
+
+    private async Task AjouterCompte(CompteMicrosoft? c)
+    {
+        if (c is not null) await Ajouter(c.AdressePrincipale, c.NomAffichage);
+    }
+
+    private async Task AjouterAdresse()
+    {
+        if (await Ajouter(_email, null)) _email = null;
+    }
+
+    private async Task<bool> Ajouter(string? email, string? nom)
+    {
+        try
+        {
+            var d = await Service.AjouterAsync(email, nom, _u!);
+            _droits = await Service.ListerAsync();
+            Snackbar.Add($"{d.Nom ?? d.Email} ajouté : cochez ses droits.", Severity.Success);
+            return true;
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); return false; }
+    }
+
+    private async Task Modifier(DroitAcces c, Droit d, bool valeur)
+    {
+        try
+        {
+            await Service.ModifierAsync(c.Id, d, valeur, _u!);
+            c.Definir(d, valeur);
+            Snackbar.Add($"{c.Nom ?? c.Email} : « {d.Libelle()} » {(valeur ? "accordé" : "retiré")}.", Severity.Success);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private async Task Supprimer(DroitAcces c)
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync("Retirer ce compte ?", $"{c.Nom ?? c.Email} n'aura plus aucun droit particulier.", yesText: "Retirer", cancelText: "Annuler");
+        if (ok != true) return;
+        try
+        {
+            await Service.SupprimerAsync(c.Id, _u!);
+            _droits = await Service.ListerAsync();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+}

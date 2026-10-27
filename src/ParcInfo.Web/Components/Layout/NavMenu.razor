@@ -18,6 +18,15 @@
         <MudText Typo="Typo.overline" Class="px-4 menu-section">Demandes</MudText>
         <MudNavLink Href="/demandes" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.FactCheck">Demandes à valider / traiter</MudNavLink>
     </AuthorizeView>
+    <AuthorizeView Policy="@Roles.PolitiqueInventaire">
+        @if (!context.User.IsInRole(Roles.Gestionnaire))
+        {
+            <MudDivider Class="my-2" />
+            <MudText Typo="Typo.overline" Class="px-4 menu-section">Parc</MudText>
+            <MudNavLink Href="/inventaire" Icon="@Icons.Material.Outlined.Inventory2">Inventaire</MudNavLink>
+            <MudNavLink Href="/journal-inventaire" Icon="@Icons.Material.Outlined.ManageHistory">Journal d'inventaire</MudNavLink>
+        }
+    </AuthorizeView>
     <AuthorizeView Policy="@Roles.PolitiqueGestion">
         <MudDivider Class="my-2" />
         <MudText Typo="Typo.overline" Class="px-4 menu-section">Gestion du parc</MudText>
@@ -27,6 +36,7 @@
         <MudNavLink Href="/materiels/nouveau" Icon="@Icons.Material.Outlined.AddBox">Nouveau matériel</MudNavLink>
         <MudNavLink Href="/achat" Icon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudNavLink>
         <MudNavLink Href="/fiches" Icon="@Icons.Material.Outlined.Description">Fiches</MudNavLink>
+        <MudNavLink Href="/journal-inventaire" Icon="@Icons.Material.Outlined.ManageHistory">Journal d'inventaire</MudNavLink>
         <MudDivider Class="my-2" />
         <MudText Typo="Typo.overline" Class="px-4 menu-section">Administration</MudText>
         <MudNavLink Href="/import" Icon="@Icons.Material.Outlined.UploadFile">Import Excel</MudNavLink>
@@ -34,5 +44,8 @@
         <MudNavLink Href="/doublons" Icon="@Icons.Material.Outlined.ContentCopy">Doublons</MudNavLink>
         <MudNavLink Href="/courriels" Icon="@Icons.Material.Outlined.Email">Courriels envoyés</MudNavLink>
         <MudNavLink Href="/journal" Icon="@Icons.Material.Outlined.History">Journal</MudNavLink>
+    </AuthorizeView>
+    <AuthorizeView Policy="@Roles.PolitiqueAdministration">
+        <MudNavLink Href="/droits" Icon="@Icons.Material.Outlined.AdminPanelSettings">Droits</MudNavLink>
     </AuthorizeView>
 </MudNavMenu>

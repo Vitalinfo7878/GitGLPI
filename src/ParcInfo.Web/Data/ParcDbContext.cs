@@ -21,6 +21,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<DoublonIgnore> DoublonsIgnores => Set<DoublonIgnore>();
     public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
     public DbSet<MessageDemande> MessagesDemandes => Set<MessageDemande>();
+    public DbSet<DroitAcces> DroitsAcces => Set<DroitAcces>();
     /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -167,8 +168,16 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
         });
         b.Entity<Journal>(e =>
         {
-            e.Property(x => x.Details).HasMaxLength(2000);
+            e.Property(x => x.Details).HasMaxLength(4000);
             e.HasIndex(x => x.Date);
+            e.HasIndex(x => x.Action);
+        });
+        b.Entity<DroitAcces>(e =>
+        {
+            e.Property(x => x.Email).HasMaxLength(200);
+            e.HasIndex(x => x.Email).IsUnique();
+            e.Property(x => x.Nom).HasMaxLength(200);
+            e.Property(x => x.ModifiePar).HasMaxLength(400);
         });
     }
 }

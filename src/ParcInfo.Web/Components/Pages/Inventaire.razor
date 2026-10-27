@@ -1,5 +1,5 @@
 @page "/inventaire"
-@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@attribute [Authorize(Policy = Roles.PolitiqueInventaire)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject NavigationManager Nav
 @inject ServiceMouvements Mouvements
@@ -11,6 +11,9 @@
 <div class="d-flex flex-wrap align-center gap-2 mb-4">
     <MudText Typo="Typo.h4">Inventaire</MudText>
     <MudSpacer />
+    <MudButton Href="/journal-inventaire" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.History">Journal d'inventaire</MudButton>
+    @if (_gestionnaire)
+    {
     <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
     <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudButton>
     <MudButton Href="/materiels/nouveau" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddBox">Nouveau matériel</MudButton>
@@ -26,6 +29,7 @@
                Disabled="_selection.Count == 0" OnClick="NouveauMouvement">
         Mouvement@(_selection.Count > 0 ? $" ({_selection.Count})" : "")
     </MudButton>
+    }
 </div>
 
 <MudPaper Elevation="0" Class="carte pa-3 mb-3">
@@ -81,11 +85,11 @@
 }
 else
 {
-    <MudDataGrid T="Ligne" Items="_filtres" MultiSelection="true" @bind-SelectedItems="_selection" Hover="true" Dense="true"
+    <MudDataGrid T="Ligne" Items="_filtres" MultiSelection="_gestionnaire" @bind-SelectedItems="_selection" Hover="true" Dense="true"
                  Elevation="0" Class="carte" RowClick="Ouvrir" RowClass="lien-ligne"
                  RowsPerPage="50" SortMode="SortMode.Single" HorizontalScrollbar="true">
         <Columns>
-            <SelectColumn T="Ligne" />
+            @if (_gestionnaire) { <SelectColumn T="Ligne" /> }
             <PropertyColumn Property="x => x.NumInterne" Title="N° interne" CellStyle="font-weight:600;white-space:nowrap" />
             <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
             <TemplateColumn T="Ligne" Title="Catégorie PC" SortBy="x => x.CategoriePc">
@@ -142,6 +146,8 @@ else
     private List<Ligne> _filtres = [];
     private HashSet<Ligne> _selection = [];
     private List<string> _regions = [];
+    /// <summary>Service informatique ; sinon consultation seule (pas d'export, de sélection ni d'action).</summary>
+    private bool _gestionnaire;
 
     private string? _recherche;
     private string _categorie = "";
@@ -153,6 +159,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _gestionnaire = (await Courant.ObtenirAsync()).EstGestionnaire;
         if (Enum.TryParse<StatutMateriel>(StatutQuery, out var s)) { _statut = s; _masquerRebut = false; }
         if (FiltreQuery == "achanger") _aChanger = true;
         await using var db = await DbFactory.CreateDbContextAsync();

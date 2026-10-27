@@ -131,19 +131,6 @@ public sealed class ServiceTicketsTests : IDisposable
     }
 
     [Fact]
-    public async Task Administrateurs_des_tickets_configures()
-    {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Tickets:Administrateurs:0"] = "thomas.verchere@groupe-vitalrest.com" })
-            .Build();
-        var p = new ClaimsPrincipal(new ClaimsIdentity([new Claim("preferred_username", "thomas.verchere@groupe-vitalrest.com")], "test"));
-        var u = Utilisateur.Depuis(await new AjoutRolesConfigures(config).TransformAsync(p));
-        Assert.True(u.EstAdminTickets);
-        Assert.False(u.EstGestionnaire);
-        Assert.False(Utilisateur.Depuis(new ClaimsPrincipal(new ClaimsIdentity([new Claim("email", "x@vitalrest.com")], "test"))).EstAdminTickets);
-    }
-
-    [Fact]
     public async Task Mail_du_demandeur_toujours_celui_du_compte_connecte()
     {
         var f = Complet();

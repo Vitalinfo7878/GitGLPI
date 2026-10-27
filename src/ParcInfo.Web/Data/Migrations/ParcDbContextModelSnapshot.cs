@@ -332,6 +332,50 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("DoublonsIgnores");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.DroitAcces", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("AdminTickets")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ConsultationInventaire")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("Gestionnaire")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("ModifieLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ModifiePar")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Nom")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("Valideur")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.ToTable("DroitsAcces");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Fiche", b =>
                 {
                     b.Property<int>("Id")
@@ -410,8 +454,8 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Details")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
 
                     b.Property<int?>("MaterielId")
                         .HasColumnType("integer");
@@ -422,6 +466,8 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasColumnType("character varying(400)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Action");
 
                     b.HasIndex("Date");
 

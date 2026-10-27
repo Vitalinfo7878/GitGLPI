@@ -2,7 +2,6 @@
 @attribute [Authorize(Policy = Roles.PolitiqueSalarie)]
 @inject ServiceDemandes Service
 @inject UtilisateurCourant Courant
-@inject OptionsDemandes Options
 @inject IJSRuntime JS
 
 <PageTitle>Demande informatique</PageTitle>
@@ -34,9 +33,9 @@
             <b>Attention :</b>
             <ul class="mt-1 mb-0 pl-4">
                 <li>Formulaire destiné uniquement aux demandes de matériel et de création de compte de messagerie.</li>
-                @if (Options.Valideurs.Length > 0)
+                @if (_valideurs.Count > 0)
                 {
-                    <li>La validation de vos demandes est effectuée par @string.Join(", ", Options.Valideurs).</li>
+                    <li>La validation de vos demandes est effectuée par @string.Join(", ", _valideurs).</li>
                 }
                 <li>Pour toute autre demande, envoyez un mail à <a href="mailto:informatique@vitalrest.com">informatique@vitalrest.com</a>.</li>
                 <li>Pour la création de comptes ADORIA : veuillez contacter le Service Achat qui en a la charge.</li>
@@ -134,9 +133,12 @@
     private ResultatDemande? _resultat;
     private Utilisateur? _u;
 
+    private List<string> _valideurs = [];
+
     protected override async Task OnInitializedAsync()
     {
         _u = await Courant.ObtenirAsync();
+        _valideurs = await Service.ValideursAsync();
         Prerenseigner();
     }
 

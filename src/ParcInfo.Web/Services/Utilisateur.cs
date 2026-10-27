@@ -10,14 +10,20 @@ namespace ParcInfo.Web.Services;
 
 public static class Roles
 {
-    /// <summary>Rôle d'application Entra ID donnant accès à la gestion du parc (équipe informatique).</summary>
+    /// <summary>Administrateur principal (« Authentification:Administrateurs ») : tous les droits du service informatique et la page « Droits ».</summary>
+    public const string Administrateur = "Administrateur";
+    public const string PolitiqueAdministration = "Administration";
+    /// <summary>Service informatique : gestion du parc (droit « Gestionnaire » de la page « Droits »).</summary>
     public const string Gestionnaire = "Gestionnaire";
-    /// <summary>Seul rôle autorisé à valider ou refuser les demandes (« Demandes:Valideurs »).</summary>
+    /// <summary>Consultation de l'inventaire, des fiches matériel et du journal d'inventaire, sans modification.</summary>
+    public const string ConsultationInventaire = "ConsultationInventaire";
+    public const string PolitiqueInventaire = "Inventaire";
+    /// <summary>Seul rôle autorisé à valider ou refuser les demandes.</summary>
     public const string Valideur = "Valideur";
     public const string PolitiqueGestion = "Gestion";
     /// <summary>Accès à la liste des demandes et aux échanges internes : gestionnaires et valideurs (seuls les valideurs décident).</summary>
     public const string PolitiqueValidation = "Validation";
-    /// <summary>Administration des tickets : gestionnaires et comptes listés dans « Tickets:Administrateurs ».</summary>
+    /// <summary>Administration des tickets : gestionnaires et comptes ayant le droit « Admin tickets ».</summary>
     public const string AdminTickets = "AdminTickets";
     public const string PolitiqueTickets = "Tickets";
     /// <summary>Compte Microsoft d'un site (cuisine) : uniquement les tickets, ni demandes ni « Mon matériel ».</summary>
@@ -30,7 +36,9 @@ public static class Roles
     /// n'applique pas la politique par défaut, la politique doit donc l'exiger elle-même.
     /// </summary>
     public static AuthorizationBuilder DefinirPolitiques(AuthorizationBuilder b) => b
+        .AddPolicy(PolitiqueAdministration, p => p.RequireAuthenticatedUser().RequireRole(Administrateur))
         .AddPolicy(PolitiqueGestion, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire))
+        .AddPolicy(PolitiqueInventaire, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire, ConsultationInventaire))
         .AddPolicy(PolitiqueValidation, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire, Valideur))
         .AddPolicy(PolitiqueTickets, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire, AdminTickets))
         .AddPolicy(PolitiqueSalarie, p => p.RequireAuthenticatedUser().RequireAssertion(c => !c.User.IsInRole(Site) || c.User.IsInRole(Gestionnaire)))
@@ -54,6 +62,12 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
     /// <summary>Compte d'un site : n'a accès qu'aux tickets (l'informatique garde tous ses droits).</summary>
     public bool EstSite { get; init; }
 
+    /// <summary>Administrateur principal : gère les droits.</summary>
+    public bool EstAdministrateur { get; init; }
+
+    /// <summary>Voit l'inventaire et le journal d'inventaire (service informatique ou droit « Consultation inventaire »).</summary>
+    public bool VoitInventaire { get; init; }
+
     /// <summary>Voit toutes les demandes et leurs échanges internes : service informatique et valideurs.</summary>
     public bool VoitToutesLesDemandes => EstGestionnaire || EstValideur;
 
@@ -73,6 +87,8 @@ public sealed record Utilisateur(string Nom, string Email, bool EstGestionnaire,
             Adresses = adresses,
             EstAdminTickets = gestionnaire || p.IsInRole(Roles.AdminTickets),
             EstSite = !gestionnaire && p.IsInRole(Roles.Site),
+            EstAdministrateur = p.IsInRole(Roles.Administrateur),
+            VoitInventaire = gestionnaire || p.IsInRole(Roles.ConsultationInventaire),
         };
     }
 
@@ -96,32 +112,35 @@ public sealed class UtilisateurCourant(AuthenticationStateProvider auth)
 }
 
 /// <summary>
-/// Reconnaît les rôles d'application Entra ID quel que soit le nom de revendication reçu (« roles », « role »
-/// ou le nom long de .NET, selon la correspondance appliquée à la connexion), puis
-/// donne les rôles aux adresses listées dans la configuration :
-/// « Authentification:Gestionnaires » → Gestionnaire (pratique avant d'avoir configuré les rôles d'application Entra ID),
-/// « Demandes:Valideurs » → Valideur, « Tickets:Administrateurs » → AdminTickets.
+/// Donne à l'utilisateur connecté ses rôles :
+/// administrateurs principaux de la configuration (« Authentification:Administrateurs ») et droits de la page « Droits » (en base).
+/// Avec Entra ID, les rôles portés par le jeton sont ignorés : la page « Droits » est la seule source
+/// (les anciens rôles Entra ID et listes de configuration ont été repris une fois, à la création de la page).
+/// En mode démo (sans Entra ID), les rôles choisis à la connexion sont conservés.
 /// </summary>
 public sealed class AjoutRolesConfigures(IConfiguration config, IDbContextFactory<ParcDbContext>? dbFactory = null, IMemoryCache? cache = null)
     : IClaimsTransformation
 {
-    private readonly HashSet<string> _gestionnaires = new(
-        config.GetSection("Authentification:Gestionnaires").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _valideurs = new(
-        config.GetSection("Demandes:Valideurs").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _adminTickets = new(
-        config.GetSection("Tickets:Administrateurs").Get<string[]>() ?? [], StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _administrateurs = new(ServiceDroits.AdministrateursDe(config), StringComparer.OrdinalIgnoreCase);
+    private readonly bool _rolesDuJeton = string.IsNullOrWhiteSpace(config["AzureAd:ClientId"]);
 
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         if (principal.Identity is ClaimsIdentity { IsAuthenticated: true } id)
         {
-            foreach (var role in TypesRole.SelectMany(t => principal.FindAll(t)).Select(c => c.Value).ToList())
-                Ajouter(id, principal, role, true);
+            var duJeton = TypesRole.SelectMany(t => id.FindAll(t)).ToList();
+            foreach (var c in duJeton) id.TryRemoveClaim(c);
+            if (_rolesDuJeton)
+                foreach (var role in duJeton.Select(c => c.Value).Distinct()) Ajouter(id, principal, role, true);
+
             var u = Utilisateur.Depuis(principal);
-            Ajouter(id, principal, Roles.Gestionnaire, u.ToutesAdresses.Any(_gestionnaires.Contains));
-            Ajouter(id, principal, Roles.Valideur, u.ToutesAdresses.Any(_valideurs.Contains));
-            Ajouter(id, principal, Roles.AdminTickets, u.ToutesAdresses.Any(_adminTickets.Contains));
+            var admin = u.ToutesAdresses.Any(_administrateurs.Contains);
+            var droit = dbFactory is null ? null : await ServiceDroits.DroitDeAsync(dbFactory, cache, u.ToutesAdresses);
+            Ajouter(id, principal, Roles.Administrateur, admin);
+            Ajouter(id, principal, Roles.Gestionnaire, admin || droit?.Gestionnaire == true);
+            Ajouter(id, principal, Roles.Valideur, droit?.Valideur == true);
+            Ajouter(id, principal, Roles.AdminTickets, droit?.AdminTickets == true);
+            Ajouter(id, principal, Roles.ConsultationInventaire, droit?.ConsultationInventaire == true);
             Ajouter(id, principal, Roles.Site, await EstCompteDeSiteAsync(principal, u));
         }
         return principal;

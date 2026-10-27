@@ -35,22 +35,44 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
             var maintenant = DateTime.UtcNow;
 
             // 1. Copie locale de l'annuaire (les comptes disparus sont marqués supprimés, jamais effacés)
+            // Changements notés dans le journal d'inventaire
+            var changements = new List<string>();
             var existants = await db.ComptesMicrosoft.ToDictionaryAsync(c => c.Id, ct);
+            var nouveaux = 0;
             foreach (var a in lus)
             {
-                if (!existants.TryGetValue(a.Id, out var c)) db.ComptesMicrosoft.Add(existants[a.Id] = c = new CompteMicrosoft { Id = a.Id });
+                var nouveau = !existants.TryGetValue(a.Id, out var c);
+                if (nouveau) { db.ComptesMicrosoft.Add(existants[a.Id] = c = new CompteMicrosoft { Id = a.Id }); nouveaux++; }
+                var (nom, adresse, actif, supprime) = (c!.NomAffichage, c.AdressePrincipale, c.Actif, c.Supprime);
                 Copier(a, c, maintenant);
+                if (nouveau) continue;
+                if (nom != c.NomAffichage) changements.Add($"Nom : {nom} → {c.NomAffichage}");
+                if (adresse != c.AdressePrincipale) changements.Add($"{c.NomAffichage} : adresse {adresse ?? "—"} → {c.AdressePrincipale ?? "—"}");
+                if (actif && !c.Actif) changements.Add($"{c.NomAffichage} : compte désactivé");
+                if (!actif && c.Actif) changements.Add($"{c.NomAffichage} : compte réactivé");
+                if (supprime) changements.Add($"{c.NomAffichage} : compte de retour dans l'annuaire");
             }
             var ids = lus.Select(a => a.Id).ToHashSet();
-            foreach (var c in existants.Values.Where(c => !ids.Contains(c.Id))) c.Supprime = true;
+            foreach (var c in existants.Values.Where(c => !ids.Contains(c.Id) && !c.Supprime))
+            {
+                c.Supprime = true;
+                changements.Add($"{c.NomAffichage} : compte supprimé de l'annuaire");
+            }
+            if (nouveaux > 0) changements.Insert(0, $"{nouveaux} nouveau(x) compte(s)");
             await db.SaveChangesAsync(ct);
 
             // 2. Rapprochements certains
             var comptes = existants.Values.Where(c => !c.Supprime).ToList();
-            var relies = await RelierAutomatiquementAsync(db, comptes, ct);
+            var relies = await RelierAutomatiquementAsync(db, comptes, changements, ct);
 
             // 3. Noms et adresses des personnes et sites reliés = ceux de l'annuaire
-            await ActualiserReliesAsync(db, ct);
+            await ActualiserReliesAsync(db, changements, ct);
+            if (changements.Count > 0)
+                db.Journal.Add(new Journal
+                {
+                    Date = maintenant, Utilisateur = auteur, Action = JournalInventaire.ComptesMisAJour,
+                    Details = JournalInventaire.Tronquer(string.Join(" ; ", changements)),
+                });
             await db.SaveChangesAsync(ct);
 
             var rapport = new RapportSynchro(lus.Count, relies, (await ListerATrancherAsync(ct)).Count, (await ListerDepartsAsync(ct)).Count, maintenant);
@@ -78,7 +100,7 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
         c.Actif = a.Actif; c.CreeDansEntraLe = a.CreeLe; c.Supprime = false; c.SynchroniseLe = maintenant;
     }
 
-    private static async Task<int> RelierAutomatiquementAsync(ParcDbContext db, List<CompteMicrosoft> comptes, CancellationToken ct)
+    private static async Task<int> RelierAutomatiquementAsync(ParcDbContext db, List<CompteMicrosoft> comptes, List<string> changements, CancellationToken ct)
     {
         var prisParPersonne = (await db.Personnes.Where(p => p.EntraObjectId != null).Select(p => p.EntraObjectId!).ToListAsync(ct)).ToHashSet();
         var dejaPris = prisParPersonne.Concat(await db.Sites.Where(s => s.EntraObjectId != null).Select(s => s.EntraObjectId!).ToListAsync(ct)).ToHashSet();
@@ -102,6 +124,7 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
             p.EntraObjectId = c.Id;
             dejaPris.Add(c.Id);
             relies++;
+            changements.Add($"{p.NomComplet} relié automatiquement à {c.NomAffichage}");
         }
 
         // Sites : seulement par adresse mail (le nom d'un site ne suffit pas à être certain).
@@ -112,22 +135,29 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
             s.EntraObjectId = c.Id;
             dejaPris.Add(c.Id);
             relies++;
+            changements.Add($"Site {s.Code} relié automatiquement à {c.NomAffichage}");
         }
         await db.SaveChangesAsync(ct);
         return relies;
     }
 
-    private static async Task ActualiserReliesAsync(ParcDbContext db, CancellationToken ct)
+    private static async Task ActualiserReliesAsync(ParcDbContext db, List<string> changements, CancellationToken ct)
     {
         foreach (var p in await db.Personnes.Include(p => p.CompteMicrosoft).Where(p => p.CompteMicrosoft != null).ToListAsync(ct))
         {
+            var (nom, email) = (p.NomComplet, p.Email);
             p.NomComplet = p.CompteMicrosoft!.NomAffichage;
             p.Email = p.CompteMicrosoft.AdressePrincipale ?? p.Email;
+            if (nom != p.NomComplet) changements.Add($"Détenteur renommé : {nom} → {p.NomComplet}");
+            if (!string.Equals(email, p.Email, StringComparison.OrdinalIgnoreCase)) changements.Add($"{p.NomComplet} : mail {email ?? "—"} → {p.Email ?? "—"}");
         }
         foreach (var s in await db.Sites.Include(s => s.CompteMicrosoft).Where(s => s.CompteMicrosoft != null).ToListAsync(ct))
         {
+            var (nom, email) = (s.Libelle, s.Email);
             s.Nom = s.CompteMicrosoft!.NomAffichage;
             s.Email = s.CompteMicrosoft.AdressePrincipale ?? s.Email;
+            if (nom != s.Libelle) changements.Add($"Site {s.Code} renommé : {nom} → {s.Libelle}");
+            if (!string.Equals(email, s.Email, StringComparison.OrdinalIgnoreCase)) changements.Add($"Site {s.Code} : mail {email ?? "—"} → {s.Email ?? "—"}");
         }
     }
 

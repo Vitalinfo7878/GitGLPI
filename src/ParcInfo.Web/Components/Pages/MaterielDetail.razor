@@ -1,5 +1,5 @@
 @page "/materiels/{Id:int}"
-@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@attribute [Authorize(Policy = Roles.PolitiqueInventaire)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
@@ -22,7 +22,7 @@ else
         @if (_m.CategoriePc is { } cat) { <ChipCategoriePc Categorie="cat" /> }
         @if (_m.AChanger) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">À changer</MudChip> }
         <MudSpacer />
-        @if (!_edition)
+        @if (!_edition && Gestionnaire)
         {
             <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Outlined.DeleteForever" OnClick="Supprimer">Supprimer</MudButton>
             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="Editer">Modifier</MudButton>
@@ -118,7 +118,7 @@ else
                                     @if (_m.Site is { } s) { @s.Libelle }
                                     else if (_m.Personne is { } p) { @p.NomComplet }
                                     else { <span>—</span> }
-                                    @if (_m.Statut == StatutMateriel.Attribue)
+                                    @if (_m.Statut == StatutMateriel.Attribue && Gestionnaire)
                                     {
                                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@LienChangerDetenteur" Class="ml-1 py-0">Changer</MudButton>
                                     }
@@ -143,14 +143,17 @@ else
                                     <Champ Libelle="Profil Microsoft" Valeur="@_m.ProfilMicrosoft" />
                                     <Champ Libelle="Licence Microsoft" Valeur="@_m.LicenceMicrosoft" />
                                     <Champ Libelle="Windows" Valeur="@(string.Join(" ", new[] { _m.VersionWindows, _m.EditionWindows }.Where(x => x != null)))" />
+                                    @if (Gestionnaire)
+                                    {
                                     <Champ Libelle="Mot de passe de session">
                                         @if (_m.MotDePasseSession is null) { <span>—</span> }
                                         else if (_mdpVisible) { <span class="mot-de-passe">@_m.MotDePasseSession</span> }
                                         else { <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Visibility" OnClick="AfficherMotDePasse" Class="pa-0">Afficher</MudButton> }
                                     </Champ>
+                                    }
                                     <Champ Libelle="Office en dur / admin local / Labtech" Valeur="@($"{OuiNon(_m.OfficeEnDur)} / {OuiNon(_m.ConnexionAdmin)} / {OuiNon(_m.Labtech)}")" />
                                     <Champ Libelle="Note /5" Valeur="@_m.Note?.ToString()" />
-                                    <Champ Libelle="Clé Office" Valeur="@_m.CleOffice" />
+                                    @if (Gestionnaire) { <Champ Libelle="Clé Office" Valeur="@_m.CleOffice" /> }
                                 </dl>
                             }
                         </MudItem>
@@ -170,7 +173,7 @@ else
                     <ProfilMicrosoft Compte="compte" />
                 </MudPaper>
             }
-            else if (_m.Site is not null || _m.Personne is not null)
+            else if ((_m.Site is not null || _m.Personne is not null) && Gestionnaire)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
                     @_m.DetenteurLibelle n'est pas encore relié à un compte Microsoft. <MudLink Href="/comptes-microsoft">Comptes Microsoft</MudLink>
@@ -192,7 +195,7 @@ else
                                 @if (!string.IsNullOrEmpty(mv.Expediteur)) { <span> · de @mv.Expediteur</span> }
                                 @if (!string.IsNullOrEmpty(mv.DestinationLibelle)) { <span> · vers <b>@mv.DestinationLibelle</b></span> }
                             </MudText>
-                            @if (mv.Fiche is { } f)
+                            @if (mv.Fiche is { } f && Gestionnaire)
                             {
                                 <MudLink Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Typo="Typo.body2" Class="d-block mt-1">
                                     <MudIcon Icon="@Icons.Material.Outlined.PictureAsPdf" Size="Size.Small" Style="vertical-align:middle" /> @f.Code
@@ -231,6 +234,9 @@ else
     [Parameter] public int Id { get; set; }
 
     private Materiel? _m;
+    private Utilisateur? _u;
+    /// <summary>Service informatique : modification, mouvements, mot de passe ; sinon consultation seule.</summary>
+    private bool Gestionnaire => _u?.EstGestionnaire == true;
     private string LienChangerDetenteur => $"/mouvements/nouveau?ids={Id}&type={TypeMouvement.Attribution}";
     private List<Ticket> _tickets = [];
     private string? _emailDetenteur;
@@ -247,6 +253,7 @@ else
 
     private async Task Charger()
     {
+        _u ??= await Courant.ObtenirAsync();
         await using var db = await DbFactory.CreateDbContextAsync();
         _m = await db.Materiels.AsNoTracking()
             .Include(m => m.Site).ThenInclude(s => s!.Region).Include(m => m.Personne).Include(m => m.Region)
@@ -256,6 +263,7 @@ else
             .Include(m => m.Mouvements).ThenInclude(x => x.DestinationPersonne)
             .AsSplitQuery().FirstOrDefaultAsync(m => m.Id == Id);
         _introuvable = _m is null;
+        if (_m is not null && !Gestionnaire) _m.MotDePasseSession = null; // jamais chargé dans la page en consultation
         _regions = await db.Regions.OrderBy(r => r.Nom).ToListAsync();
         _tickets = await db.Tickets.AsNoTracking().Where(t => t.MaterielId == Id).OrderByDescending(t => t.Numero).ToListAsync();
         if (_m != null)
@@ -266,6 +274,7 @@ else
 
     private void Editer()
     {
+        if (!Gestionnaire) return;
         _form = new Materiel
         {
             NumInterne = _m!.NumInterne, Type = _m.Type, Modele = _m.Modele, NumSerie = _m.NumSerie, RegionId = _m.RegionId,
@@ -283,6 +292,7 @@ else
 
     private async Task Enregistrer()
     {
+        if (!Gestionnaire) return;
         var f = _form!;
         var email = _emailDetenteur?.Trim().ToLowerInvariant();
         _erreurs = [];
@@ -301,7 +311,7 @@ else
             return;
         }
         var m = await db.Materiels.FirstAsync(x => x.Id == Id);
-        var avant = m.NumInterne;
+        var avant = (Materiel)db.Entry(m).OriginalValues.ToObject();
         m.NumInterne = num; m.Type = f.Type; m.Modele = f.Modele; m.NumSerie = f.NumSerie; m.RegionId = f.RegionId;
         m.AnneeAcquisition = f.AnneeAcquisition; m.DateMiseEnPlace = f.DateMiseEnPlace; m.Configuration = f.Configuration;
         m.ProfilMicrosoft = f.ProfilMicrosoft; m.LicenceMicrosoft = f.LicenceMicrosoft; m.MotDePasseSession = f.MotDePasseSession;
@@ -315,8 +325,14 @@ else
         else if (m.SiteId is { } sid) await db.Sites.Where(x => x.Id == sid).ExecuteUpdateAsync(x => x.SetProperty(st => st.Email, email));
         m.ModifieLe = DateTime.UtcNow;
         var u = await Courant.ObtenirAsync();
-        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Matériel modifié", MaterielId = Id,
-            Details = avant == num ? num : $"{avant} renommé {num}" });
+        // Journal d'inventaire : chaque champ modifié, avec l'ancienne et la nouvelle valeur
+        var changements = JournalInventaire.Differences(avant, m, id => _regions.FirstOrDefault(r => r.Id == id)?.Nom);
+        var emailAvant = _m.Personne?.Email ?? _m.Site?.Email;
+        if ((_m.Site is not null || _m.Personne is not null) && !string.Equals(emailAvant, email, StringComparison.OrdinalIgnoreCase))
+            changements.Add($"Mail de {_m.DetenteurLibelle} : {emailAvant ?? "—"} → {email}");
+        if (changements.Count > 0)
+            db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = JournalInventaire.MaterielModifie, MaterielId = Id,
+                Details = JournalInventaire.Tronquer($"{num} : {string.Join(" ; ", changements)}") });
         await db.SaveChangesAsync();
         _edition = false;
         Snackbar.Add("Modifications enregistrées.", Severity.Success);
@@ -349,6 +365,7 @@ else
 
     private async Task AfficherMotDePasse()
     {
+        if (!Gestionnaire) return;
         _mdpVisible = true;
         var u = await Courant.ObtenirAsync();
         await using var db = await DbFactory.CreateDbContextAsync();

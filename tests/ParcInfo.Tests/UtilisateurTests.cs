@@ -25,23 +25,10 @@ public class UtilisateurTests
         Assert.False(u.AEmail("autre@vitalrest.com"));
     }
 
-    [Fact]
-    public async Task Roles_configures_reconnus_sur_n_importe_quelle_adresse()
-    {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Demandes:Valideurs:0"] = "thomas.verchere@groupe-vitalrest.com" })
-            .Build();
-        var p = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim("email", "thomas.verchere@vitalrest.com"), new Claim("preferred_username", "thomas.verchere@groupe-vitalrest.com")], "test"));
-        var t = await new AjoutRolesConfigures(config).TransformAsync(p);
-        Assert.True(Utilisateur.Depuis(t).EstValideur);
-        Assert.False(Utilisateur.Depuis(t).EstGestionnaire);
-    }
-
     [Theory]
     [InlineData("roles")]
     [InlineData(ClaimTypes.Role)]
-    public async Task Role_Entra_reconnu_quel_que_soit_le_nom_de_revendication(string type)
+    public async Task Role_du_jeton_reconnu_en_mode_demo_quel_que_soit_le_nom_de_revendication(string type)
     {
         // Identité construite comme à la connexion Entra ID : rôles attendus sous « roles »
         var p = new ClaimsPrincipal(new ClaimsIdentity(

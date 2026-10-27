@@ -1,0 +1,82 @@
+@page "/journal-inventaire"
+@attribute [Authorize(Policy = Roles.PolitiqueInventaire)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+
+<PageTitle>Journal d'inventaire</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Journal d'inventaire</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Toutes les modifications et suppressions de matériel (avec l'ancienne et la nouvelle valeur), les mouvements et les changements des comptes Microsoft.
+</MudText>
+
+@if (_lignes is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Journal" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50">
+        <ToolBarContent>
+            <MudToggleGroup T="DomaineJournal?" @bind-Value="_domaine" Color="Color.Primary" Size="Size.Small" Class="mr-4">
+                <MudToggleItem Value="@((DomaineJournal?)null)" Text="Tout" />
+                <MudToggleItem Value="@((DomaineJournal?)DomaineJournal.Materiel)" Text="Matériel" />
+                <MudToggleItem Value="@((DomaineJournal?)DomaineJournal.Mouvement)" Text="Mouvements" />
+                <MudToggleItem Value="@((DomaineJournal?)DomaineJournal.CompteMicrosoft)" Text="Comptes Microsoft" />
+            </MudToggleGroup>
+            <MudCheckBox T="bool" @bind-Value="_suppressions" Label="Suppressions seulement" Dense="true" />
+            <MudSpacer />
+            <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Filtrer (n° interne, personne, utilisateur…)"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Clearable="true" Style="max-width:360px" />
+        </ToolBarContent>
+        <Columns>
+            <TemplateColumn T="Journal" Title="Date" SortBy="x => x.Date">
+                <CellTemplate><span style="white-space:nowrap">@context.Item.Date.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span></CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.Utilisateur" Title="Par" />
+            <TemplateColumn T="Journal" Title="Action" SortBy="x => x.Action">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                             Color="@(context.Item.Action == "Matériel supprimé" ? Color.Error : JournalInventaire.Domaine(context.Item.Action) switch
+                             { DomaineJournal.Mouvement => Color.Info, DomaineJournal.CompteMicrosoft => Color.Secondary, _ => Color.Default })">@context.Item.Action</MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="Journal" Title="Détails">
+                <CellTemplate>
+                    <div style="white-space:pre-line;max-width:900px">
+                        @if (context.Item.MaterielId is { } id && _existants.Contains(id)) { <MudLink Href="@($"/materiels/{id}")">@Lignes(context.Item.Details)</MudLink> }
+                        else { @Lignes(context.Item.Details) }
+                    </div>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Journal" PageSizeOptions="[50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+        <NoRecordsContent><MudText>Aucune entrée.</MudText></NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    private List<Journal>? _lignes;
+    private HashSet<int> _existants = [];
+    private DomaineJournal? _domaine;
+    private bool _suppressions;
+    private string? _recherche;
+
+    private IEnumerable<Journal> Filtrees => (_lignes ?? [])
+        .Where(j => _domaine is null || JournalInventaire.Domaine(j.Action) == _domaine)
+        .Where(j => !_suppressions || j.Action == "Matériel supprimé")
+        .Where(j => string.IsNullOrWhiteSpace(_recherche)
+            || $"{j.Utilisateur} {j.Action} {j.Details}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Un changement par ligne : « N° interne : a → b ; Modèle : … ».</summary>
+    private static string? Lignes(string? details) => details?.Replace(" ; ", "\n");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var actions = JournalInventaire.Actions.ToList();
+        _lignes = await db.Journal.AsNoTracking().Where(j => actions.Contains(j.Action)).OrderByDescending(j => j.Date).ThenByDescending(j => j.Id).Take(5000).ToListAsync();
+        var ids = _lignes.Where(j => j.MaterielId != null).Select(j => j.MaterielId!.Value).Distinct().ToList();
+        _existants = (await db.Materiels.Where(m => ids.Contains(m.Id)).Select(m => m.Id).ToListAsync()).ToHashSet();
+    }
+}
