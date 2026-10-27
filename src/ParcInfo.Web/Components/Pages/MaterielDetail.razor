@@ -54,6 +54,8 @@ else
                                                   Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly="@(CompteDetenteur is not null)"
                                                   HelperText="@(CompteDetenteur is not null ? "Reprise de l'annuaire Microsoft (actualisée chaque nuit)." : "Donne accès à « Mon matériel » ; s'applique à tout le matériel de ce détenteur.")"
                                                   Error="@(_erreurs.ContainsKey("Email"))" ErrorText="@_erreurs.GetValueOrDefault("Email")" />
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PersonSearch"
+                                               Href="@LienChangerDetenteur">Changer de détenteur</MudButton>
                                 </MudItem>
                             }
                             <MudItem xs="12" sm="6">
@@ -111,6 +113,10 @@ else
                                     @if (_m.Site is { } s) { @s.Libelle }
                                     else if (_m.Personne is { } p) { @p.NomComplet }
                                     else { <span>—</span> }
+                                    @if (_m.Statut == StatutMateriel.Attribue)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@LienChangerDetenteur" Class="ml-1 py-0">Changer</MudButton>
+                                    }
                                 </Champ>
                                 @if (_m.Site is not null || _m.Personne is not null)
                                 {
@@ -220,6 +226,7 @@ else
     [Parameter] public int Id { get; set; }
 
     private Materiel? _m;
+    private string LienChangerDetenteur => $"/mouvements/nouveau?ids={Id}&type={TypeMouvement.Attribution}";
     private List<Ticket> _tickets = [];
     private string? _emailDetenteur;
     private CompteMicrosoft? CompteDetenteur => _m?.Personne?.CompteMicrosoft ?? _m?.Site?.CompteMicrosoft;

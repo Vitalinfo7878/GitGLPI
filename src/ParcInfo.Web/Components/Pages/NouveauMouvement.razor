@@ -6,8 +6,8 @@
 @inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
 
-<PageTitle>Nouveau mouvement</PageTitle>
-<MudText Typo="Typo.h4" Class="mb-4">Nouveau mouvement</MudText>
+<PageTitle>@Titre</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-4">@Titre</MudText>
 
 @if (_resultat is not null)
 {
@@ -25,7 +25,11 @@
             <MudAlert Severity="Severity.Warning" Class="mt-3">@a</MudAlert>
         }
         <div class="d-flex gap-2 mt-4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Recommencer">Nouveau mouvement</MudButton>
+            @if (_materiels.Count == 1)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/materiels/{_materiels[0].Id}")">Retour à la fiche matériel</MudButton>
+            }
+            <MudButton Variant="@(_materiels.Count == 1 ? Variant.Outlined : Variant.Filled)" Color="Color.Primary" OnClick="Recommencer">Nouveau mouvement</MudButton>
             <MudButton Href="/inventaire" Variant="Variant.Text">Retour à l'inventaire</MudButton>
         </div>
     </MudPaper>
@@ -191,6 +195,10 @@ else
     private bool _envoi;
     private ResultatMouvement? _resultat;
 
+    /// <summary>Attribution d'un matériel déjà attribué : passage direct de l'ancien au nouveau détenteur.</summary>
+    private bool ChangementDetenteur => _d.Type == TypeMouvement.Attribution && _materiels.Count > 0 && _materiels.All(m => m.Statut == StatutMateriel.Attribue);
+    private string Titre => _resultat is null && ChangementDetenteur ? "Changer de détenteur" : "Nouveau mouvement";
+
     private string LibelleDestinationLibre => _d.Type == TypeMouvement.Achat ? "Destination (stock)" : "Destination";
 
     protected override async Task OnInitializedAsync()
@@ -208,6 +216,9 @@ else
             // Type proposé selon le statut du premier matériel
             if (TypeQuery is null && _materiels.Count > 0 && _materiels.All(m => m.Statut == StatutMateriel.Attribue))
                 ChangerType(TypeMouvement.Restitution);
+            // Changement de détenteur : l'expéditeur est le détenteur actuel
+            if (ChangementDetenteur && _materiels.Select(m => m.DetenteurLibelle).Distinct().ToList() is [{ Length: > 0 } detenteur])
+                _d.Expediteur = detenteur;
         }
     }
 
