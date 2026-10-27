@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -23,6 +24,17 @@ public static class Roles
     public const string Site = "Site";
     /// <summary>Espace salarié (« Mon matériel », demandes) : tout le monde sauf les comptes de site.</summary>
     public const string PolitiqueSalarie = "Salarie";
+
+    /// <summary>
+    /// Politiques d'accès. Chacune exige un utilisateur connecté : une page portant [Authorize(Policy = …)]
+    /// n'applique pas la politique par défaut, la politique doit donc l'exiger elle-même.
+    /// </summary>
+    public static AuthorizationBuilder DefinirPolitiques(AuthorizationBuilder b) => b
+        .AddPolicy(PolitiqueGestion, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire))
+        .AddPolicy(PolitiqueValidation, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire, Valideur))
+        .AddPolicy(PolitiqueTickets, p => p.RequireAuthenticatedUser().RequireRole(Gestionnaire, AdminTickets))
+        .AddPolicy(PolitiqueSalarie, p => p.RequireAuthenticatedUser().RequireAssertion(c => !c.User.IsInRole(Site) || c.User.IsInRole(Gestionnaire)))
+        .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 }
 
 /// <summary>Utilisateur connecté (compte Microsoft 365 / Entra ID, en SSO).</summary>

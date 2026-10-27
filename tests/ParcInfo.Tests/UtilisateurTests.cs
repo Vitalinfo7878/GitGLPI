@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using ParcInfo.Web.Services;
 
 namespace ParcInfo.Tests;
@@ -63,5 +65,25 @@ public class UtilisateurTests
         var salarie = await transformation.TransformAsync(new ClaimsPrincipal(new ClaimsIdentity([new Claim("email", "camille@vitalrest.com")], "test")));
         Assert.True(Utilisateur.Depuis(site).EstSite);
         Assert.False(Utilisateur.Depuis(salarie).EstSite);
+    }
+
+    [Theory]
+    [InlineData(Roles.PolitiqueSalarie)]
+    [InlineData(Roles.PolitiqueGestion)]
+    [InlineData(Roles.PolitiqueValidation)]
+    [InlineData(Roles.PolitiqueTickets)]
+    public async Task Politiques_refusees_sans_connexion(string politique)
+    {
+        var services = new ServiceCollection().AddLogging();
+        Roles.DefinirPolitiques(services.AddAuthorizationBuilder());
+        var autorisation = services.BuildServiceProvider().GetRequiredService<IAuthorizationService>();
+
+        var anonyme = new ClaimsPrincipal(new ClaimsIdentity());
+        Assert.False((await autorisation.AuthorizeAsync(anonyme, politique)).Succeeded);
+
+        var salarie = new ClaimsPrincipal(new ClaimsIdentity([new Claim("name", "Camille Test")], "test"));
+        Assert.Equal(politique == Roles.PolitiqueSalarie, (await autorisation.AuthorizeAsync(salarie, politique)).Succeeded);
+        var site = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, Roles.Site)], "test"));
+        Assert.False((await autorisation.AuthorizeAsync(site, Roles.PolitiqueSalarie)).Succeeded);
     }
 }

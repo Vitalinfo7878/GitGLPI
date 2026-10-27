@@ -94,12 +94,7 @@ else
 }
 builder.Services.AddMemoryCache();
 builder.Services.AddTransient<IClaimsTransformation, AjoutRolesConfigures>();
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(Roles.PolitiqueGestion, p => p.RequireRole(Roles.Gestionnaire))
-    .AddPolicy(Roles.PolitiqueValidation, p => p.RequireRole(Roles.Gestionnaire, Roles.Valideur))
-    .AddPolicy(Roles.PolitiqueTickets, p => p.RequireRole(Roles.Gestionnaire, Roles.AdminTickets))
-    .AddPolicy(Roles.PolitiqueSalarie, p => p.RequireAssertion(c => !c.User.IsInRole(Roles.Site) || c.User.IsInRole(Roles.Gestionnaire)))
-    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+Roles.DefinirPolitiques(builder.Services.AddAuthorizationBuilder());
 builder.Services.AddCascadingAuthenticationState();
 
 // --- Messagerie ---
