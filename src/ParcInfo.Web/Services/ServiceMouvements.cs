@@ -273,6 +273,7 @@ public sealed class ServiceMouvements(
             db.Fiches.Add(fiche);
         }
 
+        await ServiceTickets.NoterMouvementsAsync(db, mouvements, auteur, maintenant, ct);
         db.Journal.Add(new Journal
         {
             Date = maintenant, Utilisateur = auteur.Signature, Action = d.Correction ? "Correction du détenteur" : d.Type.Libelle(),

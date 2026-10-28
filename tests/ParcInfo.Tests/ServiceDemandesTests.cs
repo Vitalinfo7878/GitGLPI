@@ -35,6 +35,7 @@ public sealed class ServiceDemandesTests : IDisposable
         DemandeurNom = "Camille TEST",
         Objets = ["PC portable", "Ecran"],
         Concerne = "Un remplacement",
+        MaterielRemplace = "PC0450 – PC portable Dell",
         Raison = "Écran du PC cassé",
         AdresseLivraison = "Site 440 – 12 rue de la Paix, 75002 Paris",
         DemandeurEmail = "Camille.Test@vitalrest.com",
@@ -294,5 +295,81 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Equal("thomas.verchere@groupe-vitalrest.com", Assert.Single(mails, c => c.Sujet.Contains("Service Informatique")).Destinataire);
         Assert.Contains("Validez-vous ?", mails.First(c => c.Sujet.Contains("Thomas")).CorpsHtml);
         Assert.DoesNotContain(mails, c => c.Destinataire == "camille.test@vitalrest.com");
+    }
+
+    [Fact]
+    public async Task Remplacement_cree_un_ticket_interne_de_rapatriement_suivi_jusqu_au_bout()
+    {
+        int pc;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var p = new Personne { NomComplet = "Camille TEST", Email = "camille.test@vitalrest.com" };
+            var m = new Materiel { NumInterne = "PC0450", Type = TypeMateriel.PcPortable, Modele = "Dell", Statut = StatutMateriel.Attribue, Personne = p };
+            db.Materiels.Add(m);
+            await db.SaveChangesAsync();
+            pc = m.Id;
+        }
+        var f = Complet();
+        f.MaterielRemplace = "pc0450 – PC portable Dell";
+        var d = (await _service.CreerAsync(f, Salarie)).Demande;
+        Assert.Equal(pc, d.MaterielRemplaceId);
+
+        Ticket t;
+        await using (var db = _fabrique.CreateDbContext())
+            t = await db.Tickets.SingleAsync();
+        Assert.True(t.Interne);
+        Assert.Equal(d.Id, t.DemandeId);
+        Assert.Equal(pc, t.MaterielId);
+        Assert.Equal(CategorieTicket.Poste, t.Categorie);
+        Assert.Contains("PC0450", t.Titre);
+        Assert.False(ServiceTickets.PeutVoir(Salarie, t));            // interne : pas visible du demandeur
+        Assert.True(ServiceTickets.PeutVoir(Valideur with { EstAdminTickets = true }, t));
+
+        // Validation, puis retour de l'ancien PC et mise au rebut : tout est noté sur le ticket
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        var mouvements = new ServiceMouvements(_fabrique, new GenerateurFiche(), NullLogger<ServiceMouvements>.Instance);
+        await mouvements.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        await mouvements.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.MiseAuRebut, MaterielIds = [pc], Commentaire = "Carte mère HS" }, Informatique);
+
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            t = await db.Tickets.Include(x => x.Messages).SingleAsync();
+            var traces = t.Messages.Where(m => m.Systeme).Select(m => m.Texte).ToList();
+            Assert.Contains(traces, x => x.Contains("validée"));
+            Assert.Contains(traces, x => x.Contains("Entrée (dans le SI)") && x.Contains("En stock"));
+            Assert.Contains(traces, x => x.Contains("Mise au rebut") && x.Contains("Rebuté"));
+            Assert.Equal(StatutTicket.EnCours, t.Statut);
+        }
+
+        // Hors statistiques d'assistance
+        var tickets = new ServiceTickets(_fabrique);
+        Assert.Equal(0, (await tickets.AnalyserAsync(null)).Crees);
+    }
+
+    [Fact]
+    public async Task Remplacement_refuse_clot_le_ticket_de_rapatriement()
+    {
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande; // PC0450 absent de l'inventaire : ticket quand même
+        await _service.DeciderAsync(d.IdPublic, false, null, Valideur);
+        await using var db = _fabrique.CreateDbContext();
+        var t = await db.Tickets.SingleAsync();
+        Assert.Null(t.MaterielId);
+        Assert.Contains("non trouvé dans l'inventaire", t.Description);
+        Assert.Equal(StatutTicket.Clos, t.Statut);
+        Assert.Contains("refusée", t.Solution);
+    }
+
+    [Fact]
+    public async Task Pas_de_ticket_hors_remplacement_et_materiel_obligatoire_pour_un_remplacement()
+    {
+        var f = Complet();
+        f.MaterielRemplace = " ";
+        Assert.Contains(nameof(FormulaireDemande.MaterielRemplace), f.Valider().Keys);
+        f.Concerne = "Une ouverture de poste";
+        Assert.DoesNotContain(nameof(FormulaireDemande.MaterielRemplace), f.Valider().Keys);
+        var d = (await _service.CreerAsync(f, Salarie)).Demande;
+        Assert.Null(d.MaterielRemplace);
+        await using var db = _fabrique.CreateDbContext();
+        Assert.False(await db.Tickets.AnyAsync());
     }
 }

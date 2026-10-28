@@ -122,6 +122,15 @@ public class Ticket
 
     public List<TicketMessage> Messages { get; set; } = [];
 
+    /// <summary>
+    /// Ticket interne au service informatique, créé automatiquement (ex. rapatriement de l'ancien matériel d'un remplacement) :
+    /// non visible du demandeur, hors des statistiques d'assistance.
+    /// </summary>
+    public bool Interne { get; set; }
+    /// <summary>Demande informatique à l'origine du ticket.</summary>
+    public int? DemandeId { get; set; }
+    public Demande? Demande { get; set; }
+
     public bool EstOuvert => Statut is not (StatutTicket.Resolu or StatutTicket.Clos);
 
     /// <summary>Priorité proposée à la création, d'après l'impact et le nombre de personnes concernées.</summary>

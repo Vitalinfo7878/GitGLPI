@@ -103,7 +103,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
     /// <summary>Peut voir le ticket : son auteur / demandeur et les administrateurs des tickets.</summary>
     public static bool PeutVoir(Utilisateur u, Ticket t) => u.EstAdminTickets || EstDemandeur(u, t);
 
-    public static bool EstDemandeur(Utilisateur u, Ticket t) => u.AEmail(t.SaisiePar) || u.AEmail(t.DemandeurEmail);
+    public static bool EstDemandeur(Utilisateur u, Ticket t) => !t.Interne && (u.AEmail(t.SaisiePar) || u.AEmail(t.DemandeurEmail));
 
     public async Task<Ticket> CreerAsync(FormulaireTicket f, Utilisateur auteur, CancellationToken ct = default)
     {
@@ -272,16 +272,130 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
 
     private static string? Tronquer(string? s, int max) => Vide(s) is { } v && v.Length > max ? v[..max] : Vide(s);
 
+    // --- Rapatriement de l'ancien matériel (demande de remplacement) ---
+
+    public const string AuteurApplication = "Application";
+
+    /// <summary>Matériel de l'inventaire dont le n° interne figure dans le texte saisi (« PC0454 », « PC0454 – PC portable Dell »…).</summary>
+    public static async Task<Materiel?> MaterielCiteAsync(ParcDbContext db, string texte, CancellationToken ct = default)
+    {
+        var mots = Regex.Split(texte.ToLowerInvariant(), @"[\s,;:/()–—]+").Where(m => m.Length >= 2).Distinct().ToList();
+        if (mots.Count == 0) return null;
+        var trouves = await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
+            .Where(m => mots.Contains(m.NumInterne.ToLower())).ToListAsync(ct);
+        return trouves.OrderBy(m => mots.IndexOf(m.NumInterne.ToLowerInvariant())).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Ticket interne « Rapatriement de l'ancien matériel », créé à la réception d'une demande de remplacement :
+    /// les mouvements de l'ancien matériel et les étapes de la demande y sont notés jusqu'à sa clôture.
+    /// </summary>
+    public static async Task<Ticket> CreerTicketRapatriementAsync(ParcDbContext db, Demande d, Materiel? ancien, CancellationToken ct = default)
+    {
+        var maintenant = DateTime.UtcNow;
+        var identifie = ancien is null
+            ? $"{d.MaterielRemplace} (non trouvé dans l'inventaire : renseignez son n° interne dans le traitement du ticket)"
+            : $"{ancien.NumInterne} – {ancien.Type.Libelle()} {ancien.Modele}, n° de série {ancien.NumSerie ?? "?"}, statut « {ancien.Statut.Libelle()} »"
+              + (string.IsNullOrEmpty(ancien.DetenteurLibelle) ? "" : $", détenu par {ancien.DetenteurLibelle}");
+        var description = $"""
+            Ticket créé automatiquement pour la demande n° {d.Numero} ({d.Objets}), qui concerne un remplacement.
+            Matériel à remplacer : {identifie}
+            Demandeur : {d.DemandeurNom} – {d.DemandeurEmail} – {d.DemandeurTelephone}
+            Adresse : {d.AdresseLivraison}
+            Raison de la demande : {d.Raison}
+
+            À suivre jusqu'au bout :
+            1. Récupérer l'ancien matériel.
+            2. Enregistrer son retour : mouvement « Entrée (dans le SI) ».
+            3. Décider de son devenir (remis en stock, réattribué, mis au rebut…) et l'indiquer dans la solution du ticket.
+            """;
+        var t = new Ticket
+        {
+            CreeLe = maintenant, ModifieLe = maintenant, SaisiePar = AuteurApplication, Interne = true, DemandeId = d.Id,
+            DemandeurNom = d.DemandeurNom, DemandeurEmail = d.DemandeurEmail, DemandeurTelephone = d.DemandeurTelephone,
+            Lieu = Tronquer(d.AdresseLivraison, 400)!,
+            Categorie = ancien?.Type switch
+            {
+                TypeMateriel.PcFixe or TypeMateriel.PcPortable => CategorieTicket.Poste,
+                TypeMateriel.Ecran => CategorieTicket.Ecran,
+                TypeMateriel.Imprimante => CategorieTicket.Imprimante,
+                _ => CategorieTicket.Autre,
+            },
+            Impact = ImpactTicket.Mineur, Portee = PorteeTicket.Personne, Priorite = PrioriteTicket.Normale, Statut = StatutTicket.Nouveau,
+            Titre = Tronquer($"Rapatriement de l'ancien matériel{(ancien is null ? "" : $" {ancien.NumInterne}")} – demande n° {d.Numero}", 150)!,
+            Description = Tronquer(description, FormulaireTicket.LongueurDescription)!,
+            MaterielReference = ancien?.NumInterne, MaterielId = ancien?.Id,
+        };
+        t.Messages.Add(new TicketMessage { Date = maintenant, Auteur = AuteurApplication, Texte = $"Ticket créé à la réception de la demande n° {d.Numero}", Systeme = true });
+        for (var essai = 0; ; essai++)
+        {
+            t.Numero = (await db.Tickets.MaxAsync(x => (int?)x.Numero, ct) ?? 0) + 1;
+            db.Tickets.Add(t);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                break;
+            }
+            catch (DbUpdateException) when (essai < 3)
+            {
+                db.Entry(t).State = EntityState.Detached;
+            }
+        }
+        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = AuteurApplication, Action = "Nouveau ticket", Details = $"n° {t.Numero} – {t.Titre}", MaterielId = t.MaterielId });
+        await db.SaveChangesAsync(ct);
+        return t;
+    }
+
+    /// <summary>Trace sur les tickets ouverts d'une demande (validation, envoi…) ; un refus clôt le rapatriement.</summary>
+    public static async Task NoterSurTicketsDeLaDemandeAsync(ParcDbContext db, int demandeId, Utilisateur u, DateTime maintenant, string texte, bool fermer,
+        CancellationToken ct = default)
+    {
+        foreach (var t in await db.Tickets.Include(x => x.Messages).Where(x => x.DemandeId == demandeId && x.Statut != StatutTicket.Clos).ToListAsync(ct))
+        {
+            t.Messages.Add(Trace(u, texte, maintenant));
+            if (fermer)
+            {
+                t.Solution ??= texte;
+                t.ModeResolution ??= ModeResolution.Autre;
+                ChangerStatut(t, StatutTicket.Clos, u, maintenant, "Clôture automatique");
+            }
+            t.ModifieLe = maintenant;
+        }
+    }
+
+    /// <summary>
+    /// Mouvements notés sur les tickets ouverts du matériel concerné (retour, rebut, réattribution…) :
+    /// on suit ainsi le rapatriement jusqu'au devenir du matériel.
+    /// </summary>
+    public static async Task NoterMouvementsAsync(ParcDbContext db, IEnumerable<Mouvement> mouvements, Utilisateur u, DateTime maintenant, CancellationToken ct = default)
+    {
+        var parMateriel = mouvements.Where(m => m.Materiel is not null).ToDictionary(m => m.Materiel.Id);
+        if (parMateriel.Count == 0) return;
+        var ids = parMateriel.Keys.ToList();
+        foreach (var t in await db.Tickets.Include(x => x.Messages)
+                     .Where(x => x.MaterielId != null && ids.Contains(x.MaterielId.Value) && x.Statut != StatutTicket.Resolu && x.Statut != StatutTicket.Clos).ToListAsync(ct))
+        {
+            var mv = parMateriel[t.MaterielId!.Value];
+            var trajet = string.Join(" → ", new[] { mv.Expediteur, mv.DestinationSite?.Libelle ?? mv.DestinationPersonne?.NomComplet ?? mv.DestinationLibre }
+                .Where(x => !string.IsNullOrWhiteSpace(x)));
+            t.Messages.Add(Trace(u, $"Mouvement n° {mv.Numero} sur {mv.Materiel.NumInterne} : {mv.Type.Libelle()}{(trajet.Length > 0 ? $" ({trajet})" : "")}"
+                + $" – statut du matériel : {mv.Materiel.Statut.Libelle()}", maintenant));
+            if (t.Statut == StatutTicket.Nouveau) ChangerStatut(t, StatutTicket.EnCours, u, maintenant);
+            t.ModifieLe = maintenant;
+        }
+    }
+
     // --- Analyse ---
 
     public async Task<AnalyseTickets> AnalyserAsync(DateTime? depuis, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var q = db.Tickets.AsNoTracking();
+        // Les tickets internes (rapatriement…) ne sont pas des demandes d'assistance : hors statistiques
+        var q = db.Tickets.AsNoTracking().Where(t => !t.Interne);
         if (depuis is { } d) q = q.Where(t => t.CreeLe >= d);
         var tickets = await q.Select(t => new LigneAnalyse(t.CreeLe, t.PrisEnChargeLe, t.ResoluLe, t.Statut, t.Categorie, t.Cause, t.ModeResolution,
             t.Lieu, t.MaterielId == null ? null : t.Materiel!.NumInterne, t.TempsPasseMinutes, t.SatisfactionNote, t.NbReouvertures)).ToListAsync(ct);
-        var ouverts = await db.Tickets.CountAsync(t => t.Statut != StatutTicket.Resolu && t.Statut != StatutTicket.Clos, ct);
+        var ouverts = await db.Tickets.CountAsync(t => !t.Interne && t.Statut != StatutTicket.Resolu && t.Statut != StatutTicket.Clos, ct);
         return AnalyseTickets.Calculer(tickets, ouverts, DateTime.UtcNow);
     }
 }

@@ -41,6 +41,10 @@ public sealed class FormulaireDemande
     public string? DemandeurEmail { get; set; }
     public string? DemandeurTelephone { get; set; }
     public DateTime? Echeance { get; set; }
+    /// <summary>Remplacement : matériel à remplacer (n° interne de l'étiquette ou description).</summary>
+    public string? MaterielRemplace { get; set; }
+
+    public bool EstRemplacement => Concerne == Demande.Remplacement;
 
     /// <summary>Erreurs par champ (nom de propriété → message). Vide si le formulaire est complet.</summary>
     public Dictionary<string, string> Valider()
@@ -56,6 +60,8 @@ public sealed class FormulaireDemande
         else if (Objets.Contains(Autre) && string.IsNullOrWhiteSpace(ObjetAutre)) e[nameof(ObjetAutre)] = "Précisez « Autre ».";
         if (string.IsNullOrWhiteSpace(Concerne)) e[nameof(Concerne)] = MessageObligatoire;
         else if (Concerne == Autre && string.IsNullOrWhiteSpace(ConcerneAutre)) e[nameof(ConcerneAutre)] = "Précisez « Autre ».";
+        if (EstRemplacement && string.IsNullOrWhiteSpace(MaterielRemplace))
+            e[nameof(MaterielRemplace)] = "Indiquez le matériel à remplacer (n° inscrit sur l'étiquette, ou description).";
         if (!string.IsNullOrWhiteSpace(AdresseMailACreer) && !EmailValide(AdresseMailACreer))
             e[nameof(AdresseMailACreer)] = "Adresse mail invalide.";
         Obligatoire(nameof(Raison), Raison);
@@ -72,6 +78,7 @@ public sealed class FormulaireDemande
             (nameof(AdresseMailACreer), AdresseMailACreer, 200), (nameof(Raison), Raison, LongueurRaison),
             (nameof(AdresseLivraison), AdresseLivraison, 400), (nameof(DestinataireLivraison), DestinataireLivraison, 200),
             (nameof(DemandeurEmail), DemandeurEmail, 200), (nameof(DemandeurTelephone), DemandeurTelephone, 50),
+            (nameof(MaterielRemplace), MaterielRemplace, 200),
         })
             if (valeur?.Trim().Length > max && !e.ContainsKey(champ)) e[champ] = $"Réponse trop longue ({max} caractères maximum).";
         return e;
@@ -124,7 +131,10 @@ public sealed class ServiceDemandes(
             DemandeurTelephone = f.DemandeurTelephone!.Trim(),
             Echeance = f.Echeance is { } e ? DateOnly.FromDateTime(e) : null,
             StatutValidation = StatutValidation.EnAttente,
+            MaterielRemplace = f.EstRemplacement ? Vide(f.MaterielRemplace) : null,
         };
+        var ancien = d.MaterielRemplace is { } texte ? await ServiceTickets.MaterielCiteAsync(db, texte, ct) : null;
+        d.MaterielRemplaceId = ancien?.Id;
 
         // Numérotation à la suite (avec une nouvelle tentative si deux demandes arrivent en même temps)
         for (var essai = 0; ; essai++)
@@ -145,6 +155,8 @@ public sealed class ServiceDemandes(
 
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouvelle demande", Details = $"n° {d.Numero} – {d.Objets}" });
         await db.SaveChangesAsync(ct);
+        // Remplacement : ticket interne pour suivre le rapatriement de l'ancien matériel jusqu'à son devenir
+        if (d.MaterielRemplace is not null) await ServiceTickets.CreerTicketRapatriementAsync(db, d, ancien, ct);
 
         var avertissements = new List<string>();
         try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, await ValideursAsync(db, ct), ct); }
@@ -234,6 +246,9 @@ public sealed class ServiceDemandes(
         if (modifiees == 0)
             throw new ErreurMetier("Cette demande vient d'être traitée par quelqu'un d'autre : rechargez la page.");
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = valider ? "Demande validée" : "Demande refusée", Details = $"n° {d.Numero}" });
+        await ServiceTickets.NoterSurTicketsDeLaDemandeAsync(db, d.Id, u, maintenant,
+            valider ? $"Demande n° {d.Numero} validée par {u.Nom} : le remplacement va avoir lieu." : $"Demande n° {d.Numero} refusée par {u.Nom} : pas de remplacement, aucun matériel à rapatrier.",
+            fermer: !valider, ct);
         await db.SaveChangesAsync(ct);
 
         string? avertissement = null;
@@ -260,6 +275,8 @@ public sealed class ServiceDemandes(
         d.EnvoiNotifieLe = maintenant;
         d.ModifieLe = maintenant;
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Demande envoyée", Details = $"n° {d.Numero} : demandeur prévenu" });
+        await ServiceTickets.NoterSurTicketsDeLaDemandeAsync(db, d.Id, u, maintenant,
+            $"Nouveau matériel envoyé au demandeur (demande n° {d.Numero}) : l'ancien est à récupérer.", fermer: false, ct);
         await db.SaveChangesAsync(ct);
 
         string? avertissement = null;

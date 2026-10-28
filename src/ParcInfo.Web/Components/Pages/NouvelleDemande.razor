@@ -3,6 +3,7 @@
 @inject ServiceDemandes Service
 @inject UtilisateurCourant Courant
 @inject IJSRuntime JS
+@inject IDbContextFactory<ParcDbContext> DbFactory
 
 <PageTitle>Demande informatique</PageTitle>
 
@@ -65,7 +66,7 @@
                 </Question>
 
                 <Question Numero="3" Libelle="Votre demande concerne :" Obligatoire="true"
-                          Erreur="@(Err(nameof(FormulaireDemande.Concerne)) ?? Err(nameof(FormulaireDemande.ConcerneAutre)))">
+                          Erreur="@(Err(nameof(FormulaireDemande.Concerne)) ?? Err(nameof(FormulaireDemande.ConcerneAutre)) ?? Err(nameof(FormulaireDemande.MaterielRemplace)))">
                     <MudRadioGroup T="string" @bind-Value="_f.Concerne">
                         <MudStack Spacing="0">
                             @foreach (var choix in Demande.ChoixConcerne)
@@ -79,6 +80,14 @@
                             </div>
                         </MudStack>
                     </MudRadioGroup>
+                    @if (_f.EstRemplacement)
+                    {
+                        <div class="mt-2" style="max-width:520px">
+                            <MudAutocomplete T="string" @bind-Value="_f.MaterielRemplace" SearchFunc="ChercherMateriel" CoerceValue="true" MaxLength="200"
+                                             Label="Matériel à remplacer *" Variant="Variant.Outlined" Margin="Margin.Dense" ShowProgressIndicator="false"
+                                             HelperText="N° inscrit sur l'étiquette du matériel (ex. PC0454), ou sa description. L'ancien matériel sera à renvoyer au service informatique." />
+                        </div>
+                    }
                 </Question>
 
                 <Question Numero="4" Libelle="Adresse mail à créer si besoin (facultatif)" Erreur="@Err(nameof(FormulaireDemande.AdresseMailACreer))">
@@ -134,11 +143,22 @@
     private Utilisateur? _u;
 
     private List<string> _valideurs = [];
+    private List<string> _sesMateriels = [];
+
+    private Task<IEnumerable<string>> ChercherMateriel(string? texte, CancellationToken ct) => Task.FromResult(
+        _sesMateriels.Where(m => string.IsNullOrWhiteSpace(texte) || m.Contains(texte.Trim(), StringComparison.OrdinalIgnoreCase)));
 
     protected override async Task OnInitializedAsync()
     {
         _u = await Courant.ObtenirAsync();
         _valideurs = await Service.ValideursAsync();
+        // Matériel attribué au demandeur : proposé pour « Matériel à remplacer »
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var adresses = _u.ToutesAdresses;
+        _sesMateriels = (await db.Materiels.AsNoTracking()
+                .Where(m => m.Statut == StatutMateriel.Attribue && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
+                .OrderBy(m => m.NumInterne).Select(m => new { m.NumInterne, m.Type, m.Modele }).ToListAsync())
+            .Select(m => $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele}".Trim()).ToList();
         Prerenseigner();
     }
 

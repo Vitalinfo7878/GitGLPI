@@ -23,6 +23,17 @@ else
         @if (_u.EstAdminTickets) { <ChipTicket Priorite="_t.Priorite" /> }
     </div>
     <MudText Typo="Typo.h6" Class="mb-4" Style="font-weight:400">@_t.Titre</MudText>
+    @if (_t.Interne)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-4">
+            Ticket interne au service informatique, créé automatiquement
+            @if (_t.Demande is { } dem)
+            {
+                <span>pour la <MudLink Href="@($"/demandes/{dem.IdPublic}")">demande n° @dem.Numero</MudLink></span>
+            }
+            : non visible du demandeur. Les mouvements de l'ancien matériel y sont notés automatiquement.
+        </MudAlert>
+    }
 
     <MudGrid Spacing="3">
         <MudItem xs="12" lg="7">
@@ -34,7 +45,7 @@ else
                     <Champ Libelle="Impact" Valeur="@_t.Impact.Libelle()" />
                     <Champ Libelle="Personnes concernées" Valeur="@_t.Portee.Libelle()" />
                     <Champ Libelle="Matériel concerné">
-                        @if (_t.Materiel is { } m && _u.EstGestionnaire)
+                        @if (_t.Materiel is { } m && _u.VoitInventaire)
                         {
                             <MudLink Href="@($"/materiels/{m.Id}")">@m.NumInterne</MudLink> <span>– @m.Type.Libelle() @m.Modele</span>
                         }
@@ -251,7 +262,7 @@ else
     private async Task Charger()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _t = await db.Tickets.AsNoTracking().Include(x => x.Messages).Include(x => x.Materiel).FirstOrDefaultAsync(x => x.Id == Id);
+        _t = await db.Tickets.AsNoTracking().Include(x => x.Messages).Include(x => x.Materiel).Include(x => x.Demande).FirstOrDefaultAsync(x => x.Id == Id);
         if (_t is null) return;
         _m = MiseAJourTicket.Depuis(_t);
         _erreurs = [];

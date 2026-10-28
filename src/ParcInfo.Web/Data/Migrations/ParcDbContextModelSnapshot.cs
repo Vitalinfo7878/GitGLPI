@@ -257,6 +257,13 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Property<Guid>("IdPublic")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("MaterielRemplace")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("MaterielRemplaceId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("ModifieLe")
                         .HasColumnType("timestamp with time zone");
 
@@ -884,6 +891,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<int?>("DemandeId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("DemandeurEmail")
                         .IsRequired()
                         .HasMaxLength(400)
@@ -916,6 +926,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<bool>("Interne")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Lieu")
                         .IsRequired()
@@ -990,6 +1003,8 @@ namespace ParcInfo.Web.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreeLe");
+
+                    b.HasIndex("DemandeId");
 
                     b.HasIndex("DemandeurEmail");
 
@@ -1148,10 +1163,17 @@ namespace ParcInfo.Web.Data.Migrations
 
             modelBuilder.Entity("ParcInfo.Web.Domain.Ticket", b =>
                 {
+                    b.HasOne("ParcInfo.Web.Domain.Demande", "Demande")
+                        .WithMany()
+                        .HasForeignKey("DemandeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ParcInfo.Web.Domain.Materiel", "Materiel")
                         .WithMany()
                         .HasForeignKey("MaterielId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Demande");
 
                     b.Navigation("Materiel");
                 });

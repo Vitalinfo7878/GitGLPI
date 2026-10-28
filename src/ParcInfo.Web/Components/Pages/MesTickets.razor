@@ -51,7 +51,7 @@ else
         var adresses = (await Courant.ObtenirAsync()).ToutesAdresses;
         await using var db = await DbFactory.CreateDbContextAsync();
         _tickets = await db.Tickets.AsNoTracking()
-            .Where(t => adresses.Contains(t.SaisiePar) || adresses.Contains(t.DemandeurEmail))
+            .Where(t => !t.Interne && (adresses.Contains(t.SaisiePar) || adresses.Contains(t.DemandeurEmail)))
             .OrderByDescending(t => t.Numero).ToListAsync();
     }
 }

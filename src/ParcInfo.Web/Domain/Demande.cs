@@ -37,7 +37,10 @@ public class Demande
         ["PC fixe (site)", "PC fixe (Siège / DR)", "PC portable", "Ecran", "Imprimante", "Adresse email", "Compte Vital Cloud"];
 
     /// <summary>Choix de la question « Votre demande concerne : » (une seule réponse + « Autre »).</summary>
-    public static readonly string[] ChoixConcerne = ["Un remplacement", "Une ouverture de site", "Une ouverture de poste"];
+    public static readonly string[] ChoixConcerne = [Remplacement, "Une ouverture de site", "Une ouverture de poste"];
+
+    /// <summary>Remplacement : l'ancien matériel est à rapatrier, suivi par un ticket créé automatiquement.</summary>
+    public const string Remplacement = "Un remplacement";
 
     public int Id { get; set; }
     /// <summary>Identifiant non devinable utilisé dans les liens des courriels.</summary>
@@ -60,6 +63,10 @@ public class Demande
     public string DemandeurEmail { get; set; } = "";
     public string DemandeurTelephone { get; set; } = "";
     public DateOnly? Echeance { get; set; }
+    /// <summary>Remplacement : matériel à remplacer, tel que saisi (n° interne ou description).</summary>
+    public string? MaterielRemplace { get; set; }
+    /// <summary>Matériel de l'inventaire reconnu dans <see cref="MaterielRemplace"/>.</summary>
+    public int? MaterielRemplaceId { get; set; }
 
     // Validation
     public StatutValidation StatutValidation { get; set; }

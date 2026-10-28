@@ -125,6 +125,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.Raison).HasMaxLength(4000);
             e.Property(x => x.CommentaireDecision).HasMaxLength(2000);
             e.Property(x => x.CommentaireInformatique).HasMaxLength(4000);
+            e.Property(x => x.MaterielRemplace).HasMaxLength(200);
             e.Ignore(x => x.ListeObjets);
             e.Ignore(x => x.StatutLibelle);
         });
@@ -142,6 +143,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.Solution).HasMaxLength(4000);
             e.Property(x => x.SatisfactionCommentaire).HasMaxLength(2000);
             e.HasOne(x => x.Materiel).WithMany().HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Demande).WithMany().HasForeignKey(x => x.DemandeId).OnDelete(DeleteBehavior.SetNull);
             e.Ignore(x => x.EstOuvert);
         });
 
