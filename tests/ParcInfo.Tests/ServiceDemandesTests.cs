@@ -35,7 +35,6 @@ public sealed class ServiceDemandesTests : IDisposable
         DemandeurNom = "Camille TEST",
         Objets = ["PC portable", "Ecran"],
         Concerne = "Un remplacement",
-        MaterielRemplace = "PC0450 – PC portable Dell",
         Raison = "Écran du PC cassé",
         AdresseLivraison = "Site 440 – 12 rue de la Paix, 75002 Paris",
         DemandeurEmail = "Camille.Test@vitalrest.com",
@@ -224,6 +223,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var mail = await db.Courriels.SingleAsync(c => c.Sujet.Contains("envoyé"));
         Assert.Equal("camille.test@vitalrest.com", mail.Destinataire);
         Assert.Contains("2 à 3 jours ouvrés", mail.CorpsHtml);
+        Assert.Contains("Merci de nous renvoyer l'ancien matériel", System.Net.WebUtility.HtmlDecode(mail.CorpsHtml)); // remplacement
     }
 
     [Theory]
@@ -305,18 +305,23 @@ public sealed class ServiceDemandesTests : IDisposable
         {
             var p = new Personne { NomComplet = "Camille TEST", Email = "camille.test@vitalrest.com" };
             var m = new Materiel { NumInterne = "PC0450", Type = TypeMateriel.PcPortable, Modele = "Dell", Statut = StatutMateriel.Attribue, Personne = p };
-            db.Materiels.Add(m);
+            db.Materiels.AddRange(m,
+                new Materiel { NumInterne = "E0031", Type = TypeMateriel.Ecran, Statut = StatutMateriel.Attribue, Personne = p },
+                new Materiel { NumInterne = "PC0001", Type = TypeMateriel.PcFixe, Statut = StatutMateriel.Attribue, Personne = p }, // type non demandé
+                new Materiel { NumInterne = "PO0002", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.EnStock });       // pas à elle
             await db.SaveChangesAsync();
             pc = m.Id;
         }
-        var f = Complet();
-        f.MaterielRemplace = "pc0450 – PC portable Dell";
-        var d = (await _service.CreerAsync(f, Salarie)).Demande;
-        Assert.Equal(pc, d.MaterielRemplaceId);
+        // Demande d'un PC portable et d'un écran en remplacement : l'ancien matériel est retrouvé dans l'inventaire
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
+        Assert.Equal("E0031 – Écran ; PC0450 – PC portable Dell", d.MaterielRemplace);
 
         Ticket t;
         await using (var db = _fabrique.CreateDbContext())
-            t = await db.Tickets.SingleAsync();
+        {
+            Assert.Equal(["E0031", "PC0450"], await db.Tickets.OrderBy(x => x.MaterielReference).Select(x => x.MaterielReference!).ToListAsync());
+            t = await db.Tickets.SingleAsync(x => x.MaterielId == pc);
+        }
         Assert.True(t.Interne);
         Assert.Equal(d.Id, t.DemandeId);
         Assert.Equal(pc, t.MaterielId);
@@ -333,7 +338,7 @@ public sealed class ServiceDemandesTests : IDisposable
 
         await using (var db = _fabrique.CreateDbContext())
         {
-            t = await db.Tickets.Include(x => x.Messages).SingleAsync();
+            t = await db.Tickets.Include(x => x.Messages).SingleAsync(x => x.MaterielId == pc);
             var traces = t.Messages.Where(m => m.Systeme).Select(m => m.Texte).ToList();
             Assert.Contains(traces, x => x.Contains("validée"));
             Assert.Contains(traces, x => x.Contains("Entrée (dans le SI)") && x.Contains("En stock"));
@@ -349,26 +354,26 @@ public sealed class ServiceDemandesTests : IDisposable
     [Fact]
     public async Task Remplacement_refuse_clot_le_ticket_de_rapatriement()
     {
-        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande; // PC0450 absent de l'inventaire : ticket quand même
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande; // rien à son nom dans l'inventaire : un ticket « à identifier »
+        Assert.Null(d.MaterielRemplace);
         await _service.DeciderAsync(d.IdPublic, false, null, Valideur);
         await using var db = _fabrique.CreateDbContext();
         var t = await db.Tickets.SingleAsync();
         Assert.Null(t.MaterielId);
-        Assert.Contains("non trouvé dans l'inventaire", t.Description);
+        Assert.Contains("aucun PC portable / Écran attribué à camille.test@vitalrest.com", t.Description);
         Assert.Equal(StatutTicket.Clos, t.Statut);
         Assert.Contains("refusée", t.Solution);
     }
 
     [Fact]
-    public async Task Pas_de_ticket_hors_remplacement_et_materiel_obligatoire_pour_un_remplacement()
+    public async Task Pas_de_ticket_hors_remplacement_de_materiel()
     {
         var f = Complet();
-        f.MaterielRemplace = " ";
-        Assert.Contains(nameof(FormulaireDemande.MaterielRemplace), f.Valider().Keys);
         f.Concerne = "Une ouverture de poste";
-        Assert.DoesNotContain(nameof(FormulaireDemande.MaterielRemplace), f.Valider().Keys);
-        var d = (await _service.CreerAsync(f, Salarie)).Demande;
-        Assert.Null(d.MaterielRemplace);
+        await _service.CreerAsync(f, Salarie);
+        f = Complet();
+        f.Objets = ["Adresse email"]; // remplacement sans matériel
+        await _service.CreerAsync(f, Salarie);
         await using var db = _fabrique.CreateDbContext();
         Assert.False(await db.Tickets.AnyAsync());
     }

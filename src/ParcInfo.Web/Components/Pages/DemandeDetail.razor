@@ -45,9 +45,9 @@ else
                         @foreach (var o in _d.ListeObjets) { <MudChip T="string" Size="Size.Small" Class="ml-0 mr-1">@o</MudChip> }
                     </Champ>
                     <Champ Libelle="La demande concerne" Valeur="@_d.Concerne" />
-                    @if (_d.MaterielRemplace is not null)
+                    @if (_d.MaterielRemplace is not null && _u!.VoitToutesLesDemandes)
                     {
-                        <Champ Libelle="Matériel à remplacer">
+                        <Champ Libelle="Ancien matériel (inventaire)">
                             @if (_d.MaterielRemplaceId is { } mid && _u!.VoitInventaire) { <MudLink Href="@($"/materiels/{mid}")">@_d.MaterielRemplace</MudLink> }
                             else { @_d.MaterielRemplace }
                         </Champ>
@@ -183,18 +183,23 @@ else
             }
 
             @* --- Ticket de rapatriement de l'ancien matériel (remplacement) --- *@
-            @if (_rapatriement is { } rt && _u.EstAdminTickets)
+            @if (_rapatriements.Count > 0 && _u.EstAdminTickets)
             {
                 <MudPaper Elevation="0" Class="carte pa-4 mt-3">
-                    <div class="d-flex align-center gap-2">
+                    <div class="d-flex align-center gap-2 mb-1">
                         <MudIcon Icon="@Icons.Material.Outlined.AssignmentReturn" />
                         <MudText Typo="Typo.h6">Rapatriement de l'ancien matériel</MudText>
-                        <MudSpacer />
-                        <ChipTicket Statut="rt.Statut" />
                     </div>
-                    <MudText Typo="Typo.body2" Class="mt-1">
-                        <MudLink Href="@($"/tickets/{rt.Id}")">Ticket n° @rt.Numero</MudLink> : retour de l'ancien matériel et son devenir (mouvements notés automatiquement).
-                    </MudText>
+                    @foreach (var rt in _rapatriements)
+                    {
+                        <div class="d-flex align-center gap-2 py-1">
+                            <MudLink Href="@($"/tickets/{rt.Id}")">Ticket n° @rt.Numero</MudLink>
+                            <span>@(rt.MaterielReference ?? "matériel à identifier")</span>
+                            <MudSpacer />
+                            <ChipTicket Statut="rt.Statut" />
+                        </div>
+                    }
+                    <MudText Typo="Typo.caption">Retour de l'ancien matériel et son devenir : les mouvements y sont notés automatiquement.</MudText>
                 </MudPaper>
             }
 
@@ -247,7 +252,7 @@ else
     private string? _message;
     private Severity _severite;
     private List<MessageDemande> _messages = [];
-    private Ticket? _rapatriement;
+    private List<Ticket> _rapatriements = [];
     private string? _nouveauMessage;
 
     protected override async Task OnParametersSetAsync()
@@ -264,7 +269,7 @@ else
         _d = await db.Demandes.AsNoTracking().FirstOrDefaultAsync(x => x.IdPublic == IdPublic);
         if (_d is null) return;
         _messages = await Service.ListerMessagesAsync(_d.Id, _u!);
-        _rapatriement = _u!.EstAdminTickets ? await db.Tickets.AsNoTracking().Where(t => t.DemandeId == _d.Id).OrderByDescending(t => t.Id).FirstOrDefaultAsync() : null;
+        _rapatriements = _u!.EstAdminTickets ? await db.Tickets.AsNoTracking().Where(t => t.DemandeId == _d.Id).OrderBy(t => t.Numero).ToListAsync() : [];
         _priorite = _d.Priorite;
         _statut = _d.StatutRealisation;
         _commentaireInfo = _d.CommentaireInformatique;

@@ -187,6 +187,7 @@ public sealed class ServiceNotifications(
             <p style="margin:0 0 12px">Le matériel de votre demande informatique <b>n° {d.Numero}</b> ({E(d.Objets)}) a été <b>envoyé</b>.</p>
             <p style="margin:0 0 12px">Vous devriez le recevoir d'ici <b>2 à 3 jours ouvrés</b>, soit entre le {du.ToString("dddd d MMMM", fr)} et le {au.ToString("dddd d MMMM", fr)},
             à l'adresse indiquée : {E(d.AdresseLivraison)}{(string.IsNullOrWhiteSpace(d.DestinataireLivraison) ? "" : $" (à l'attention de {E(d.DestinataireLivraison)})")}.</p>
+            {(d.EstRemplacement ? $"""<p style="margin:0 0 12px"><b>Merci de nous renvoyer l'ancien matériel</b>{(d.MaterielRemplace is null ? "" : $" ({E(d.MaterielRemplace)})")} dès que vous aurez reçu le nouveau. Pour organiser son retour, contactez le service informatique : informatique@vitalrest.com.</p>""" : "")}
             <p style="margin:0">Le service informatique</p>
             """);
         await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} : votre matériel a été envoyé", corps, ct);

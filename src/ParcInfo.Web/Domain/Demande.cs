@@ -63,10 +63,15 @@ public class Demande
     public string DemandeurEmail { get; set; } = "";
     public string DemandeurTelephone { get; set; } = "";
     public DateOnly? Echeance { get; set; }
-    /// <summary>Remplacement : matériel à remplacer, tel que saisi (n° interne ou description).</summary>
+    /// <summary>
+    /// Remplacement : ancien matériel trouvé dans l'inventaire (matériel du demandeur du type demandé),
+    /// ex. « PC0450 – PC portable Dell Latitude ». Vide si rien n'a été trouvé.
+    /// </summary>
     public string? MaterielRemplace { get; set; }
-    /// <summary>Matériel de l'inventaire reconnu dans <see cref="MaterielRemplace"/>.</summary>
+    /// <summary>Premier ancien matériel trouvé (chacun a son ticket de rapatriement).</summary>
     public int? MaterielRemplaceId { get; set; }
+
+    public bool EstRemplacement => Concerne == Remplacement;
 
     // Validation
     public StatutValidation StatutValidation { get; set; }

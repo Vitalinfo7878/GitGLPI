@@ -41,11 +41,6 @@ public sealed class FormulaireDemande
     public string? DemandeurEmail { get; set; }
     public string? DemandeurTelephone { get; set; }
     public DateTime? Echeance { get; set; }
-    /// <summary>Remplacement : matériel à remplacer (n° interne de l'étiquette ou description).</summary>
-    public string? MaterielRemplace { get; set; }
-
-    public bool EstRemplacement => Concerne == Demande.Remplacement;
-
     /// <summary>Erreurs par champ (nom de propriété → message). Vide si le formulaire est complet.</summary>
     public Dictionary<string, string> Valider()
     {
@@ -60,8 +55,6 @@ public sealed class FormulaireDemande
         else if (Objets.Contains(Autre) && string.IsNullOrWhiteSpace(ObjetAutre)) e[nameof(ObjetAutre)] = "Précisez « Autre ».";
         if (string.IsNullOrWhiteSpace(Concerne)) e[nameof(Concerne)] = MessageObligatoire;
         else if (Concerne == Autre && string.IsNullOrWhiteSpace(ConcerneAutre)) e[nameof(ConcerneAutre)] = "Précisez « Autre ».";
-        if (EstRemplacement && string.IsNullOrWhiteSpace(MaterielRemplace))
-            e[nameof(MaterielRemplace)] = "Indiquez le matériel à remplacer (n° inscrit sur l'étiquette, ou description).";
         if (!string.IsNullOrWhiteSpace(AdresseMailACreer) && !EmailValide(AdresseMailACreer))
             e[nameof(AdresseMailACreer)] = "Adresse mail invalide.";
         Obligatoire(nameof(Raison), Raison);
@@ -78,7 +71,6 @@ public sealed class FormulaireDemande
             (nameof(AdresseMailACreer), AdresseMailACreer, 200), (nameof(Raison), Raison, LongueurRaison),
             (nameof(AdresseLivraison), AdresseLivraison, 400), (nameof(DestinataireLivraison), DestinataireLivraison, 200),
             (nameof(DemandeurEmail), DemandeurEmail, 200), (nameof(DemandeurTelephone), DemandeurTelephone, 50),
-            (nameof(MaterielRemplace), MaterielRemplace, 200),
         })
             if (valeur?.Trim().Length > max && !e.ContainsKey(champ)) e[champ] = $"Réponse trop longue ({max} caractères maximum).";
         return e;
@@ -131,10 +123,12 @@ public sealed class ServiceDemandes(
             DemandeurTelephone = f.DemandeurTelephone!.Trim(),
             Echeance = f.Echeance is { } e ? DateOnly.FromDateTime(e) : null,
             StatutValidation = StatutValidation.EnAttente,
-            MaterielRemplace = f.EstRemplacement ? Vide(f.MaterielRemplace) : null,
         };
-        var ancien = d.MaterielRemplace is { } texte ? await ServiceTickets.MaterielCiteAsync(db, texte, ct) : null;
-        d.MaterielRemplaceId = ancien?.Id;
+        // Remplacement : ancien matériel retrouvé dans l'inventaire (matériel du demandeur du type demandé)
+        var anciens = d.EstRemplacement ? await ServiceTickets.AnciensMaterielsAsync(db, d, auteur.ToutesAdresses, ct) : [];
+        d.MaterielRemplace = anciens.Count == 0 ? null
+            : Tronquer(string.Join(" ; ", anciens.Select(m => $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele}".Trim())), 200);
+        d.MaterielRemplaceId = anciens.FirstOrDefault()?.Id;
 
         // Numérotation à la suite (avec une nouvelle tentative si deux demandes arrivent en même temps)
         for (var essai = 0; ; essai++)
@@ -155,8 +149,11 @@ public sealed class ServiceDemandes(
 
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouvelle demande", Details = $"n° {d.Numero} – {d.Objets}" });
         await db.SaveChangesAsync(ct);
-        // Remplacement : ticket interne pour suivre le rapatriement de l'ancien matériel jusqu'à son devenir
-        if (d.MaterielRemplace is not null) await ServiceTickets.CreerTicketRapatriementAsync(db, d, ancien, ct);
+        // Remplacement : un ticket interne par ancien matériel, pour suivre son rapatriement jusqu'à son devenir
+        // (un seul ticket « à identifier » si rien n'a été trouvé dans l'inventaire)
+        if (d.EstRemplacement && ServiceTickets.TypesDemandes(d).Count > 0)
+            foreach (var ancien in anciens.Count > 0 ? anciens.Cast<Materiel?>() : [null])
+                await ServiceTickets.CreerTicketRapatriementAsync(db, d, ancien, ct);
 
         var avertissements = new List<string>();
         try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, await ValideursAsync(db, ct), ct); }
@@ -351,6 +348,8 @@ public sealed class ServiceDemandes(
     }
 
     private static string? Vide(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string Tronquer(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
 }
 
 /// <summary>Relance des demandes en attente de validation, chaque jour ouvré vers 8 h 30 (heure de Paris).</summary>

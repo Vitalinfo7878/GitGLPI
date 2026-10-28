@@ -276,14 +276,27 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
 
     public const string AuteurApplication = "Application";
 
-    /// <summary>Matériel de l'inventaire dont le n° interne figure dans le texte saisi (« PC0454 », « PC0454 – PC portable Dell »…).</summary>
-    public static async Task<Materiel?> MaterielCiteAsync(ParcDbContext db, string texte, CancellationToken ct = default)
+    /// <summary>Types de matériel demandés (« PC fixe (site) » → PC fixe…) ; les comptes et adresses mail n'ont pas d'ancien matériel.</summary>
+    public static IReadOnlyList<TypeMateriel> TypesDemandes(Demande d) => d.ListeObjets
+        .Select(o => o switch
+        {
+            "PC fixe (site)" or "PC fixe (Siège / DR)" => (TypeMateriel?)TypeMateriel.PcFixe,
+            "PC portable" => TypeMateriel.PcPortable,
+            "Ecran" => TypeMateriel.Ecran,
+            "Imprimante" => TypeMateriel.Imprimante,
+            _ => null,
+        })
+        .OfType<TypeMateriel>().Distinct().ToList();
+
+    /// <summary>Ancien matériel d'un remplacement : matériel attribué au demandeur (personne ou site), des types demandés.</summary>
+    public static async Task<List<Materiel>> AnciensMaterielsAsync(ParcDbContext db, Demande d, IReadOnlyCollection<string> adresses, CancellationToken ct = default)
     {
-        var mots = Regex.Split(texte.ToLowerInvariant(), @"[\s,;:/()–—]+").Where(m => m.Length >= 2).Distinct().ToList();
-        if (mots.Count == 0) return null;
-        var trouves = await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
-            .Where(m => mots.Contains(m.NumInterne.ToLower())).ToListAsync(ct);
-        return trouves.OrderBy(m => mots.IndexOf(m.NumInterne.ToLowerInvariant())).FirstOrDefault();
+        var types = TypesDemandes(d).ToList();
+        if (types.Count == 0) return [];
+        return await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
+            .Where(m => m.Statut == StatutMateriel.Attribue && types.Contains(m.Type)
+                && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
+            .OrderBy(m => m.Type).ThenBy(m => m.NumInterne).ToListAsync(ct);
     }
 
     /// <summary>
@@ -294,7 +307,8 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
     {
         var maintenant = DateTime.UtcNow;
         var identifie = ancien is null
-            ? $"{d.MaterielRemplace} (non trouvé dans l'inventaire : renseignez son n° interne dans le traitement du ticket)"
+            ? $"aucun {string.Join(" / ", TypesDemandes(d).Select(x => x.Libelle()))} attribué à {d.DemandeurEmail} dans l'inventaire : "
+              + "identifiez l'ancien matériel et renseignez son n° interne dans le traitement du ticket"
             : $"{ancien.NumInterne} – {ancien.Type.Libelle()} {ancien.Modele}, n° de série {ancien.NumSerie ?? "?"}, statut « {ancien.Statut.Libelle()} »"
               + (string.IsNullOrEmpty(ancien.DetenteurLibelle) ? "" : $", détenu par {ancien.DetenteurLibelle}");
         var description = $"""
