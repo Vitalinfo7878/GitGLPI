@@ -124,11 +124,12 @@ public sealed class ServiceDemandes(
             Echeance = f.Echeance is { } e ? DateOnly.FromDateTime(e) : null,
             StatutValidation = StatutValidation.EnAttente,
         };
-        // Remplacement : ancien matériel retrouvé dans l'inventaire (matériel du demandeur du type demandé)
+        // Remplacement : ancien matériel retrouvé dans l'inventaire (du demandeur ou du site de livraison, du type demandé)
         var anciens = d.EstRemplacement ? await ServiceTickets.AnciensMaterielsAsync(db, d, auteur.ToutesAdresses, ct) : [];
-        d.MaterielRemplace = anciens.Count == 0 ? null
-            : Tronquer(string.Join(" ; ", anciens.Select(m => $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele}".Trim())), 200);
-        d.MaterielRemplaceId = anciens.FirstOrDefault()?.Id;
+        var retenus = anciens.Select(a => a.Materiel).OfType<Materiel>().ToList();
+        d.MaterielRemplace = retenus.Count == 0 ? null
+            : Tronquer(string.Join(" ; ", retenus.Select(m => $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele}".Trim())), 200);
+        d.MaterielRemplaceId = retenus.FirstOrDefault()?.Id;
 
         // Numérotation à la suite (avec une nouvelle tentative si deux demandes arrivent en même temps)
         for (var essai = 0; ; essai++)
@@ -149,11 +150,9 @@ public sealed class ServiceDemandes(
 
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouvelle demande", Details = $"n° {d.Numero} – {d.Objets}" });
         await db.SaveChangesAsync(ct);
-        // Remplacement : un ticket interne par ancien matériel, pour suivre son rapatriement jusqu'à son devenir
-        // (un seul ticket « à identifier » si rien n'a été trouvé dans l'inventaire)
-        if (d.EstRemplacement && ServiceTickets.TypesDemandes(d).Count > 0)
-            foreach (var ancien in anciens.Count > 0 ? anciens.Cast<Materiel?>() : [null])
-                await ServiceTickets.CreerTicketRapatriementAsync(db, d, ancien, ct);
+        // Remplacement : un ticket interne par ancien matériel (par type demandé), pour suivre son rapatriement jusqu'à son devenir
+        foreach (var ancien in anciens)
+            await ServiceTickets.CreerTicketRapatriementAsync(db, d, ancien, ct);
 
         var avertissements = new List<string>();
         try { await notifications.NouvelleDemandeAsync(d, options.Destinataires, await ValideursAsync(db, ct), ct); }

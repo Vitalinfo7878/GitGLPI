@@ -90,7 +90,8 @@
                 </Question>
 
                 <Question Numero="6" Libelle="Adresse de livraison (adresse complète + numéro du site)" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.AdresseLivraison))">
-                    <MudTextField @bind-Value="_f.AdresseLivraison" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. EHPAD … – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles" />
+                    <MudTextField @bind-Value="_f.AdresseLivraison" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. EHPAD … – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles"
+                                  HelperText="Indiquez le numéro du site sous la forme « Site 087 »." />
                 </Question>
 
                 <Question Numero="7" Libelle="À qui doit être adressée la livraison ?">

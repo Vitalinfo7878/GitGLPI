@@ -314,7 +314,7 @@ public sealed class ServiceDemandesTests : IDisposable
         }
         // Demande d'un PC portable et d'un écran en remplacement : l'ancien matériel est retrouvé dans l'inventaire
         var d = (await _service.CreerAsync(Complet(), Salarie)).Demande;
-        Assert.Equal("E0031 – Écran ; PC0450 – PC portable Dell", d.MaterielRemplace);
+        Assert.Equal("PC0450 – PC portable Dell ; E0031 – Écran", d.MaterielRemplace);
 
         Ticket t;
         await using (var db = _fabrique.CreateDbContext())
@@ -354,15 +354,17 @@ public sealed class ServiceDemandesTests : IDisposable
     [Fact]
     public async Task Remplacement_refuse_clot_le_ticket_de_rapatriement()
     {
-        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande; // rien à son nom dans l'inventaire : un ticket « à identifier »
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande; // rien à son nom : un ticket « à identifier » par type demandé
         Assert.Null(d.MaterielRemplace);
         await _service.DeciderAsync(d.IdPublic, false, null, Valideur);
         await using var db = _fabrique.CreateDbContext();
-        var t = await db.Tickets.SingleAsync();
-        Assert.Null(t.MaterielId);
-        Assert.Contains("aucun PC portable / Écran attribué à camille.test@vitalrest.com", t.Description);
-        Assert.Equal(StatutTicket.Clos, t.Statut);
-        Assert.Contains("refusée", t.Solution);
+        var tickets = await db.Tickets.OrderBy(t => t.Id).ToListAsync();
+        Assert.Equal(2, tickets.Count);
+        Assert.All(tickets, t => Assert.Null(t.MaterielId));
+        Assert.Contains("aucun PC portable attribué à camille.test@vitalrest.com ni au site 440 dans l'inventaire", tickets[0].Description);
+        Assert.Contains("(Écran à identifier)", tickets[1].Titre);
+        Assert.All(tickets, t => Assert.Equal(StatutTicket.Clos, t.Statut));
+        Assert.All(tickets, t => Assert.Contains("refusée", t.Solution));
     }
 
     [Fact]
@@ -376,5 +378,53 @@ public sealed class ServiceDemandesTests : IDisposable
         await _service.CreerAsync(f, Salarie);
         await using var db = _fabrique.CreateDbContext();
         Assert.False(await db.Tickets.AnyAsync());
+    }
+
+    [Theory]
+    [InlineData("EHPAD Les Tilleuls – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles", new[] { "087" })]
+    [InlineData("site n° 440-1, 12 rue de la Paix", new[] { "440-1" })]
+    [InlineData("SITE S012 et site:G124", new[] { "S012", "G124" })]
+    [InlineData("310 avenue de la Liberté, 86180 Buxerolles", new string[0])]
+    public void Numeros_de_site_cites_dans_l_adresse(string adresse, string[] attendus) =>
+        Assert.Equal(attendus, ServiceTickets.CodesSite(adresse));
+
+    [Fact]
+    public async Task Remplacement_pour_un_site_par_son_responsable()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var s087 = new Site { Code = "087", Email = "site087@vitalrest.com" };
+            var s310 = new Site { Code = "310" };
+            var s440 = new Site { Code = "440" };
+            var s4401 = new Site { Code = "440-1" };
+            db.Materiels.AddRange(
+                new Materiel { NumInterne = "PC0101", Type = TypeMateriel.PcFixe, Modele = "HP", Statut = StatutMateriel.Attribue, Site = s087 },
+                new Materiel { NumInterne = "I0010", Type = TypeMateriel.Imprimante, Statut = StatutMateriel.Attribue, Site = s087 },
+                new Materiel { NumInterne = "PC0310", Type = TypeMateriel.PcFixe, Statut = StatutMateriel.Attribue, Site = s310 }, // n° de rue : ignoré
+                new Materiel { NumInterne = "PC0440", Type = TypeMateriel.PcFixe, Statut = StatutMateriel.Attribue, Site = s440 },
+                new Materiel { NumInterne = "PC0441", Type = TypeMateriel.PcFixe, Statut = StatutMateriel.Attribue, Site = s4401 });
+            await db.SaveChangesAsync();
+        }
+        var responsable = new Utilisateur("Dominique Martin", "dominique.martin@vitalrest.com", false);
+        FormulaireDemande Pour(string adresse) => new()
+        {
+            DemandeurNom = "Dominique Martin", Objets = ["PC fixe (site)"], Concerne = "Un remplacement", Raison = "PC du site en panne",
+            AdresseLivraison = adresse, DemandeurTelephone = "06 12 34 56 78",
+        };
+
+        // Un seul PC fixe sur le site 087 : retenu (le n° de rue 310 n'est pas un site)
+        var d1 = (await _service.CreerAsync(Pour("EHPAD Les Tilleuls – Site 087 – 310 avenue de la Liberté"), responsable)).Demande;
+        Assert.Equal("PC0101 – PC fixe HP", d1.MaterielRemplace);
+        // Site 440 et son sous-site 440-1 : deux PC fixes, à identifier parmi eux
+        var d2 = (await _service.CreerAsync(Pour("Résidence – site 440"), responsable)).Demande;
+        Assert.Null(d2.MaterielRemplace);
+
+        await using var db2 = _fabrique.CreateDbContext();
+        var t1 = await db2.Tickets.SingleAsync(t => t.DemandeId == d1.Id);
+        Assert.Equal("PC0101", t1.MaterielReference);
+        var t2 = await db2.Tickets.SingleAsync(t => t.DemandeId == d2.Id);
+        Assert.Null(t2.MaterielId);
+        Assert.Contains("PC fixe à identifier parmi : PC0440", t2.Description);
+        Assert.Contains("PC0441", t2.Description);
     }
 }

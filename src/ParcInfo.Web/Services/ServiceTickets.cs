@@ -288,27 +288,53 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
         })
         .OfType<TypeMateriel>().Distinct().ToList();
 
-    /// <summary>Ancien matériel d'un remplacement : matériel attribué au demandeur (personne ou site), des types demandés.</summary>
-    public static async Task<List<Materiel>> AnciensMaterielsAsync(ParcDbContext db, Demande d, IReadOnlyCollection<string> adresses, CancellationToken ct = default)
+    /// <summary>
+    /// Ancien matériel d'un remplacement, par type demandé : celui du demandeur ou du site indiqué dans l'adresse de livraison
+    /// (« Site 087 » ; ses sous-sites 087-1… compris). Un seul candidat : il est retenu ; plusieurs : à identifier parmi eux.
+    /// Pour un site, le demandeur est son responsable, jamais le compte du site lui-même.
+    /// </summary>
+    public static async Task<List<AncienMateriel>> AnciensMaterielsAsync(ParcDbContext db, Demande d, IReadOnlyCollection<string> adresses, CancellationToken ct = default)
     {
         var types = TypesDemandes(d).ToList();
         if (types.Count == 0) return [];
-        return await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
+        var codes = CodesSite(d.AdresseLivraison);
+        var sites = codes.Count == 0 ? []
+            : (await db.Sites.Select(s => new { s.Id, s.Code }).ToListAsync(ct))
+                .Where(s => codes.Any(c => MemeCode(s.Code, c) || (!c.Contains('-') && s.Code.Contains('-') && MemeCode(s.Code[..s.Code.IndexOf('-')], c))))
+                .Select(s => s.Id).ToList();
+        var candidats = await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
             .Where(m => m.Statut == StatutMateriel.Attribue && types.Contains(m.Type)
-                && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!)))
-            .OrderBy(m => m.Type).ThenBy(m => m.NumInterne).ToListAsync(ct);
+                && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!) || (m.SiteId != null && sites.Contains(m.SiteId.Value))))
+            .OrderBy(m => m.NumInterne).ToListAsync(ct);
+        return types.Select(t =>
+        {
+            var duType = candidats.Where(m => m.Type == t).ToList();
+            var retenu = duType.Count == 1 ? duType[0] : null;
+            return new AncienMateriel(t, retenu, retenu is null ? duType : [], codes);
+        }).ToList();
     }
+
+    /// <summary>Numéros de site cités dans une adresse : « Site 087 », « site n° 440-1 », « SITE S012 » (pas les numéros de rue ni codes postaux).</summary>
+    public static List<string> CodesSite(string? adresse) => adresse is null ? []
+        : Regex.Matches(adresse, @"\bsite\s*(?:n\s*°|n°|no\.?|num(?:éro|ero)?\.?)?\s*[:#]?\s*([a-z]?\d+(?:-\d+)?)\b", RegexOptions.IgnoreCase)
+            .Select(m => m.Groups[1].Value.ToUpperInvariant()).Distinct().ToList();
+
+    private static bool MemeCode(string code, string cite) =>
+        string.Equals(code, cite, StringComparison.OrdinalIgnoreCase) || string.Equals(code.TrimStart('0'), cite.TrimStart('0'), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Ticket interne « Rapatriement de l'ancien matériel », créé à la réception d'une demande de remplacement :
     /// les mouvements de l'ancien matériel et les étapes de la demande y sont notés jusqu'à sa clôture.
     /// </summary>
-    public static async Task<Ticket> CreerTicketRapatriementAsync(ParcDbContext db, Demande d, Materiel? ancien, CancellationToken ct = default)
+    public static async Task<Ticket> CreerTicketRapatriementAsync(ParcDbContext db, Demande d, AncienMateriel a, CancellationToken ct = default)
     {
         var maintenant = DateTime.UtcNow;
+        var ancien = a.Materiel;
+        const string identifier = "identifiez l'ancien matériel et renseignez son n° interne dans le traitement du ticket";
         var identifie = ancien is null
-            ? $"aucun {string.Join(" / ", TypesDemandes(d).Select(x => x.Libelle()))} attribué à {d.DemandeurEmail} dans l'inventaire : "
-              + "identifiez l'ancien matériel et renseignez son n° interne dans le traitement du ticket"
+            ? a.Possibles.Count > 0
+                ? $"{a.Type.Libelle()} à identifier parmi : {string.Join(", ", a.Possibles.Select(m => $"{m.NumInterne} {m.Modele} ({m.DetenteurLibelle})".Replace("  ", " ")))} – {identifier}"
+                : $"aucun {a.Type.Libelle()} attribué à {d.DemandeurEmail}{(a.CodesSite.Count == 0 ? "" : $" ni au site {string.Join(", ", a.CodesSite)}")} dans l'inventaire – {identifier}"
             : $"{ancien.NumInterne} – {ancien.Type.Libelle()} {ancien.Modele}, n° de série {ancien.NumSerie ?? "?"}, statut « {ancien.Statut.Libelle()} »"
               + (string.IsNullOrEmpty(ancien.DetenteurLibelle) ? "" : $", détenu par {ancien.DetenteurLibelle}");
         var description = $"""
@@ -328,7 +354,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
             CreeLe = maintenant, ModifieLe = maintenant, SaisiePar = AuteurApplication, Interne = true, DemandeId = d.Id,
             DemandeurNom = d.DemandeurNom, DemandeurEmail = d.DemandeurEmail, DemandeurTelephone = d.DemandeurTelephone,
             Lieu = Tronquer(d.AdresseLivraison, 400)!,
-            Categorie = ancien?.Type switch
+            Categorie = a.Type switch
             {
                 TypeMateriel.PcFixe or TypeMateriel.PcPortable => CategorieTicket.Poste,
                 TypeMateriel.Ecran => CategorieTicket.Ecran,
@@ -336,7 +362,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
                 _ => CategorieTicket.Autre,
             },
             Impact = ImpactTicket.Mineur, Portee = PorteeTicket.Personne, Priorite = PrioriteTicket.Normale, Statut = StatutTicket.Nouveau,
-            Titre = Tronquer($"Rapatriement de l'ancien matériel{(ancien is null ? "" : $" {ancien.NumInterne}")} – demande n° {d.Numero}", 150)!,
+            Titre = Tronquer($"Rapatriement de l'ancien matériel {(ancien is null ? $"({a.Type.Libelle()} à identifier)" : ancien.NumInterne)} – demande n° {d.Numero}", 150)!,
             Description = Tronquer(description, FormulaireTicket.LongueurDescription)!,
             MaterielReference = ancien?.NumInterne, MaterielId = ancien?.Id,
         };
@@ -487,3 +513,6 @@ public static class Duree
         return l.Count == 0 ? null : $"résolu en {Texte(TimeSpan.FromTicks((long)l.Average(d => d.Ticks)))} en moyenne";
     }
 }
+
+/// <summary>Ancien matériel d'un type demandé en remplacement : retenu s'il est unique, sinon les matériels possibles.</summary>
+public sealed record AncienMateriel(TypeMateriel Type, Materiel? Materiel, List<Materiel> Possibles, List<string> CodesSite);
