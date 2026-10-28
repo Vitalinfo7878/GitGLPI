@@ -396,7 +396,7 @@ public sealed class ServiceDemandesTests : IDisposable
         var tickets = await db.Tickets.OrderBy(t => t.Id).ToListAsync();
         Assert.Equal(2, tickets.Count);
         Assert.All(tickets, t => Assert.Null(t.MaterielId));
-        Assert.Contains("aucun PC portable attribué à camille.test@vitalrest.com ni au site 440 dans l'inventaire", tickets[0].Description);
+        Assert.Contains("aucun PC portable attribué à camille.test@vitalrest.com dans l'inventaire", tickets[0].Description);
         Assert.Contains("(Écran à identifier)", tickets[1].Titre);
         Assert.All(tickets, t => Assert.Equal(StatutTicket.Clos, t.Statut));
         Assert.All(tickets, t => Assert.Contains("refusée", t.Solution));
@@ -415,13 +415,86 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.False(await db.Tickets.AnyAsync());
     }
 
+    private static readonly ServiceTickets.SiteConnu[] Sites =
+    [
+        new(1, "055", "055 - EHPAD JULIE CHAUCHARD"), new(2, "087", "Site 087 - EHPAD Les Tilleuls"), new(3, "310", null),
+        new(4, "440", "440 - EHPAD SAINTE MONIQUE"), new(5, "440-1", "440 - EHPAD SAINTE MONIQUE"), new(6, "S012", null), new(7, "017", null),
+    ];
+
     [Theory]
-    [InlineData("EHPAD Les Tilleuls – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles", new[] { "087" })]
-    [InlineData("site n° 440-1, 12 rue de la Paix", new[] { "440-1" })]
-    [InlineData("SITE S012 et site:G124", new[] { "S012", "G124" })]
-    [InlineData("310 avenue de la Liberté, 86180 Buxerolles", new string[0])]
-    public void Numeros_de_site_cites_dans_l_adresse(string adresse, string[] attendus) =>
-        Assert.Equal(attendus, ServiceTickets.CodesSite(adresse));
+    [InlineData("Vitalrest 055 - EHPAD Julie Chauchard, 17 boulevard de l'estourmel, 12000 RODEZ", "055")]  // n° de rue et code postal ignorés
+    [InlineData("EHPAD Les Tilleuls – Site 087 – 310 avenue de la Liberté, 86180 Buxerolles", "087")]
+    [InlineData("Résidence – site 440", "440,440-1")]                                                      // sous-sites compris
+    [InlineData("site n° 440-1, 12 rue de la Paix", "440-1")]
+    [InlineData("SITE S012", "S012")]
+    [InlineData("EHPAD Julie Chauchard, boulevard de l'Estourmel, Rodez", "055")]                            // par le nom du site
+    [InlineData("310 avenue de la Liberté, 86180 Buxerolles", "")]
+    [InlineData("17 bis rue des Lilas, 75011 Paris", "")]
+    public void Sites_cites_dans_l_adresse_de_livraison(string adresse, string attendus) =>
+        Assert.Equal(attendus, string.Join(",", ServiceTickets.SitesDeLAdresse(adresse, Sites).Select(s => s.Code)));
+
+    [Fact]
+    public async Task Imprimante_cherchee_seulement_sur_le_site_de_livraison()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var s055 = new Site { Code = "055", Nom = "055 - EHPAD JULIE CHAUCHARD" };
+            var loic = new Personne { NomComplet = "BOUDAUD Loïc", Email = "loic.boudaud@vitalrest.com" };
+            db.Materiels.AddRange(
+                new Materiel { NumInterne = "I0074", Type = TypeMateriel.Imprimante, Modele = "Brother", Statut = StatutMateriel.Attribue, Site = s055 },
+                new Materiel { NumInterne = "I0099", Type = TypeMateriel.Imprimante, Statut = StatutMateriel.Attribue, Personne = loic }); // jamais retenue
+            await db.SaveChangesAsync();
+        }
+        var loicCompte = new Utilisateur("BOUDAUD Loïc", "loic.boudaud@vitalrest.com", false);
+        var f = new FormulaireDemande
+        {
+            DemandeurNom = "BOUDAUD Loïc", Objets = ["Imprimante"], Concerne = "Un remplacement", Raison = "Tampon imprimante HS",
+            AdresseLivraison = "Vitalrest 055 - EHPAD Julie Chauchard, 17 boulevard de l'estourmel, 12000 RODEZ", DemandeurTelephone = "07 60 90 13 45",
+        };
+        var d = (await _service.CreerAsync(f, loicCompte)).Demande;
+        Assert.Equal("I0074 – Imprimante Brother", d.MaterielRemplace);
+
+        // Sans site reconnu dans l'adresse : à identifier (l'imprimante du demandeur n'est pas retenue)
+        f.AdresseLivraison = "17 boulevard de l'estourmel, 12000 RODEZ";
+        var d2 = (await _service.CreerAsync(f, loicCompte)).Demande;
+        Assert.Null(d2.MaterielRemplace);
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Contains("aucun site reconnu dans l'adresse de livraison", (await db2.Tickets.SingleAsync(t => t.DemandeId == d2.Id)).Description);
+    }
+
+    [Fact]
+    public async Task Ancien_materiel_corrige_dans_le_ticket_de_rapatriement()
+    {
+        int bon;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = new Materiel { NumInterne = "PC0450", Type = TypeMateriel.PcPortable, Modele = "Dell", Statut = StatutMateriel.Attribue };
+            db.Materiels.Add(m);
+            await db.SaveChangesAsync();
+            bon = m.Id;
+        }
+        var d = (await _service.CreerAsync(Complet(), Salarie)).Demande; // rien trouvé : tickets « à identifier »
+        var tickets = new ServiceTickets(_fabrique);
+        var admin = Informatique with { EstAdminTickets = true };
+        int id;
+        await using (var db = _fabrique.CreateDbContext())
+            id = (await db.Tickets.OrderBy(t => t.Id).FirstAsync()).Id;
+        Ticket Lire() { using var db = _fabrique.CreateDbContext(); return db.Tickets.Include(t => t.Messages).Single(t => t.Id == id); }
+
+        var maj = MiseAJourTicket.Depuis(Lire());
+        maj.MaterielReference = "PC9999";
+        var ex = await Assert.ThrowsAsync<ErreurFormulaire>(() => tickets.MettreAJourAsync(id, maj, admin));
+        Assert.Contains(nameof(MiseAJourTicket.MaterielReference), ex.Erreurs.Keys);
+
+        maj.MaterielReference = "pc0450";
+        await tickets.MettreAJourAsync(id, maj, admin);
+        var t = Lire();
+        Assert.Equal(bon, t.MaterielId);
+        Assert.Equal($"Rapatriement de l'ancien matériel PC0450 – demande n° {d.Numero}", t.Titre);
+        Assert.Contains(t.Messages, m => m.Texte == "Ancien matériel corrigé : à identifier → PC0450 – PC portable Dell");
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Equal("PC0450 – PC portable Dell", (await db2.Demandes.SingleAsync()).MaterielRemplace);
+    }
 
     [Fact]
     public async Task Remplacement_pour_un_site_par_son_responsable()

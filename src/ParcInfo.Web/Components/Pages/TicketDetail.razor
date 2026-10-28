@@ -151,8 +151,11 @@ else
                             </MudSelect>
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            <MudTextField @bind-Value="_m.MaterielReference" MaxLength="60" Label="N° interne du matériel" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                          Error="@(Err(nameof(MiseAJourTicket.MaterielReference)) is not null)" ErrorText="@Err(nameof(MiseAJourTicket.MaterielReference))" />
+                            <MudAutocomplete T="string" Value="_m.MaterielReference" ValueChanged="@(v => _m.MaterielReference = v?.Trim().Split(' ', 2)[0])"
+                                             SearchFunc="ChercherMateriel" CoerceValue="true" MaxLength="60" Clearable="true" ShowProgressIndicator="false" DebounceInterval="200"
+                                             Label="@(_t.DemandeId is null ? "N° interne du matériel" : "Ancien matériel à rapatrier")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                             HelperText="@(_t.DemandeId is null ? null : "En cas d'erreur, choisissez le bon matériel puis « Enregistrer ».")"
+                                             Error="@(Err(nameof(MiseAJourTicket.MaterielReference)) is not null)" ErrorText="@Err(nameof(MiseAJourTicket.MaterielReference))" />
                         </MudItem>
                         <MudItem xs="12">
                             <MudTextField @bind-Value="_m.AssigneA" MaxLength="200" Label="Pris en charge par" Variant="Variant.Outlined" Margin="Margin.Dense"
@@ -241,6 +244,19 @@ else
     private Ticket? _t;
     private Utilisateur? _u;
     private MiseAJourTicket _m = new();
+
+    /// <summary>Matériel de l'inventaire (n° interne, modèle, n° de série, détenteur) : « PC0101 – PC fixe HP (Site 087) ».</summary>
+    private async Task<IEnumerable<string>> ChercherMateriel(string? texte, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(texte) || texte.Trim().Length < 2) return [];
+        var t = Recherche.Texte(texte);
+        await using var db = await DbFactory.CreateDbContextAsync(ct);
+        var trouves = await db.Materiels.AsNoTracking().Include(x => x.Site).Include(x => x.Personne)
+            .Where(x => x.NumInterne.ToLower().Contains(t) || (x.Modele != null && x.Modele.ToLower().Contains(t)) || (x.NumSerie != null && x.NumSerie.ToLower().Contains(t))
+                || (x.Personne != null && x.Personne.NomComplet.ToLower().Contains(t)) || (x.Site != null && (x.Site.Code.ToLower().Contains(t) || (x.Site.Nom != null && x.Site.Nom.ToLower().Contains(t)))))
+            .OrderBy(x => x.NumInterne).Take(20).ToListAsync(ct);
+        return trouves.Select(x => $"{x.NumInterne} – {x.Type.Libelle()} {x.Modele}{(x.DetenteurLibelle.Length > 0 ? $" ({x.DetenteurLibelle})" : "")}".Replace("  ", " "));
+    }
     private Dictionary<string, string> _erreurs = [];
     private string? _message;
     private bool _interne;

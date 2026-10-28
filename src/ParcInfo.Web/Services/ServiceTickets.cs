@@ -190,7 +190,13 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
         var assigne = Vide(m.AssigneA);
         if (assigne != t.AssigneA && assigne is not null) t.Messages.Add(Trace(u, $"Pris en charge par {assigne}", maintenant));
         t.AssigneA = assigne;
-        if (Vide(m.MaterielReference) != t.MaterielReference) await LierMaterielAsync(db, t, m.MaterielReference, ct);
+        if (!string.Equals(Vide(m.MaterielReference), t.MaterielReference, StringComparison.OrdinalIgnoreCase))
+        {
+            var materielAvant = t.MaterielReference;
+            await LierMaterielAsync(db, t, m.MaterielReference, ct);
+            if (t.DemandeId is { } demandeId)
+                await CorrigerRapatriementAsync(db, t, demandeId, materielAvant, u, maintenant, ct);
+        }
         t.Diagnostic = Vide(m.Diagnostic);
         t.Cause = m.Cause;
         t.Solution = Vide(m.Solution);
@@ -274,50 +280,118 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
 
     // --- Rapatriement de l'ancien matériel (demande de remplacement) ---
 
+    /// <summary>
+    /// Correction de l'ancien matériel d'un ticket de rapatriement : il doit exister dans l'inventaire ; le titre du ticket et
+    /// la demande (« Ancien matériel ») suivent, et la correction est notée sur le ticket.
+    /// </summary>
+    private static async Task CorrigerRapatriementAsync(ParcDbContext db, Ticket t, int demandeId, string? ancien, Utilisateur u, DateTime maintenant, CancellationToken ct)
+    {
+        if (t.MaterielReference is not null && t.MaterielId is null)
+            throw new ErreurFormulaire(new() { [nameof(MiseAJourTicket.MaterielReference)] = $"{t.MaterielReference} est introuvable dans l'inventaire." });
+        var d = await db.Demandes.FirstAsync(x => x.Id == demandeId, ct);
+        var materiel = t.MaterielId is { } id ? await db.Materiels.FirstAsync(x => x.Id == id, ct) : null;
+        t.Titre = Tronquer($"Rapatriement de l'ancien matériel {materiel?.NumInterne ?? "(à identifier)"} – demande n° {d.Numero}", 150)!;
+        var nouveau = materiel is null ? "à identifier" : $"{materiel.NumInterne} – {materiel.Type.Libelle()} {materiel.Modele}".Trim();
+        t.Messages.Add(Trace(u, $"Ancien matériel corrigé : {ancien ?? "à identifier"} → {nouveau}", maintenant));
+
+        // Ancien matériel de la demande : celui de tous ses tickets de rapatriement
+        var autres = await db.Tickets.Where(x => x.DemandeId == demandeId && x.Id != t.Id && x.MaterielId != null).Select(x => x.MaterielId!.Value).ToListAsync(ct);
+        var ids = autres.Concat(materiel is null ? [] : [materiel.Id]).Distinct().ToList();
+        var retenus = await db.Materiels.Where(x => ids.Contains(x.Id)).OrderBy(x => x.NumInterne).ToListAsync(ct);
+        d.MaterielRemplace = retenus.Count == 0 ? null
+            : Tronquer(string.Join(" ; ", retenus.Select(x => $"{x.NumInterne} – {x.Type.Libelle()} {x.Modele}".Trim())), 200);
+        d.MaterielRemplaceId = materiel?.Id ?? retenus.FirstOrDefault()?.Id;
+    }
+
     public const string AuteurApplication = "Application";
 
-    /// <summary>Types de matériel demandés (« PC fixe (site) » → PC fixe…) ; les comptes et adresses mail n'ont pas d'ancien matériel.</summary>
-    public static IReadOnlyList<TypeMateriel> TypesDemandes(Demande d) => d.ListeObjets
+    /// <summary>
+    /// Ancien matériel à chercher pour chaque objet demandé : type, et s'il ne peut être que sur le site de livraison
+    /// (imprimantes et « PC fixe (site) » : seuls les sites en ont). Les comptes et adresses mail n'ont pas d'ancien matériel.
+    /// </summary>
+    public static IReadOnlyList<(TypeMateriel Type, bool SiteSeulement)> Recherches(Demande d) => d.ListeObjets
         .Select(o => o switch
         {
-            "PC fixe (site)" or "PC fixe (Siège / DR)" => (TypeMateriel?)TypeMateriel.PcFixe,
-            "PC portable" => TypeMateriel.PcPortable,
-            "Ecran" => TypeMateriel.Ecran,
-            "Imprimante" => TypeMateriel.Imprimante,
+            "PC fixe (site)" => ((TypeMateriel, bool)?)(TypeMateriel.PcFixe, true),
+            "PC fixe (Siège / DR)" => (TypeMateriel.PcFixe, false),
+            "PC portable" => (TypeMateriel.PcPortable, false),
+            "Ecran" => (TypeMateriel.Ecran, false),
+            "Imprimante" => (TypeMateriel.Imprimante, true),
             _ => null,
         })
-        .OfType<TypeMateriel>().Distinct().ToList();
+        .OfType<(TypeMateriel, bool)>().Distinct().ToList();
+
+    /// <summary>Types de matériel demandés (une demande sans matériel n'a ni ancien matériel ni n° interne à saisir).</summary>
+    public static IReadOnlyList<TypeMateriel> TypesDemandes(Demande d) => Recherches(d).Select(r => r.Type).Distinct().ToList();
 
     /// <summary>
-    /// Ancien matériel d'un remplacement, par type demandé : celui du demandeur ou du site indiqué dans l'adresse de livraison
-    /// (« Site 087 » ; ses sous-sites 087-1… compris). Un seul candidat : il est retenu ; plusieurs : à identifier parmi eux.
+    /// Ancien matériel d'un remplacement, par objet demandé : celui du demandeur ou du site de l'adresse de livraison
+    /// (seulement le site pour une imprimante ou un PC fixe de site). Un seul candidat : il est retenu ; plusieurs : à identifier parmi eux.
     /// Pour un site, le demandeur est son responsable, jamais le compte du site lui-même.
     /// </summary>
     public static async Task<List<AncienMateriel>> AnciensMaterielsAsync(ParcDbContext db, Demande d, IReadOnlyCollection<string> adresses, CancellationToken ct = default)
     {
-        var types = TypesDemandes(d).ToList();
-        if (types.Count == 0) return [];
-        var codes = CodesSite(d.AdresseLivraison);
-        var sites = codes.Count == 0 ? []
-            : (await db.Sites.Select(s => new { s.Id, s.Code }).ToListAsync(ct))
-                .Where(s => codes.Any(c => MemeCode(s.Code, c) || (!c.Contains('-') && s.Code.Contains('-') && MemeCode(s.Code[..s.Code.IndexOf('-')], c))))
-                .Select(s => s.Id).ToList();
+        var recherches = Recherches(d);
+        if (recherches.Count == 0) return [];
+        var sites = SitesDeLAdresse(d.AdresseLivraison, await db.Sites.AsNoTracking().Select(s => new SiteConnu(s.Id, s.Code, s.Nom)).ToListAsync(ct));
+        var idsSites = sites.Select(s => s.Id).ToList();
+        var types = recherches.Select(r => r.Type).Distinct().ToList();
         var candidats = await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
             .Where(m => m.Statut == StatutMateriel.Attribue && types.Contains(m.Type)
-                && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!) || (m.SiteId != null && sites.Contains(m.SiteId.Value))))
+                && (adresses.Contains(m.Personne!.Email!) || adresses.Contains(m.Site!.Email!) || (m.SiteId != null && idsSites.Contains(m.SiteId.Value))))
             .OrderBy(m => m.NumInterne).ToListAsync(ct);
-        return types.Select(t =>
+        var codes = sites.Select(s => s.Code).Distinct().Order().ToList();
+        return recherches.Select(r =>
         {
-            var duType = candidats.Where(m => m.Type == t).ToList();
-            var retenu = duType.Count == 1 ? duType[0] : null;
-            return new AncienMateriel(t, retenu, retenu is null ? duType : [], codes);
+            var possibles = candidats.Where(m => m.Type == r.Type && (!r.SiteSeulement || (m.SiteId is { } sid && idsSites.Contains(sid)))).ToList();
+            var retenu = possibles.Count == 1 ? possibles[0] : null;
+            return new AncienMateriel(r.Type, r.SiteSeulement, retenu, retenu is null ? possibles : [], codes);
         }).ToList();
     }
 
-    /// <summary>Numéros de site cités dans une adresse : « Site 087 », « site n° 440-1 », « SITE S012 » (pas les numéros de rue ni codes postaux).</summary>
-    public static List<string> CodesSite(string? adresse) => adresse is null ? []
-        : Regex.Matches(adresse, @"\bsite\s*(?:n\s*°|n°|no\.?|num(?:éro|ero)?\.?)?\s*[:#]?\s*([a-z]?\d+(?:-\d+)?)\b", RegexOptions.IgnoreCase)
-            .Select(m => m.Groups[1].Value.ToUpperInvariant()).Distinct().ToList();
+    public sealed record SiteConnu(int Id, string Code, string? Nom);
+
+    private static readonly HashSet<string> MotsVoie =
+    [
+        "rue", "avenue", "av", "ave", "bd", "bld", "boulevard", "allee", "allees", "chemin", "che", "chem", "place", "pl", "route", "rte", "impasse", "imp",
+        "cours", "quai", "square", "sq", "rond", "lieu", "lieudit", "voie", "passage", "parvis", "esplanade", "promenade", "sentier", "faubourg", "fbg",
+        "hameau", "lotissement", "lot", "zi", "za", "zac", "bis", "ter", "quater",
+    ];
+
+    private static readonly HashSet<string> MotsCommuns =
+    [
+        "ehpad", "residence", "vitalrest", "site", "maison", "foyer", "centre", "restaurant", "cuisine", "college", "lycee", "ecole", "clinique",
+        "hopital", "retraite", "sante", "accueil", "saint", "sainte", "pour", "avec", "sous", "dans",
+    ];
+
+    /// <summary>
+    /// Sites cités dans une adresse de livraison : par leur numéro (« Vitalrest 055 », « Site 087 », « 440-1 » ; sous-sites compris),
+    /// en ignorant les numéros de rue et les codes postaux ; à défaut, par leur nom (« EHPAD Julie Chauchard »).
+    /// </summary>
+    public static List<SiteConnu> SitesDeLAdresse(string? adresse, IReadOnlyList<SiteConnu> sites)
+    {
+        if (string.IsNullOrWhiteSpace(adresse)) return [];
+        var texte = ParcInfo.Web.Import.Normalisation.SansAccents(adresse).ToLowerInvariant();
+        var codes = new List<string>();
+        foreach (Match m in Regex.Matches(texte, @"(?<![\w-])([a-z]?\d+(?:-\d+)?)(?![\w-])"))
+        {
+            var c = m.Groups[1].Value;
+            if (Regex.IsMatch(c, @"^\d{5}$")) continue; // code postal
+            var suivant = Regex.Match(texte[(m.Index + m.Length)..], @"^[\s,]*([a-z]+)").Groups[1].Value;
+            if (MotsVoie.Contains(suivant)) continue; // numéro de rue
+            codes.Add(c);
+        }
+        var parCode = sites.Where(s => codes.Any(c => MemeCode(s.Code, c)
+            || (!c.Contains('-') && s.Code.Contains('-') && MemeCode(s.Code[..s.Code.IndexOf('-')], c)))).ToList();
+        if (parCode.Count > 0) return parCode;
+
+        var mots = MotsDe(texte).ToHashSet();
+        return sites.Where(s => MotsDe(s.Nom).Where(x => x.Length >= 4 && !MotsCommuns.Contains(x) && !x.All(char.IsDigit)).ToList() is { Count: > 0 } distinctifs
+            && distinctifs.All(mots.Contains) && distinctifs.Sum(x => x.Length) >= 6).ToList();
+    }
+
+    private static IEnumerable<string> MotsDe(string? s) =>
+        Regex.Split(ParcInfo.Web.Import.Normalisation.SansAccents(s ?? "").ToLowerInvariant(), @"[^a-z0-9]+").Where(x => x.Length > 0);
 
     private static bool MemeCode(string code, string cite) =>
         string.Equals(code, cite, StringComparison.OrdinalIgnoreCase) || string.Equals(code.TrimStart('0'), cite.TrimStart('0'), StringComparison.OrdinalIgnoreCase);
@@ -334,7 +408,11 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
         var identifie = ancien is null
             ? a.Possibles.Count > 0
                 ? $"{a.Type.Libelle()} à identifier parmi : {string.Join(", ", a.Possibles.Select(m => $"{m.NumInterne} {m.Modele} ({m.DetenteurLibelle})".Replace("  ", " ")))} – {identifier}"
-                : $"aucun {a.Type.Libelle()} attribué à {d.DemandeurEmail}{(a.CodesSite.Count == 0 ? "" : $" ni au site {string.Join(", ", a.CodesSite)}")} dans l'inventaire – {identifier}"
+                : a.SiteSeulement
+                    ? a.CodesSite.Count == 0
+                        ? $"aucun site reconnu dans l'adresse de livraison pour trouver l'ancien matériel ({a.Type.Libelle()}) – {identifier}"
+                        : $"aucun matériel « {a.Type.Libelle()} » sur le site {string.Join(", ", a.CodesSite)} dans l'inventaire – {identifier}"
+                    : $"aucun {a.Type.Libelle()} attribué à {d.DemandeurEmail}{(a.CodesSite.Count == 0 ? "" : $" ni au site {string.Join(", ", a.CodesSite)}")} dans l'inventaire – {identifier}"
             : $"{ancien.NumInterne} – {ancien.Type.Libelle()} {ancien.Modele}, n° de série {ancien.NumSerie ?? "?"}, statut « {ancien.Statut.Libelle()} »"
               + (string.IsNullOrEmpty(ancien.DetenteurLibelle) ? "" : $", détenu par {ancien.DetenteurLibelle}");
         var description = $"""
@@ -515,4 +593,4 @@ public static class Duree
 }
 
 /// <summary>Ancien matériel d'un type demandé en remplacement : retenu s'il est unique, sinon les matériels possibles.</summary>
-public sealed record AncienMateriel(TypeMateriel Type, Materiel? Materiel, List<Materiel> Possibles, List<string> CodesSite);
+public sealed record AncienMateriel(TypeMateriel Type, bool SiteSeulement, Materiel? Materiel, List<Materiel> Possibles, List<string> CodesSite);
