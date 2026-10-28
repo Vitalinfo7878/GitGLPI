@@ -126,10 +126,7 @@ public sealed class ServiceDemandes(
         };
         // Remplacement : ancien matériel retrouvé dans l'inventaire (du demandeur ou du site de livraison, du type demandé)
         var anciens = d.EstRemplacement ? await ServiceTickets.AnciensMaterielsAsync(db, d, auteur.ToutesAdresses, ct) : [];
-        var retenus = anciens.Select(a => a.Materiel).OfType<Materiel>().ToList();
-        d.MaterielRemplace = retenus.Count == 0 ? null
-            : Tronquer(string.Join(" ; ", retenus.Select(m => $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele}".Trim())), 200);
-        d.MaterielRemplaceId = retenus.FirstOrDefault()?.Id;
+        NoterAnciens(d, anciens);
 
         // Numérotation à la suite (avec une nouvelle tentative si deux demandes arrivent en même temps)
         for (var essai = 0; ; essai++)
@@ -356,6 +353,38 @@ public sealed class ServiceDemandes(
             catch (Exception ex) { avertissement = ex.Message; }
         }
         return new ResultatDemande(d, avertissement);
+    }
+
+    /// <summary>
+    /// Crée après coup les tickets de rapatriement d'une demande de matériel qui n'en a pas
+    /// (demande reçue avant la création automatique, ou remplacement non coché). Renvoie le nombre de tickets créés.
+    /// </summary>
+    public async Task<int> CreerTicketsRapatriementAsync(int demandeId, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var d = await db.Demandes.FirstOrDefaultAsync(x => x.Id == demandeId, ct) ?? throw new ErreurMetier("Demande introuvable.");
+        if (d.StatutValidation == StatutValidation.Refusee) throw new ErreurMetier("Demande refusée : pas de matériel à rapatrier.");
+        if (await db.Tickets.AnyAsync(t => t.DemandeId == d.Id, ct)) throw new ErreurMetier("Cette demande a déjà son ticket de rapatriement.");
+        // Adresses du demandeur : compte qui a saisi la demande et mail du demandeur
+        var anciens = await ServiceTickets.AnciensMaterielsAsync(db, d, new[] { d.SaisiePar, d.DemandeurEmail }.Where(a => a.Length > 0).Distinct().ToList(), ct);
+        if (anciens.Count == 0) throw new ErreurMetier("Cette demande ne porte pas sur du matériel (PC, écran, imprimante).");
+        NoterAnciens(d, anciens);
+        foreach (var ancien in anciens)
+        {
+            var t = await ServiceTickets.CreerTicketRapatriementAsync(db, d, ancien, ct);
+            t.Messages.Add(new TicketMessage { Date = DateTime.UtcNow, Auteur = u.Nom, AuteurEmail = u.Email, Texte = $"Ticket créé après coup par {u.Nom}", Systeme = true });
+        }
+        await db.SaveChangesAsync(ct);
+        return anciens.Count;
+    }
+
+    private static void NoterAnciens(Demande d, List<AncienMateriel> anciens)
+    {
+        var retenus = anciens.Select(a => a.Materiel).OfType<Materiel>().ToList();
+        d.MaterielRemplace = retenus.Count == 0 ? null
+            : Tronquer(string.Join(" ; ", retenus.Select(m => $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele}".Trim())), 200);
+        d.MaterielRemplaceId = retenus.FirstOrDefault()?.Id;
     }
 
     /// <summary>Valideurs de la page « Droits » (à défaut, ceux de la configuration).</summary>

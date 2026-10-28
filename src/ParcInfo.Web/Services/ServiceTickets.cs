@@ -366,7 +366,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
             Description = Tronquer(description, FormulaireTicket.LongueurDescription)!,
             MaterielReference = ancien?.NumInterne, MaterielId = ancien?.Id,
         };
-        t.Messages.Add(new TicketMessage { Date = maintenant, Auteur = AuteurApplication, Texte = $"Ticket créé à la réception de la demande n° {d.Numero}", Systeme = true });
+        t.Messages.Add(new TicketMessage { Date = maintenant, Auteur = AuteurApplication, Texte = $"Ticket de rapatriement créé pour la demande n° {d.Numero}", Systeme = true });
         for (var essai = 0; ; essai++)
         {
             t.Numero = (await db.Tickets.MaxAsync(x => (int?)x.Numero, ct) ?? 0) + 1;

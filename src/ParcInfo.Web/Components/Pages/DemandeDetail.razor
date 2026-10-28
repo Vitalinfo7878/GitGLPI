@@ -209,6 +209,22 @@ else
                 </MudPaper>
             }
 
+            @if (_rapatriements.Count == 0 && _u.EstGestionnaire && EstDemandeDeMateriel && _d.StatutValidation != StatutValidation.Refusee)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mt-3">
+                    <div class="d-flex align-center gap-2 mb-1">
+                        <MudIcon Icon="@Icons.Material.Outlined.AssignmentReturn" />
+                        <MudText Typo="Typo.h6">Rapatriement de l'ancien matériel</MudText>
+                    </div>
+                    <MudText Typo="Typo.body2" Class="mb-2">
+                        @(_d.EstRemplacement ? "Aucun ticket de rapatriement : demande reçue avant leur création automatique." : "Cette demande n'est pas un remplacement : créez le ticket si un ancien matériel doit tout de même être récupéré.")
+                    </MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AddTask" OnClick="CreerRapatriement" Disabled="_envoi">
+                        Créer le ticket de rapatriement
+                    </MudButton>
+                </MudPaper>
+            }
+
             @* --- Échanges internes valideur / service informatique --- *@
             @if (_u.VoitToutesLesDemandes)
             {
@@ -357,6 +373,19 @@ else
             var r = await Service.NotifierEnvoiAsync(_d.Id, _u!);
             Snackbar.Add(r.AvertissementCourriel is null ? "Demandeur prévenu de l'envoi." : $"Demande mise à jour, mais le mail n'a pas pu partir : {r.AvertissementCourriel}",
                 r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _envoi = false; }
+    }
+
+    private async Task CreerRapatriement()
+    {
+        _envoi = true;
+        try
+        {
+            var n = await Service.CreerTicketsRapatriementAsync(_d!.Id, _u!);
+            Snackbar.Add(n == 1 ? "Ticket de rapatriement créé." : $"{n} tickets de rapatriement créés.", Severity.Success);
             await Charger();
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }

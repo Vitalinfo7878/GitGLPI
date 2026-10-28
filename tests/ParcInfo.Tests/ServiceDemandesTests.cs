@@ -462,4 +462,36 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Contains("PC fixe à identifier parmi : PC0440", t2.Description);
         Assert.Contains("PC0441", t2.Description);
     }
+
+    [Fact]
+    public async Task Ticket_de_rapatriement_cree_apres_coup_pour_une_demande_anterieure()
+    {
+        int demande, pc;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var p = new Personne { NomComplet = "Camille TEST", Email = "camille.test@vitalrest.com" };
+            var m = new Materiel { NumInterne = "PC0450", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.Attribue, Personne = p };
+            // Demande reçue avant la création automatique des tickets
+            var d = new Demande
+            {
+                Numero = 592, SaisiePar = "camille.test@vitalrest.com", DemandeurEmail = "camille.test@vitalrest.com", DemandeurNom = "Camille TEST",
+                Objets = "PC portable", Concerne = Demande.Remplacement, AdresseLivraison = "Siège", Raison = "PC lent",
+                StatutValidation = StatutValidation.Validee, CreeLe = DateTime.UtcNow, ModifieLe = DateTime.UtcNow,
+            };
+            db.AddRange(m, d);
+            await db.SaveChangesAsync();
+            (demande, pc) = (d.Id, m.Id);
+        }
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerTicketsRapatriementAsync(demande, Valideur)); // réservé à l'informatique
+
+        Assert.Equal(1, await _service.CreerTicketsRapatriementAsync(demande, Informatique));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerTicketsRapatriementAsync(demande, Informatique)); // une seule fois
+
+        await using var db2 = _fabrique.CreateDbContext();
+        var t = await db2.Tickets.Include(x => x.Messages).SingleAsync();
+        Assert.Equal(pc, t.MaterielId);
+        Assert.True(t.Interne);
+        Assert.Contains(t.Messages, m => m.Texte.Contains("après coup"));
+        Assert.Equal("PC0450 – PC portable", (await db2.Demandes.SingleAsync()).MaterielRemplace);
+    }
 }
