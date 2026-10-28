@@ -22,6 +22,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
     public DbSet<MessageDemande> MessagesDemandes => Set<MessageDemande>();
     public DbSet<DroitAcces> DroitsAcces => Set<DroitAcces>();
+    public DbSet<DemandeMateriel> DemandesMateriels => Set<DemandeMateriel>();
     /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -175,6 +176,13 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.RestaurePar).HasMaxLength(400);
             e.HasIndex(x => x.Date);
             e.HasIndex(x => x.Action);
+        });
+        b.Entity<DemandeMateriel>(e =>
+        {
+            e.HasKey(x => new { x.DemandeId, x.MaterielId });
+            e.Property(x => x.Par).HasMaxLength(400);
+            e.HasOne(x => x.Demande).WithMany(d => d.Materiels).HasForeignKey(x => x.DemandeId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Materiel).WithMany(m => m.Demandes).HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<DroitAcces>(e =>
         {

@@ -20,11 +20,12 @@ public static class JournalInventaire
     public const string MaterielModifie = "Matériel modifié";
     public const string MaterielSupprime = "Matériel supprimé";
     public const string MaterielRestaure = "Matériel restauré";
+    public const string RattacheDemande = "Matériel d'une demande";
     public const string ComptesMisAJour = "Comptes Microsoft mis à jour";
 
     private static readonly HashSet<string> ActionsMateriel =
     [
-        MaterielModifie, MaterielSupprime, MaterielRestaure, "Nouveau matériel (non inventorié)", "Catégorie PC", "Import Excel", "Pas un doublon",
+        MaterielModifie, MaterielSupprime, MaterielRestaure, RattacheDemande, "Nouveau matériel (non inventorié)", "Catégorie PC", "Import Excel", "Pas un doublon",
     ];
 
     private static readonly HashSet<string> ActionsMouvement =
@@ -140,10 +141,12 @@ public sealed class InstantaneMateriel
     /// <summary>Adresse du détenteur au moment de l'instantané (modifiable depuis la fiche matériel).</summary>
     public string? EmailDetenteur { get; set; }
     public List<InstantaneMouvement> Mouvements { get; set; } = [];
+    /// <summary>Demandes pour lesquelles le matériel avait été attribué.</summary>
+    public List<int> Demandes { get; set; } = [];
 
     private static readonly JsonSerializerOptions Options = new() { Converters = { new JsonStringEnumConverter() } };
 
-    public static InstantaneMateriel Depuis(Materiel m, string? emailDetenteur, IEnumerable<Mouvement>? mouvements = null) => new()
+    public static InstantaneMateriel Depuis(Materiel m, string? emailDetenteur, IEnumerable<Mouvement>? mouvements = null, IEnumerable<int>? demandes = null) => new()
     {
         NumInterne = m.NumInterne, Type = m.Type, Modele = m.Modele, NumSerie = m.NumSerie, Statut = m.Statut, SiteId = m.SiteId, PersonneId = m.PersonneId,
         RegionId = m.RegionId, CategoriePc = m.CategoriePc, Configuration = m.Configuration, AnneeAcquisition = m.AnneeAcquisition,
@@ -154,6 +157,7 @@ public sealed class InstantaneMateriel
         Mouvements = (mouvements ?? []).OrderBy(x => x.Numero).Select(x => new InstantaneMouvement(x.Numero, x.NumeroOrigine, x.Type, x.Date, x.Expediteur,
             x.DestinationSiteId, x.DestinationPersonneId, x.DestinationLibre, x.Region, x.DocumentReference, x.DateReception, x.Commentaire, x.FicheId,
             x.CreePar, x.CreeLe)).ToList(),
+        Demandes = demandes?.ToList() ?? [],
     };
 
     /// <summary>Remet les champs modifiables depuis la fiche matériel (pas le statut ni le détenteur, qui dépendent des mouvements).</summary>

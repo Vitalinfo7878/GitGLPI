@@ -92,6 +92,9 @@ public class Demande
     public DateTime? EnvoiNotifieLe { get; set; }
     public DateTime ModifieLe { get; set; }
 
+    /// <summary>Matériel attribué pour réaliser la demande : obligatoire pour la terminer, visible sur la fiche matériel.</summary>
+    public List<DemandeMateriel> Materiels { get; set; } = [];
+
     /// <summary>Échanges internes entre le valideur et le service informatique (jamais visibles du demandeur).</summary>
     public List<MessageDemande> Messages { get; set; } = [];
 
@@ -113,4 +116,15 @@ public class MessageDemande
     public string Auteur { get; set; } = "";
     public string AuteurEmail { get; set; } = "";
     public string Texte { get; set; } = "";
+}
+
+/// <summary>Matériel attribué pour une demande (saisi par le service informatique pour la terminer).</summary>
+public class DemandeMateriel
+{
+    public int DemandeId { get; set; }
+    public Demande Demande { get; set; } = null!;
+    public int MaterielId { get; set; }
+    public Materiel Materiel { get; set; } = null!;
+    public DateTime Le { get; set; }
+    public string Par { get; set; } = "";
 }

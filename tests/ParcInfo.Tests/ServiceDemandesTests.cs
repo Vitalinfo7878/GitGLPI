@@ -243,10 +243,45 @@ public sealed class ServiceDemandesTests : IDisposable
         await Assert.ThrowsAsync<ErreurMetier>(() =>
             _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.EnCours, null, Valideur));
 
-        var r = await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0450 envoyé", Informatique);
+        // Pas de demande de matériel terminée sans le n° interne du matériel attribué
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC envoyé", Informatique));
+        Assert.Contains("n° interne du matériel attribué", ex.Message);
+        await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, null, Informatique, materiels: ["PC9999"]));
+
+        int pc, ecran;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m1 = new Materiel { NumInterne = "PC0455", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.Attribue };
+            var m2 = new Materiel { NumInterne = "E0032", Type = TypeMateriel.Ecran, Statut = StatutMateriel.Attribue };
+            db.Materiels.AddRange(m1, m2);
+            await db.SaveChangesAsync();
+            (pc, ecran) = (m1.Id, m2.Id);
+        }
+        var r = await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0455 envoyé", Informatique, materiels: ["pc0455", "E0032"]);
         Assert.NotNull(r.Demande.RealiseeLe);
-        await using var db = _fabrique.CreateDbContext();
-        Assert.True(await db.Courriels.AnyAsync(c => c.Sujet.Contains("réalisée") && c.Destinataire == "camille.test@vitalrest.com"));
+        // Un n° retiré est détaché ; les autres restent
+        await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0455 envoyé", Informatique, materiels: ["PC0455"]);
+
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.True(await db2.Courriels.AnyAsync(c => c.Sujet.Contains("réalisée") && c.Destinataire == "camille.test@vitalrest.com"));
+        var lien = await db2.DemandesMateriels.SingleAsync();
+        Assert.Equal((d.Id, pc), (lien.DemandeId, lien.MaterielId));
+        Assert.Equal(2, await db2.Journal.CountAsync(j => j.Action == JournalInventaire.RattacheDemande && j.MaterielId == ecran)); // rattaché puis détaché
+        Assert.Contains("demande n° 592", (await db2.Journal.FirstAsync(j => j.Action == JournalInventaire.RattacheDemande && j.MaterielId == pc)).Details);
+    }
+
+    [Fact]
+    public async Task Demande_sans_materiel_terminee_sans_numero_interne()
+    {
+        var f = Complet();
+        f.Objets = ["Adresse email"];
+        f.AdresseMailACreer = "nouveau.salarie@vitalrest.com";
+        var d = (await _service.CreerAsync(f, Salarie)).Demande;
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        var r = await _service.MettreAJourTraitementAsync(d.Id, Priorite.Normale, StatutRealisation.Realisee, "Boîte créée", Informatique);
+        Assert.Equal(StatutRealisation.Realisee, r.Demande.StatutRealisation);
     }
 
     [Fact]

@@ -307,13 +307,38 @@ public sealed class ServiceDemandes(
     }
 
     /// <summary>Suivi du traitement par le service informatique (priorité, avancement, commentaire).</summary>
+    /// <param name="materiels">N° internes du matériel attribué (null : inchangé). Obligatoires pour terminer une demande de matériel.</param>
     public async Task<ResultatDemande> MettreAJourTraitementAsync(int id, Priorite priorite, StatutRealisation statut, string? commentaire,
-        Utilisateur u, CancellationToken ct = default)
+        Utilisateur u, CancellationToken ct = default, IReadOnlyCollection<string>? materiels = null)
     {
         if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var d = await db.Demandes.FirstAsync(x => x.Id == id, ct);
+        var d = await db.Demandes.Include(x => x.Materiels).ThenInclude(x => x.Materiel).FirstAsync(x => x.Id == id, ct);
         if (d.StatutValidation != StatutValidation.Validee) throw new ErreurMetier("Seule une demande validée peut être traitée.");
+
+        // Matériel attribué : rattaché à la demande (et visible sur sa fiche matériel)
+        var maintenant = DateTime.UtcNow;
+        if (materiels is not null)
+        {
+            var numeros = materiels.Select(n => n.Trim().ToUpperInvariant()).Where(n => n.Length > 0).Distinct().ToList();
+            var trouves = await db.Materiels.Where(m => numeros.Contains(m.NumInterne.ToUpper())).ToListAsync(ct);
+            var inconnus = numeros.Where(n => trouves.All(m => !m.NumInterne.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (inconnus.Count > 0) throw new ErreurMetier($"Introuvable dans l'inventaire : {string.Join(", ", inconnus)}.");
+            foreach (var lien in d.Materiels.Where(l => trouves.All(m => m.Id != l.MaterielId)).ToList())
+            {
+                d.Materiels.Remove(lien);
+                db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = JournalInventaire.RattacheDemande, MaterielId = lien.MaterielId,
+                    Details = $"{lien.Materiel.NumInterne} détaché de la demande n° {d.Numero}" });
+            }
+            foreach (var m in trouves.Where(m => d.Materiels.All(l => l.MaterielId != m.Id)))
+            {
+                d.Materiels.Add(new DemandeMateriel { MaterielId = m.Id, Le = maintenant, Par = u.Signature });
+                db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = JournalInventaire.RattacheDemande, MaterielId = m.Id,
+                    Details = $"{m.NumInterne} attribué pour la demande n° {d.Numero} ({d.DemandeurNom} – {d.Objets})" });
+            }
+        }
+        if (statut == StatutRealisation.Realisee && d.Materiels.Count == 0 && ServiceTickets.TypesDemandes(d).Count > 0)
+            throw new ErreurMetier("Pour terminer la demande, indiquez le n° interne du matériel attribué.");
 
         var devientRealisee = statut == StatutRealisation.Realisee && d.StatutRealisation != StatutRealisation.Realisee;
         d.Priorite = priorite;

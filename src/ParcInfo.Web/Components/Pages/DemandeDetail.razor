@@ -143,6 +143,11 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
+                                <MudTextField @bind-Value="_materielsAttribues" MaxLength="400" Label="@(EstDemandeDeMateriel ? "N° interne du matériel attribué *" : "N° interne du matériel attribué")"
+                                              Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="PC0455, E0032"
+                                              HelperText="@(EstDemandeDeMateriel ? "Obligatoire pour passer la demande à « Réalisée » ; plusieurs : séparez par une virgule. Rattaché à la fiche matériel." : "Plusieurs : séparez par une virgule. Rattaché à la fiche matériel.")" />
+                            </MudItem>
+                            <MudItem xs="12">
                                 <MudTextField @bind-Value="_commentaireInfo" MaxLength="4000" Label="Commentaire du service informatique" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
                                               HelperText="Visible par le demandeur ; joint au mail envoyé quand la demande passe à « Réalisée »." />
                             </MudItem>
@@ -174,6 +179,7 @@ else
                     {
                         <dl class="champ-lecture">
                             <Champ Libelle="Avancement" Valeur="@_d.StatutRealisation.Libelle()" />
+                            @if (_d.Materiels.Count > 0) { <Champ Libelle="Matériel attribué" Valeur="@string.Join(", ", _d.Materiels.Select(x => x.Materiel.NumInterne).Order())" /> }
                             @if (_d.EnvoiNotifieLe is { } envoi) { <Champ Libelle="Matériel envoyé le" Valeur="@envoi.ToLocalTime().ToString("dd/MM/yyyy")" /> }
                             <Champ Libelle="Commentaire du service informatique" Valeur="@_d.CommentaireInformatique" />
                             @if (_d.RealiseeLe is { } r) { <Champ Libelle="Clôturée le" Valeur="@r.ToLocalTime().ToString("dd/MM/yyyy")" /> }
@@ -249,6 +255,8 @@ else
     private Priorite _priorite;
     private StatutRealisation _statut;
     private string? _commentaireInfo;
+    private string? _materielsAttribues;
+    private bool EstDemandeDeMateriel => _d is not null && ServiceTickets.TypesDemandes(_d).Count > 0;
     private string? _message;
     private Severity _severite;
     private List<MessageDemande> _messages = [];
@@ -266,13 +274,14 @@ else
     private async Task Charger()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _d = await db.Demandes.AsNoTracking().FirstOrDefaultAsync(x => x.IdPublic == IdPublic);
+        _d = await db.Demandes.AsNoTracking().Include(x => x.Materiels).ThenInclude(x => x.Materiel).FirstOrDefaultAsync(x => x.IdPublic == IdPublic);
         if (_d is null) return;
         _messages = await Service.ListerMessagesAsync(_d.Id, _u!);
         _rapatriements = _u!.EstAdminTickets ? await db.Tickets.AsNoTracking().Where(t => t.DemandeId == _d.Id).OrderBy(t => t.Numero).ToListAsync() : [];
         _priorite = _d.Priorite;
         _statut = _d.StatutRealisation;
         _commentaireInfo = _d.CommentaireInformatique;
+        _materielsAttribues = string.Join(", ", _d.Materiels.Select(x => x.Materiel.NumInterne).Order());
     }
 
     private void Afficher(string message, Severity s)
@@ -359,7 +368,8 @@ else
         _envoi = true;
         try
         {
-            var r = await Service.MettreAJourTraitementAsync(_d!.Id, _priorite, _statut, _commentaireInfo, _u!);
+            var r = await Service.MettreAJourTraitementAsync(_d!.Id, _priorite, _statut, _commentaireInfo, _u!,
+                materiels: (_materielsAttribues ?? "").Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             Snackbar.Add(r.AvertissementCourriel ?? "Demande mise à jour.", r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
             await Charger();
         }

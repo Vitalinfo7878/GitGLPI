@@ -132,6 +132,19 @@ else
                                 <Champ Libelle="Date de mise en place" Valeur="@_m.DateMiseEnPlace?.ToString("dd/MM/yyyy")" />
                                 <Champ Libelle="N° immobilisation" Valeur="@_m.NumImmo" />
                                 <Champ Libelle="N° de facture" Valeur="@_m.NumFacture" />
+                                @if (_m.Demandes.Count > 0)
+                                {
+                                    <Champ Libelle="Attribué pour la demande">
+                                        @foreach (var dm in _m.Demandes.OrderByDescending(x => x.Demande.Numero))
+                                        {
+                                            <div>
+                                                @if (_u!.VoitToutesLesDemandes) { <MudLink Href="@($"/demandes/{dm.Demande.IdPublic}")">n° @dm.Demande.Numero</MudLink> }
+                                                else { <span>n° @dm.Demande.Numero</span> }
+                                                <span> – @dm.Demande.DemandeurNom (@dm.Demande.CreeLe.ToLocalTime().ToString("dd/MM/yyyy"))</span>
+                                            </div>
+                                        }
+                                    </Champ>
+                                }
                             </dl>
                         </MudItem>
                         <MudItem xs="12" sm="6">
@@ -261,6 +274,7 @@ else
             .Include(m => m.Mouvements).ThenInclude(x => x.Fiche)
             .Include(m => m.Mouvements).ThenInclude(x => x.DestinationSite)
             .Include(m => m.Mouvements).ThenInclude(x => x.DestinationPersonne)
+            .Include(m => m.Demandes).ThenInclude(x => x.Demande)
             .AsSplitQuery().FirstOrDefaultAsync(m => m.Id == Id);
         _introuvable = _m is null;
         if (_m is not null && !Gestionnaire) _m.MotDePasseSession = null; // jamais chargé dans la page en consultation

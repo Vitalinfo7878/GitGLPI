@@ -254,6 +254,15 @@ public sealed class ServiceMouvementsTests : IDisposable
     {
         var (pc, _, personne) = Donnees();
         var r = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        int demande;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var d = new Demande { Numero = 592, DemandeurNom = "Camille TEST", CreeLe = DateTime.UtcNow, ModifieLe = DateTime.UtcNow };
+            d.Materiels.Add(new DemandeMateriel { MaterielId = pc, Le = DateTime.UtcNow, Par = "Informatique" });
+            db.Demandes.Add(d);
+            await db.SaveChangesAsync();
+            demande = d.Id;
+        }
         await _service.SupprimerMaterielAsync(pc, Informatique);
 
         int journal;
@@ -272,6 +281,7 @@ public sealed class ServiceMouvementsTests : IDisposable
         await using var db2 = _fabrique.CreateDbContext();
         var m = await db2.Materiels.Include(x => x.Mouvements).ThenInclude(x => x.Fiche).SingleAsync(x => x.NumInterne == "PC0001");
         Assert.Equal(pc, m.Id); // même identifiant : l'historique du journal reste rattaché
+        Assert.True(await db2.DemandesMateriels.AnyAsync(x => x.DemandeId == demande && x.MaterielId == pc)); // demande rattachée à nouveau
         Assert.Equal("secret", m.MotDePasseSession);
         Assert.Equal(StatutMateriel.Attribue, m.Statut);
         Assert.Equal(personne, m.PersonneId);

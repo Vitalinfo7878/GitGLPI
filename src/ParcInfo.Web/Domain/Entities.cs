@@ -109,6 +109,8 @@ public class Materiel
     public DateTime ModifieLe { get; set; }
 
     public List<Mouvement> Mouvements { get; set; } = [];
+    /// <summary>Demandes informatiques pour lesquelles ce matériel a été attribué.</summary>
+    public List<DemandeMateriel> Demandes { get; set; } = [];
 
     public TypeDetenteur TypeDetenteur => SiteId != null ? TypeDetenteur.Site : PersonneId != null ? TypeDetenteur.Personne : TypeDetenteur.Aucun;
 

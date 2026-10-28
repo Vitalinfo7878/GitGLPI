@@ -321,13 +321,13 @@ public sealed class ServiceMouvements(
     {
         if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var m = await db.Materiels.Include(x => x.Mouvements).Include(x => x.Personne).Include(x => x.Site).FirstOrDefaultAsync(x => x.Id == id, ct)
+        var m = await db.Materiels.Include(x => x.Mouvements).Include(x => x.Personne).Include(x => x.Site).Include(x => x.Demandes).FirstOrDefaultAsync(x => x.Id == id, ct)
             ?? throw new ErreurMetier("Matériel introuvable.");
         db.Materiels.Remove(m);
         db.Journal.Add(new Journal
         {
             Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = JournalInventaire.MaterielSupprime, MaterielId = m.Id,
-            Instantane = InstantaneMateriel.Depuis(m, m.Personne?.Email ?? m.Site?.Email, m.Mouvements).Serialiser(),
+            Instantane = InstantaneMateriel.Depuis(m, m.Personne?.Email ?? m.Site?.Email, m.Mouvements, m.Demandes.Select(x => x.DemandeId)).Serialiser(),
             Details = $"{m.NumInterne} – {m.Type.Libelle()} {m.Modele} (n° série {m.NumSerie ?? "?"}, statut {m.Statut.Libelle()}, " +
                       $"{m.Mouvements.Count} mouvement(s) supprimé(s))",
         });
@@ -377,6 +377,8 @@ public sealed class ServiceMouvements(
                     FicheId = x.FicheId is { } f && fiches.Contains(f) ? f : null,
                     DateReception = x.DateReception, Commentaire = x.Commentaire, CreePar = x.CreePar, CreeLe = x.CreeLe,
                 });
+            var demandes = await db.Demandes.Where(x => inst.Demandes.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct);
+            foreach (var dem in demandes) m.Demandes.Add(new DemandeMateriel { DemandeId = dem, Le = maintenant, Par = u.Signature });
             db.Materiels.Add(m);
             await db.SaveChangesAsync(ct);
             trace.MaterielId = m.Id;
