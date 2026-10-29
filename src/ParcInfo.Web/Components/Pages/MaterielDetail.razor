@@ -202,7 +202,14 @@ else
                     @foreach (var mv in _m.Mouvements.OrderByDescending(x => x.Date ?? DateOnly.MinValue).ThenByDescending(x => x.Numero))
                     {
                         <MudTimelineItem Size="Size.Small" Color="@ChipStatut.Couleur(RegleMouvement.Pour(mv.Type).StatutResultant)">
-                            <MudText Typo="Typo.subtitle2">@mv.Type.Libelle() <small style="color:var(--mud-palette-text-secondary)">n° @mv.Numero</small></MudText>
+                            <MudText Typo="Typo.subtitle2">
+                                @mv.Type.Libelle() <small style="color:var(--mud-palette-text-secondary)">n° @mv.Numero</small>
+                                @if (Gestionnaire)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" Class="pa-1 ml-1"
+                                                   aria-label="@($"Supprimer le mouvement n° {mv.Numero}")" OnClick="() => SupprimerMouvement(mv)" />
+                                }
+                            </MudText>
                             <MudText Typo="Typo.body2">
                                 @mv.Date?.ToString("dd/MM/yyyy")
                                 @if (!string.IsNullOrEmpty(mv.Expediteur)) { <span> · de @mv.Expediteur</span> }
@@ -352,6 +359,21 @@ else
         _edition = false;
         Snackbar.Add("Modifications enregistrées.", Severity.Success);
         await Charger();
+    }
+
+    private async Task SupprimerMouvement(Mouvement mv)
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync($"Supprimer le mouvement n° {mv.Numero} ?",
+            $"{mv.Type.Libelle()} du {mv.Date?.ToString("dd/MM/yyyy")}. S'il s'agit du dernier mouvement, le matériel reprend l'état du mouvement précédent ; "
+            + "une fiche qui ne contient que ce mouvement est supprimée avec lui. La suppression peut être annulée depuis le journal d'inventaire.",
+            yesText: "Supprimer", cancelText: "Annuler");
+        if (ok != true) return;
+        try
+        {
+            Snackbar.Add(await Mouvements.SupprimerMouvementAsync(mv.Id, (await Courant.ObtenirAsync())), Severity.Success);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
     private async Task Supprimer()

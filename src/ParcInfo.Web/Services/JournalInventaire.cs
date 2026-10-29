@@ -21,6 +21,8 @@ public static class JournalInventaire
     public const string MaterielSupprime = "Matériel supprimé";
     public const string MaterielRestaure = "Matériel restauré";
     public const string RattacheDemande = "Matériel d'une demande";
+    public const string MouvementSupprime = "Mouvement supprimé";
+    public const string MouvementRestaure = "Mouvement restauré";
     public const string ComptesMisAJour = "Comptes Microsoft mis à jour";
 
     private static readonly HashSet<string> ActionsMateriel =
@@ -29,7 +31,10 @@ public static class JournalInventaire
     ];
 
     private static readonly HashSet<string> ActionsMouvement =
-        [.. Enum.GetValues<TypeMouvement>().Select(t => t.Libelle()), "Correction du détenteur"];
+        [.. Enum.GetValues<TypeMouvement>().Select(t => t.Libelle()), "Correction du détenteur", MouvementSupprime, MouvementRestaure];
+
+    /// <summary>Suppressions (matériel ou mouvement) : en rouge et filtre « Suppressions seulement ».</summary>
+    public static bool EstSuppression(string action) => action is MaterielSupprime or MouvementSupprime;
 
     private static readonly HashSet<string> ActionsComptes =
     [
@@ -174,4 +179,28 @@ public sealed class InstantaneMateriel
 
     public static InstantaneMateriel Lire(string json) =>
         JsonSerializer.Deserialize<InstantaneMateriel>(json, Options) ?? throw new ErreurMetier("État enregistré illisible.");
+}
+
+/// <summary>Fiche supprimée avec son dernier mouvement, conservée pour sa restauration.</summary>
+public sealed record InstantaneFiche(Guid IdPublic, TypeFiche Type, int Annee, int Numero, string Code, string? DestinataireNom, string? DestinataireEmail,
+    byte[]? Pdf, DateTime? PdfGenereLe, string? CreePar, DateTime CreeLe);
+
+/// <summary>Mouvement supprimé (doublon, erreur) : le mouvement, l'état du matériel avant la suppression et la fiche supprimée avec lui.</summary>
+public sealed class InstantaneSuppressionMouvement
+{
+    public int MaterielId { get; set; }
+    public InstantaneMouvement Mouvement { get; set; } = null!;
+    /// <summary>Vrai si la suppression a remis le matériel dans l'état du mouvement précédent.</summary>
+    public bool EtatModifie { get; set; }
+    public StatutMateriel Statut { get; set; }
+    public int? SiteId { get; set; }
+    public int? PersonneId { get; set; }
+    public InstantaneFiche? Fiche { get; set; }
+
+    private static readonly JsonSerializerOptions Options = new() { Converters = { new JsonStringEnumConverter() } };
+
+    public string Serialiser() => JsonSerializer.Serialize(this, Options);
+
+    public static InstantaneSuppressionMouvement Lire(string json) =>
+        JsonSerializer.Deserialize<InstantaneSuppressionMouvement>(json, Options) ?? throw new ErreurMetier("État enregistré illisible.");
 }

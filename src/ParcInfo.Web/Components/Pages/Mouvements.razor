@@ -2,6 +2,10 @@
 @attribute [Authorize(Policy = Roles.PolitiqueGestion)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject NavigationManager Nav
+@inject ServiceMouvements Service
+@inject UtilisateurCourant Courant
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
 
 <PageTitle>Mouvements</PageTitle>
 
@@ -60,6 +64,17 @@ else
                     }
                 </CellTemplate>
             </TemplateColumn>
+            <TemplateColumn T="Ligne" Title="" Sortable="false">
+                <CellTemplate>
+                    @* Sans ouvrir la fiche matériel (clic sur la ligne) *@
+                    <span @onclick:stopPropagation="true">
+                        <MudTooltip Text="Supprimer ce mouvement (doublon, erreur)">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Supprimer le mouvement n° {context.Item.Numero}")"
+                                           OnClick="() => Supprimer(context.Item)" />
+                        </MudTooltip>
+                    </span>
+                </CellTemplate>
+            </TemplateColumn>
         </Columns>
         <PagerContent>
             <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
@@ -68,7 +83,7 @@ else
 }
 
 @code {
-    private sealed record Ligne(int Numero, DateTime? Date, TypeMouvement Type, string TypeLibelle, int MaterielId, string NumInterne, string Materiel,
+    private sealed record Ligne(int Id, int Numero, DateTime? Date, TypeMouvement Type, string TypeLibelle, int MaterielId, string NumInterne, string Materiel,
         string? Expediteur, string Destination, string? Region, Guid? FicheId, string? Fiche, string Recherche);
 
     private List<Ligne>? _tous;
@@ -78,13 +93,15 @@ else
     private TypeMouvement? _type;
     private int? _annee;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await Charger();
+
+    private async Task Charger()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         var mvts = await db.Mouvements.AsNoTracking()
             .Select(m => new
             {
-                m.Numero, m.Date, m.Type, m.MaterielId, m.Materiel.NumInterne, MType = m.Materiel.Type, m.Materiel.Modele, m.Expediteur,
+                m.Id, m.Numero, m.Date, m.Type, m.MaterielId, m.Materiel.NumInterne, MType = m.Materiel.Type, m.Materiel.Modele, m.Expediteur,
                 SiteCode = m.DestinationSite!.Code, SiteNom = m.DestinationSite.Nom, SiteRelie = m.DestinationSite.EntraObjectId != null, Personne = m.DestinationPersonne!.NomComplet, m.DestinationLibre,
                 m.Region, FicheId = (Guid?)m.Fiche!.IdPublic, Fiche = m.Fiche.Code,
             })
@@ -94,7 +111,7 @@ else
             var dest = m.SiteCode is not null ? Site.LibelleDe(m.SiteCode, m.SiteNom, m.SiteRelie) : m.Personne ?? m.DestinationLibre ?? "";
             var materiel = $"{m.MType.Libelle()} {m.Modele}";
             var r = ParcInfo.Web.Import.Normalisation.SansAccents($"{m.Numero} {m.NumInterne} {materiel} {m.Expediteur} {dest} {m.Region} {m.Fiche}").ToLowerInvariant();
-            return new Ligne(m.Numero, m.Date?.ToDateTime(TimeOnly.MinValue), m.Type, m.Type.Libelle(), m.MaterielId, m.NumInterne, materiel,
+            return new Ligne(m.Id, m.Numero, m.Date?.ToDateTime(TimeOnly.MinValue), m.Type, m.Type.Libelle(), m.MaterielId, m.NumInterne, materiel,
                 m.Expediteur, dest, m.Region, m.FicheId, m.Fiche, r);
         }).ToList();
         _annees = _tous.Where(l => l.Date != null).Select(l => l.Date!.Value.Year).Distinct().OrderDescending().ToList();
@@ -113,6 +130,21 @@ else
         if (_type is { } t) q = q.Where(l => l.Type == t);
         if (_annee is { } a) q = q.Where(l => l.Date?.Year == a);
         _filtres = q.ToList();
+    }
+
+    private async Task Supprimer(Ligne l)
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync($"Supprimer le mouvement n° {l.Numero} ?",
+            $"{l.TypeLibelle} de {l.NumInterne} ({l.Expediteur} → {l.Destination}). S'il s'agit du dernier mouvement du matériel, celui-ci reprend l'état du mouvement précédent ; "
+            + "une fiche qui ne contient que ce mouvement est supprimée avec lui. La suppression peut être annulée depuis le journal d'inventaire.",
+            yesText: "Supprimer", cancelText: "Annuler");
+        if (ok != true) return;
+        try
+        {
+            Snackbar.Add(await Service.SupprimerMouvementAsync(l.Id, await Courant.ObtenirAsync()), Severity.Success);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
     private void Ouvrir(DataGridRowClickEventArgs<Ligne> e) => Nav.NavigateTo($"/materiels/{e.Item.MaterielId}");

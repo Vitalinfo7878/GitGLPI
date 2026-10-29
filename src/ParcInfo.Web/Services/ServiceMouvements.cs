@@ -345,12 +345,13 @@ public sealed class ServiceMouvements(
         var j = await db.Journal.FirstOrDefaultAsync(x => x.Id == journalId, ct) ?? throw new ErreurMetier("Entrée du journal introuvable.");
         if (j.Instantane is null) throw new ErreurMetier("Cette entrée ne peut pas être restaurée.");
         if (j.RestaureLe is not null) throw new ErreurMetier($"Déjà restauré par {j.RestaurePar}.");
-        var inst = InstantaneMateriel.Lire(j.Instantane);
+        // État d'un matériel (suppression, modification) ; une suppression de mouvement a son propre état (voir plus bas)
+        var inst = j.Action == JournalInventaire.MouvementSupprime ? null : InstantaneMateriel.Lire(j.Instantane);
         var maintenant = DateTime.UtcNow;
         var trace = new Journal { Date = maintenant, Utilisateur = u.Signature, Action = JournalInventaire.MaterielRestaure };
         string message;
 
-        if (j.Action == JournalInventaire.MaterielSupprime)
+        if (j.Action == JournalInventaire.MaterielSupprime && inst is not null)
         {
             if (await db.Materiels.AnyAsync(m => m.NumInterne == inst.NumInterne, ct))
                 throw new ErreurMetier($"Le n° interne {inst.NumInterne} est repris par un autre matériel : renommez-le d'abord.");
@@ -385,7 +386,54 @@ public sealed class ServiceMouvements(
             trace.Details = $"{m.NumInterne} : suppression annulée ({m.Mouvements.Count} mouvement(s) restauré(s))";
             message = $"{m.NumInterne} restauré avec ses {m.Mouvements.Count} mouvement(s).";
         }
-        else if (j.Action is JournalInventaire.MaterielModifie or JournalInventaire.MaterielRestaure)
+        else if (j.Action == JournalInventaire.MouvementSupprime)
+        {
+            var s = InstantaneSuppressionMouvement.Lire(j.Instantane);
+            var m = await db.Materiels.FirstOrDefaultAsync(x => x.Id == s.MaterielId, ct)
+                ?? throw new ErreurMetier("Ce matériel a été supprimé depuis : restaurez d'abord sa suppression.");
+            var x = s.Mouvement;
+            Fiche? fiche = null;
+            if (s.Fiche is { } f)
+            {
+                fiche = await db.Fiches.FirstOrDefaultAsync(y => y.IdPublic == f.IdPublic, ct);
+                if (fiche is null)
+                {
+                    if (await db.Fiches.AnyAsync(y => y.Code == f.Code, ct)) throw new ErreurMetier($"Une autre fiche porte déjà le code {f.Code}.");
+                    fiche = new Fiche
+                    {
+                        IdPublic = f.IdPublic, Type = f.Type, Annee = f.Annee, Numero = f.Numero, Code = f.Code, DestinataireNom = f.DestinataireNom,
+                        DestinataireEmail = f.DestinataireEmail, Pdf = f.Pdf, PdfGenereLe = f.PdfGenereLe, CreePar = f.CreePar, CreeLe = f.CreeLe,
+                    };
+                    db.Fiches.Add(fiche);
+                }
+            }
+            else if (x.FicheId is { } fid) fiche = await db.Fiches.FirstOrDefaultAsync(y => y.Id == fid, ct);
+            var numero = await db.Mouvements.AnyAsync(y => y.Numero == x.Numero, ct)
+                ? (await db.Mouvements.MaxAsync(y => (int?)y.Numero, ct) ?? 0) + 1 : x.Numero;
+            var mv = new Mouvement
+            {
+                Numero = numero, NumeroOrigine = x.NumeroOrigine, Materiel = m, Type = x.Type, Date = x.Date, Expediteur = x.Expediteur,
+                DestinationSiteId = x.DestinationSiteId is { } ds && await db.Sites.AnyAsync(y => y.Id == ds, ct) ? ds : null,
+                DestinationPersonneId = x.DestinationPersonneId is { } dp && await db.Personnes.AnyAsync(y => y.Id == dp, ct) ? dp : null,
+                DestinationLibre = x.DestinationLibre, Region = x.Region, DocumentReference = x.DocumentReference, DateReception = x.DateReception,
+                Commentaire = x.Commentaire, Fiche = fiche, CreePar = x.CreePar, CreeLe = x.CreeLe,
+            };
+            db.Mouvements.Add(mv);
+            // La suppression avait remis le matériel dans l'état précédent : il retrouve l'état que ce mouvement lui donnait
+            if (s.EtatModifie)
+            {
+                m.Statut = s.Statut;
+                m.SiteId = s.SiteId is { } sid && await db.Sites.AnyAsync(y => y.Id == sid, ct) ? sid : null;
+                m.PersonneId = s.PersonneId is { } pid && await db.Personnes.AnyAsync(y => y.Id == pid, ct) ? pid : null;
+                m.ModifieLe = maintenant;
+            }
+            trace.Action = JournalInventaire.MouvementRestaure;
+            trace.MaterielId = m.Id;
+            trace.Details = $"Mouvement n° {numero} ({x.Type.Libelle()}) de {m.NumInterne} restauré{(fiche is null ? "" : $" avec la fiche {fiche.Code}")}"
+                + (s.EtatModifie ? $" ; {m.NumInterne} repasse « {m.Statut.Libelle()} »" : "");
+            message = $"Mouvement n° {numero} restauré.";
+        }
+        else if (j.Action is JournalInventaire.MaterielModifie or JournalInventaire.MaterielRestaure && inst is not null)
         {
             var m = await db.Materiels.Include(x => x.Personne).Include(x => x.Site).FirstOrDefaultAsync(x => x.Id == j.MaterielId, ct)
                 ?? throw new ErreurMetier("Ce matériel a été supprimé depuis : restaurez d'abord sa suppression.");
@@ -418,6 +466,65 @@ public sealed class ServiceMouvements(
         db.Journal.Add(trace);
         await db.SaveChangesAsync(ct);
         return message;
+    }
+
+    /// <summary>
+    /// Supprime un mouvement (doublon, erreur de saisie). Si c'était le dernier mouvement du matériel, celui-ci reprend l'état
+    /// (statut, détenteur) que lui donnait le mouvement précédent. Une fiche qui ne contenait que ce mouvement est supprimée avec lui.
+    /// La suppression est notée dans le journal d'inventaire et peut être annulée (« Restaurer »).
+    /// </summary>
+    public async Task<string> SupprimerMouvementAsync(int mouvementId, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var mv = await db.Mouvements.Include(x => x.Materiel).Include(x => x.Fiche).ThenInclude(f => f!.Mouvements)
+            .Include(x => x.DestinationSite).Include(x => x.DestinationPersonne).FirstOrDefaultAsync(x => x.Id == mouvementId, ct)
+            ?? throw new ErreurMetier("Mouvement introuvable.");
+        var m = mv.Materiel;
+        static (DateOnly, int) Ordre(Mouvement x) => (x.Date ?? DateOnly.MinValue, x.Numero);
+        var autres = await db.Mouvements.Include(x => x.DestinationSite).Include(x => x.DestinationPersonne)
+            .Where(x => x.MaterielId == m.Id && x.Id != mv.Id).ToListAsync(ct);
+        var inst = new InstantaneSuppressionMouvement
+        {
+            MaterielId = m.Id, Statut = m.Statut, SiteId = m.SiteId, PersonneId = m.PersonneId,
+            Mouvement = new InstantaneMouvement(mv.Numero, mv.NumeroOrigine, mv.Type, mv.Date, mv.Expediteur, mv.DestinationSiteId, mv.DestinationPersonneId,
+                mv.DestinationLibre, mv.Region, mv.DocumentReference, mv.DateReception, mv.Commentaire, mv.FicheId, mv.CreePar, mv.CreeLe),
+        };
+        var maintenant = DateTime.UtcNow;
+        var suite = "";
+        // Dernier mouvement du matériel : retour à l'état donné par le mouvement précédent
+        if (autres.Count > 0 && autres.All(x => Ordre(x).CompareTo(Ordre(mv)) < 0))
+        {
+            var precedent = autres.MaxBy(Ordre)!;
+            var regle = RegleMouvement.Pour(precedent.Type);
+            var (statut, site, personne) = (regle.StatutResultant,
+                regle.DestinationEstDetenteur ? precedent.DestinationSiteId : null, regle.DestinationEstDetenteur ? precedent.DestinationPersonneId : null);
+            if (statut != m.Statut || site != m.SiteId || personne != m.PersonneId)
+            {
+                inst.EtatModifie = true;
+                (m.Statut, m.SiteId, m.PersonneId, m.ModifieLe) = (statut, site, personne, maintenant);
+                var detenteur = precedent.DestinationSite?.Libelle ?? precedent.DestinationPersonne?.NomComplet;
+                suite = $" ; {m.NumInterne} revient à « {statut.Libelle()} »{(regle.DestinationEstDetenteur && detenteur is not null ? $" ({detenteur})" : "")} comme après le mouvement n° {precedent.Numero}";
+            }
+        }
+        // Fiche qui ne contenait que ce mouvement : supprimée avec lui
+        var ficheSupprimee = "";
+        if (mv.Fiche is { } f && f.Mouvements.All(x => x.Id == mv.Id))
+        {
+            inst.Fiche = new InstantaneFiche(f.IdPublic, f.Type, f.Annee, f.Numero, f.Code, f.DestinataireNom, f.DestinataireEmail, f.Pdf, f.PdfGenereLe, f.CreePar, f.CreeLe);
+            db.Fiches.Remove(f);
+            ficheSupprimee = $" ; fiche {f.Code} supprimée";
+        }
+        var trajet = string.Join(" → ", new[] { mv.Expediteur, mv.DestinationLibelle }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        db.Mouvements.Remove(mv);
+        db.Journal.Add(new Journal
+        {
+            Date = maintenant, Utilisateur = u.Signature, Action = JournalInventaire.MouvementSupprime, MaterielId = m.Id,
+            Details = JournalInventaire.Tronquer($"Mouvement n° {mv.Numero} – {mv.Type.Libelle()} de {m.NumInterne}{(trajet.Length > 0 ? $" ({trajet})" : "")}{ficheSupprimee}{suite}"),
+            Instantane = inst.Serialiser(),
+        });
+        await db.SaveChangesAsync(ct);
+        return $"Mouvement n° {mv.Numero} supprimé{ficheSupprimee}{suite}.";
     }
 
     /// <summary>Range des PC dans une catégorie (PC Site / PC Enrôlé), ou l'efface ; les autres matériels sont ignorés.</summary>

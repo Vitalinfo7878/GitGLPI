@@ -347,4 +347,66 @@ public sealed class ServiceMouvementsTests : IDisposable
         var ex = await Assert.ThrowsAsync<ErreurMetier>(() => _service.RestaurerAsync(journal, Informatique));
         Assert.Contains("PC0001", ex.Message);
     }
+
+    [Fact]
+    public async Task Doublon_d_attribution_supprime_puis_restaure()
+    {
+        var (pc, _, personne) = Donnees();
+        var a1 = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        var a2 = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        int doublon;
+        await using (var db = _fabrique.CreateDbContext())
+            doublon = (await db.Mouvements.SingleAsync(x => x.Numero == a2.Numeros[0])).Id;
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.SupprimerMouvementAsync(doublon, new Utilisateur("Thomas", "thomas@vitalrest.com", false)));
+        var message = await _service.SupprimerMouvementAsync(doublon, Informatique);
+        Assert.Contains($"fiche {a2.Fiche!.Code} supprimée", message);
+        Assert.DoesNotContain("revient", message); // même état qu'après le premier : rien ne change
+
+        int journal;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.Equal([100, a1.Numeros[0]], await db.Mouvements.Where(x => x.MaterielId == pc).OrderBy(x => x.Numero).Select(x => x.Numero).ToListAsync());
+            var m = await db.Materiels.FindAsync(pc);
+            Assert.Equal((StatutMateriel.Attribue, personne), (m!.Statut, m.PersonneId));
+            Assert.False(await db.Fiches.AnyAsync(f => f.Code == a2.Fiche.Code));
+            Assert.True(await db.Fiches.AnyAsync(f => f.Code == a1.Fiche!.Code));
+            journal = (await db.Journal.SingleAsync(j => j.Action == JournalInventaire.MouvementSupprime)).Id;
+        }
+
+        // Restauration : même numéro, même fiche (PDF compris)
+        await _service.RestaurerAsync(journal, Informatique);
+        await using var db2 = _fabrique.CreateDbContext();
+        var restaure = await db2.Mouvements.Include(x => x.Fiche).SingleAsync(x => x.Numero == a2.Numeros[0]);
+        Assert.Equal(a2.Fiche.Code, restaure.Fiche!.Code);
+        Assert.NotNull(restaure.Fiche.Pdf);
+        Assert.Equal(personne, restaure.DestinationPersonneId);
+        Assert.True(await db2.Journal.AnyAsync(j => j.Action == JournalInventaire.MouvementRestaure && j.MaterielId == pc));
+    }
+
+    [Fact]
+    public async Task Dernier_mouvement_supprime_le_materiel_reprend_l_etat_precedent()
+    {
+        var (pc, _, personne) = Donnees();
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        var retour = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        int id;
+        await using (var db = _fabrique.CreateDbContext())
+            id = (await db.Mouvements.SingleAsync(x => x.Numero == retour.Numeros[0])).Id;
+
+        var message = await _service.SupprimerMouvementAsync(id, Informatique);
+        Assert.Contains("revient à « Attribué » (Camille TEST)", message);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = await db.Materiels.FindAsync(pc);
+            Assert.Equal((StatutMateriel.Attribue, personne), (m!.Statut, m.PersonneId));
+        }
+
+        // Restaurer le retour remet le matériel en stock
+        await using (var db = _fabrique.CreateDbContext())
+            await _service.RestaurerAsync((await db.Journal.SingleAsync(j => j.Action == JournalInventaire.MouvementSupprime)).Id, Informatique);
+        await using var db2 = _fabrique.CreateDbContext();
+        var apres = await db2.Materiels.FindAsync(pc);
+        Assert.Equal((StatutMateriel.EnStock, (int?)null), (apres!.Statut, apres.PersonneId));
+    }
 }

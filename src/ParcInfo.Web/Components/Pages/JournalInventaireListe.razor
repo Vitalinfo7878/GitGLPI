@@ -40,7 +40,7 @@ else
             <TemplateColumn T="Journal" Title="Action" SortBy="x => x.Action">
                 <CellTemplate>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
-                             Color="@(context.Item.Action == JournalInventaire.MaterielSupprime ? Color.Error : JournalInventaire.Domaine(context.Item.Action) switch
+                             Color="@(JournalInventaire.EstSuppression(context.Item.Action) ? Color.Error : JournalInventaire.Domaine(context.Item.Action) switch
                              { DomaineJournal.Mouvement => Color.Info, DomaineJournal.CompteMicrosoft => Color.Secondary, _ => Color.Default })">@context.Item.Action</MudChip>
                 </CellTemplate>
             </TemplateColumn>
@@ -86,7 +86,7 @@ else
 
     private IEnumerable<Journal> Filtrees => (_lignes ?? [])
         .Where(j => _domaine is null || JournalInventaire.Domaine(j.Action) == _domaine)
-        .Where(j => !_suppressions || j.Action == JournalInventaire.MaterielSupprime)
+        .Where(j => !_suppressions || JournalInventaire.EstSuppression(j.Action))
         .Where(j => string.IsNullOrWhiteSpace(_recherche)
             || $"{j.Utilisateur} {j.Action} {j.Details}".Contains(_recherche.Trim(), StringComparison.OrdinalIgnoreCase));
 
@@ -117,11 +117,14 @@ else
 
     private async Task Restaurer(Journal j)
     {
-        var suppression = j.Action == JournalInventaire.MaterielSupprime;
-        var ok = await Dialogues.ShowMessageBoxAsync(suppression ? "Annuler la suppression ?" : "Remettre les anciennes valeurs ?",
-            suppression
-                ? "Le matériel est recréé dans l'inventaire avec ses mouvements, tel qu'il était au moment de sa suppression."
-                : "Les valeurs d'avant cette modification sont remises, y compris si d'autres modifications ont eu lieu depuis. La restauration est notée dans le journal et peut être annulée à son tour.",
+        var (titre, texte) = j.Action switch
+        {
+            JournalInventaire.MaterielSupprime => ("Annuler la suppression ?", "Le matériel est recréé dans l'inventaire avec ses mouvements, tel qu'il était au moment de sa suppression."),
+            JournalInventaire.MouvementSupprime => ("Restaurer le mouvement ?", "Le mouvement est recréé (avec sa fiche si elle avait été supprimée) ; le matériel retrouve l'état qu'il lui donnait."),
+            _ => ("Remettre les anciennes valeurs ?", (string?)null),
+        };
+        var ok = await Dialogues.ShowMessageBoxAsync(titre,
+            texte ?? "Les valeurs d'avant cette modification sont remises, y compris si d'autres modifications ont eu lieu depuis. La restauration est notée dans le journal et peut être annulée à son tour.",
             yesText: "Restaurer", cancelText: "Annuler");
         if (ok != true) return;
         _envoi = true;
