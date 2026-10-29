@@ -19,6 +19,11 @@ public sealed class DemandeMouvement
     public string? EmailDetenteur { get; set; }
     /// <summary>Correction du détenteur d'un matériel déjà attribué (erreur de saisie ou d'import) : mouvement tracé, sans fiche.</summary>
     public bool Correction { get; set; }
+    /// <summary>
+    /// Entrée dans le SI : le profil Microsoft du PC (compte de l'ancien utilisateur) est effacé ;
+    /// le nom de l'ancien détenteur reste dans l'historique (expéditeur du mouvement).
+    /// </summary>
+    public bool EffacerProfilMicrosoft { get; set; } = true;
 }
 
 public sealed class NouveauMateriel
@@ -220,6 +225,7 @@ public sealed class ServiceMouvements(
         var maintenant = DateTime.UtcNow;
         var prochain = (await db.Mouvements.MaxAsync(m => (int?)m.Numero, ct) ?? 0) + 1;
         var mouvements = new List<Mouvement>();
+        var profilsEffaces = new List<string>();
 
         foreach (var m in materiels.OrderBy(m => m.NumInterne))
         {
@@ -243,6 +249,11 @@ public sealed class ServiceMouvements(
             db.Mouvements.Add(mv);
 
             m.Statut = regle.StatutResultant;
+            if (d.Type == TypeMouvement.Restitution && d.EffacerProfilMicrosoft && !string.IsNullOrWhiteSpace(m.ProfilMicrosoft))
+            {
+                profilsEffaces.Add($"{m.NumInterne} ({m.ProfilMicrosoft})");
+                m.ProfilMicrosoft = null;
+            }
             if (regle.DestinationEstDetenteur)
             {
                 m.SiteId = site?.Id;
@@ -282,7 +293,8 @@ public sealed class ServiceMouvements(
             Date = maintenant, Utilisateur = auteur.Signature, Action = d.Correction ? "Correction du détenteur" : d.Type.Libelle(),
             MaterielId = materiels.Count == 1 ? materiels[0].Id : null,
             Details = $"{((site?.Libelle ?? personne?.NomComplet ?? mouvements[0].DestinationLibre) is { } vers ? $"Vers {vers} – " : "")}Mouvements {mouvements[0].Numero}–{mouvements[^1].Numero} : {string.Join(", ", materiels.Select(m => m.NumInterne))}" +
-                      (fiche is null ? "" : $" — fiche {fiche.Code}"),
+                      (fiche is null ? "" : $" — fiche {fiche.Code}") +
+                      (profilsEffaces.Count == 0 ? "" : $" — profil Microsoft effacé : {string.Join(", ", profilsEffaces)}"),
         });
 
         try

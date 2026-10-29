@@ -496,4 +496,26 @@ public sealed class ServiceMouvementsTests : IDisposable
         await using var db2 = _fabrique.CreateDbContext();
         Assert.Null((await db2.Materiels.FindAsync(pc))!.NumFacture);
     }
+
+    [Fact]
+    public async Task Entree_dans_le_SI_efface_le_profil_Microsoft_par_defaut()
+    {
+        var (pc, ecran, camille) = Donnees();
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            await db.Materiels.Where(m => m.Id == pc || m.Id == ecran).ExecuteUpdateAsync(x => x.SetProperty(m => m.ProfilMicrosoft, "camille.test@vitalrest.com"));
+        }
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc, ecran], DestinationPersonneId = camille }, Informatique);
+
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [ecran], EffacerProfilMicrosoft = false }, Informatique);
+
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Null((await db2.Materiels.FindAsync(pc))!.ProfilMicrosoft);
+        Assert.Equal("camille.test@vitalrest.com", (await db2.Materiels.FindAsync(ecran))!.ProfilMicrosoft); // case décochée : conservé
+        // L'ancien détenteur reste dans l'historique ; l'effacement est noté au journal
+        var retour = await db2.Mouvements.Where(x => x.MaterielId == pc && x.Type == TypeMouvement.Restitution).SingleAsync();
+        Assert.Equal("Camille TEST", retour.Expediteur);
+        Assert.Contains(await db2.Journal.Select(j => j.Details).ToListAsync(), x => x!.Contains("profil Microsoft effacé : PC0001 (camille.test@vitalrest.com)"));
+    }
 }

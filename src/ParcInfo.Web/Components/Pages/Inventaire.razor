@@ -70,6 +70,18 @@
                 }
             </MudSelect>
         </MudItem>
+        @* Recherche ciblée : chaque case ne cherche que dans son champ (« 227 » en site = site 227, pas PO0227) *@
+        @foreach (var (libelle, valeur, aide) in new (string, string?, string)[]
+        {
+            ("Site", _fSite, "227 ou nom"), ("Personne", _fPersonne, "Nom"), ("N° interne", _fInterne, ""),
+            ("N° de série", _fSerie, ""), ("N° de facture", _fFacture, ""), ("N° d'immobilisation", _fImmo, ""),
+        })
+        {
+            <MudItem xs="6" sm="4" md="2">
+                <MudTextField T="string" Value="valeur" ValueChanged="v => Filtrer(() => DefinirCible(libelle, v))" Immediate="true" DebounceInterval="250"
+                              Label="@libelle" Placeholder="@aide" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+            </MudItem>
+        }
         <MudItem xs="12" Class="d-flex flex-wrap align-center gap-4 pt-0">
             <MudCheckBox T="bool" Value="_aChanger" ValueChanged="v => Filtrer(() => _aChanger = v)" Label="PC à changer" Dense="true" />
             <MudCheckBox T="bool" Value="_masquerRebut" ValueChanged="v => Filtrer(() => _masquerRebut = v)" Label="Masquer le matériel rebuté" Dense="true" />
@@ -119,6 +131,8 @@ else
             <PropertyColumn Property="x => x.VersionWindows" Title="Windows" />
             <PropertyColumn Property="x => x.Note" Title="Note /5" />
             <PropertyColumn Property="x => x.Annee" Title="Année" />
+            <PropertyColumn Property="x => x.NumFacture" Title="N° facture" />
+            <PropertyColumn Property="x => x.NumImmo" Title="N° immo" />
         </Columns>
         <PagerContent>
             <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :"
@@ -135,7 +149,7 @@ else
     private sealed record Ligne(
         int Id, string NumInterne, TypeMateriel Type, string TypeLibelle, CategoriePc? CategoriePc, string? Modele, string? NumSerie, TypeDetenteur Parc,
         string Detenteur, string? Email, string? Region, StatutMateriel Statut, string? ProfilMicrosoft, string? VersionWindows, int? Note,
-        int? Annee, bool AChanger, string Recherche)
+        int? Annee, bool AChanger, string Recherche, string? NumFacture, string? NumImmo, string? SiteCode, string? SiteNom, string? PersonneNom)
     {
         // Une ligne = un matériel : la sélection de la grille survit à la mise à jour d'une ligne
         public bool Equals(Ligne? autre) => autre?.Id == Id;
@@ -156,6 +170,20 @@ else
     private string? _region;
     private bool _aChanger;
     private bool _masquerRebut = true;
+    private string? _fSite, _fPersonne, _fInterne, _fSerie, _fFacture, _fImmo;
+
+    private void DefinirCible(string champ, string? v)
+    {
+        switch (champ)
+        {
+            case "Site": _fSite = v; break;
+            case "Personne": _fPersonne = v; break;
+            case "N° interne": _fInterne = v; break;
+            case "N° de série": _fSerie = v; break;
+            case "N° de facture": _fFacture = v; break;
+            default: _fImmo = v; break;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -169,7 +197,7 @@ else
                 m.Id, m.NumInterne, m.Type, m.CategoriePc, m.Modele, m.NumSerie, m.SiteId, m.PersonneId,
                 SiteCode = m.Site!.Code, SiteNom = m.Site.Nom, SiteRelie = m.Site.EntraObjectId != null, SiteRegion = m.Site.Region!.Nom, Personne = m.Personne!.NomComplet,
                 Email = m.Personne.Email ?? m.Site.Email,
-                Region = m.Region!.Nom, m.Statut, m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger,
+                Region = m.Region!.Nom, m.Statut, m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger, m.NumFacture, m.NumImmo,
             })
             .ToListAsync();
 
@@ -183,9 +211,11 @@ else
                 _ => "",
             };
             var region = m.Region ?? m.SiteRegion;
-            var recherche = Normaliser($"{m.NumInterne} {m.Modele} {m.NumSerie} {detenteur} {m.Email} {m.ProfilMicrosoft} {region}");
+            var recherche = Normaliser($"{m.NumInterne} {m.Modele} {m.NumSerie} {detenteur} {m.Email} {m.ProfilMicrosoft} {region} {m.NumFacture} {m.NumImmo}");
             return new Ligne(m.Id, m.NumInterne, m.Type, m.Type.Libelle(), m.CategoriePc, m.Modele, m.NumSerie, parc, detenteur, m.Email, region, m.Statut,
-                m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger, recherche);
+                m.ProfilMicrosoft, m.VersionWindows, m.Note, m.AnneeAcquisition, m.AChanger, recherche, m.NumFacture, m.NumImmo,
+                parc == TypeDetenteur.Site ? m.SiteCode : null, parc == TypeDetenteur.Site ? Normaliser(detenteur) : null,
+                parc == TypeDetenteur.Personne ? Normaliser(detenteur) : null);
         }).OrderBy(l => l.NumInterne).ToList();
         _regions = _tous.Select(l => l.Region).OfType<string>().Distinct().Order().ToList();
         Appliquer();
@@ -210,6 +240,29 @@ else
             var mots = Normaliser(_recherche).Split(' ', StringSplitOptions.RemoveEmptyEntries);
             q = q.Where(l => mots.All(l.Recherche.Contains));
         }
+        // Recherche ciblée
+        if (!string.IsNullOrWhiteSpace(_fSite))
+        {
+            var site = _fSite.Trim();
+            // Un numéro (« 227 », « 087 », « 440-1 », « S012 ») : ce site exactement ; sinon le nom du site
+            if (System.Text.RegularExpressions.Regex.IsMatch(site, @"^[a-zA-Z]?\d+(-\d+)?$"))
+                q = q.Where(l => l.SiteCode is { } c && (c.Equals(site, StringComparison.OrdinalIgnoreCase)
+                    || c.TrimStart('0').Equals(site.TrimStart('0'), StringComparison.OrdinalIgnoreCase)));
+            else
+            {
+                var n = Normaliser(site);
+                q = q.Where(l => l.SiteNom?.Contains(n) == true);
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(_fPersonne))
+        {
+            var mots = Normaliser(_fPersonne).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            q = q.Where(l => l.PersonneNom is { } p && mots.All(p.Contains));
+        }
+        static bool Contient(string? valeur, string? cherche) => string.IsNullOrWhiteSpace(cherche)
+            || (valeur is not null && Normaliser(valeur).Replace(" ", "").Contains(Normaliser(cherche).Replace(" ", "")));
+        q = q.Where(l => Contient(l.NumInterne, _fInterne) && Contient(l.NumSerie, _fSerie) && Contient(l.NumFacture, _fFacture) && Contient(l.NumImmo, _fImmo));
+
         if (Enum.TryParse<CategoriePc>(_categorie, out var cat)) q = q.Where(l => l.CategoriePc == cat);
         else if (_categorie == "aucune") q = q.Where(l => l.CategoriePc is null && l.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable);
         if (_type is { } t) q = q.Where(l => l.Type == t);

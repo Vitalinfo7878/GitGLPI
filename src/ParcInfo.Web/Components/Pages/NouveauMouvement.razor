@@ -158,6 +158,14 @@ else
                             <MudTextField MaxLength="400" @bind-Value="_d.DestinationLibre" Label="@LibelleDestinationLibre" Variant="Variant.Outlined" Margin="Margin.Dense" />
                         </MudItem>
                     }
+                    @if (_d.Type == TypeMouvement.Restitution && _materiels.Any(m => !string.IsNullOrWhiteSpace(m.ProfilMicrosoft)))
+                    {
+                        <MudItem xs="12">
+                            <MudCheckBox T="bool" @bind-Value="_d.EffacerProfilMicrosoft" Color="Color.Primary" Dense="true"
+                                         Label="@($"Effacer le profil Microsoft du PC ({string.Join(", ", _materiels.Where(m => !string.IsNullOrWhiteSpace(m.ProfilMicrosoft)).Select(m => m.ProfilMicrosoft))})")" />
+                            <MudText Typo="Typo.caption" Class="d-block ml-8">L'ancien détenteur reste dans l'historique du matériel.</MudText>
+                        </MudItem>
+                    }
                     <MudItem xs="12" sm="6">
                         <MudTextField MaxLength="400" @bind-Value="_d.Expediteur" Label="Expéditeur" Variant="Variant.Outlined" Margin="Margin.Dense"
                                       HelperText="@(_d.Type == TypeMouvement.Restitution ? "Vide = détenteur actuel" : null)" />
