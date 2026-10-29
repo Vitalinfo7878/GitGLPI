@@ -52,7 +52,7 @@ else
             <TemplateColumn T="Ligne" Title="État" SortBy="x => x.Etat">
                 <CellTemplate>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
-                             Color="@(context.Item.Etat switch { "Actif" => Color.Success, "Sans compte Microsoft" => Color.Default, _ => Color.Error })">@context.Item.Etat</MudChip>
+                             Color="@(context.Item.Etat switch { "Actif" => Color.Success, "Sans compte Microsoft" => Color.Default, "Poste partagé" => Color.Info, _ => Color.Error })">@context.Item.Etat</MudChip>
                 </CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.NbMateriels" Title="Matériel" />
@@ -65,7 +65,7 @@ else
 }
 
 @code {
-    private static readonly string[] Etats = ["Actif", "Compte désactivé", "Supprimé de l'annuaire", "Sans compte Microsoft"];
+    private static readonly string[] Etats = ["Actif", "Compte désactivé", "Supprimé de l'annuaire", "Sans compte Microsoft", "Poste partagé"];
 
     /// <summary>Une fiche : compte Microsoft (avec ses personnes ou sites reliés), ou personne / site sans compte.</summary>
     private sealed record Ligne(string Cle, string Nom, string? Email, string? Poste, string? Service, string Etat, bool EstSite, int NbMateriels, string Recherche);
@@ -81,7 +81,7 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         var comptes = await db.ComptesMicrosoft.AsNoTracking().ToListAsync();
         var personnes = await db.Personnes.AsNoTracking()
-            .Select(p => new { p.Id, p.NomComplet, p.Email, p.EntraObjectId, N = p.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
+            .Select(p => new { p.Id, p.NomComplet, p.Email, p.EntraObjectId, p.Partage, N = p.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
         var sites = await db.Sites.AsNoTracking()
             .Select(s => new { s.Id, s.Code, s.Nom, s.Email, s.EntraObjectId, N = s.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
         var parCompte = personnes.Where(p => p.EntraObjectId != null).GroupBy(p => p.EntraObjectId!).ToDictionary(g => g.Key, g => g.Sum(p => p.N));
@@ -101,7 +101,8 @@ else
                     Cherche(c.NomAffichage, c.AdressePrincipale, c.Poste, c.Service, string.Join(' ', sitesDuCompte.Select(s => s.Code))));
             })
             .Concat(personnes.Where(p => p.EntraObjectId == null).Select(p =>
-                new Ligne($"p-{p.Id}", p.NomComplet, p.Email, null, null, "Sans compte Microsoft", false, p.N, Cherche(p.NomComplet, p.Email))))
+                new Ligne($"p-{p.Id}", p.NomComplet, p.Email, p.Partage ? "PC portable de télétravail" : null, null, p.Partage ? "Poste partagé" : "Sans compte Microsoft",
+                    false, p.N, Cherche(p.NomComplet, p.Email, p.Partage ? "poste partage teletravail" : null))))
             .Concat(sites.Where(s => s.EntraObjectId == null).Select(s =>
                 new Ligne($"s-{s.Id}", Site.LibelleDe(s.Code, s.Nom, false), s.Email, null, null, "Sans compte Microsoft", true, s.N, Cherche(s.Code, s.Nom, s.Email))))
             .OrderBy(l => l.Nom, StringComparer.CurrentCultureIgnoreCase).ToList();

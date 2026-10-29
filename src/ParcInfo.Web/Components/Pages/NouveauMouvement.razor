@@ -5,6 +5,7 @@
 @inject ServiceMouvements Service
 @inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
+@inject IConfiguration Config
 
 <PageTitle>@Titre</PageTitle>
 <MudText Typo="Typo.h4" Class="mb-4">@Titre</MudText>
@@ -88,11 +89,18 @@ else
                     {
                         <MudItem xs="12">
                             <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">Destinataire</MudText>
-                            <MudToggleGroup T="TypeDetenteur" Value="_typeDest" ValueChanged="ChangerTypeDest" Color="Color.Primary" Size="Size.Small" Class="mb-2">
-                                <MudToggleItem Value="TypeDetenteur.Personne" Text="Personne" />
-                                <MudToggleItem Value="TypeDetenteur.Site" Text="Site" />
+                            <MudToggleGroup T="string" Value="@(_partage ? "partage" : _typeDest.ToString())" ValueChanged="ChoisirDestination" Color="Color.Primary" Size="Size.Small" Class="mb-2">
+                                <MudToggleItem Value="@nameof(TypeDetenteur.Personne)" Text="Personne" />
+                                <MudToggleItem Value="@nameof(TypeDetenteur.Site)" Text="Site" />
+                                @if (QuePortables || _partage) { <MudToggleItem Value="@("partage")" Text="PC partagé (télétravail)" /> }
                             </MudToggleGroup>
-                            @if (_typeDest == TypeDetenteur.Site)
+                            @if (_partage)
+                            {
+                                <MudAutocomplete T="string" @bind-Value="_postePartage" SearchFunc="ChercherPostePartage" CoerceValue="true" MaxLength="200"
+                                                 Label="Poste partagé *" Variant="Variant.Outlined" Margin="Margin.Dense" ShowProgressIndicator="false"
+                                                 HelperText="PC portable de télétravail qui n'appartient à personne. Un autre nom peut être saisi." />
+                            }
+                            else if (_typeDest == TypeDetenteur.Site)
                             {
                                 <MudAutocomplete T="Site" Value="_site" ValueChanged="ChoisirSite" SearchFunc="ChercherSite" ToStringFunc="@(s => s?.Libelle ?? "")"
                                                  Label="Site (code ou nom)" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
@@ -127,9 +135,12 @@ else
                                     </div>
                                 }
                             }
-                            <MudTextField @bind-Value="_d.EmailDetenteur" MaxLength="200" Label="Adresse mail du destinataire *" InputType="InputType.Email"
-                                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
-                                          HelperText="Obligatoire : enregistrée sur la personne ou le site, elle donne accès à « Mon matériel »." />
+                            @if (!_partage)
+                            {
+                                <MudTextField @bind-Value="_d.EmailDetenteur" MaxLength="200" Label="Adresse mail du destinataire *" InputType="InputType.Email"
+                                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                                              HelperText="Obligatoire : enregistrée sur la personne ou le site, elle donne accès à « Mon matériel »." />
+                            }
                         </MudItem>
                         @if (ChangementDetenteur)
                         {
@@ -198,6 +209,11 @@ else
     private List<Materiel> _materiels = [];
     private MudAutocomplete<Materiel>? _recherche;
     private TypeDetenteur _typeDest = TypeDetenteur.Personne;
+    /// <summary>Destination « PC partagé (télétravail) » : poste partagé, sans adresse mail.</summary>
+    private bool _partage;
+    private string? _postePartage;
+    private List<string> _postesPartages = [];
+    private bool QuePortables => _materiels.Count > 0 && _materiels.All(m => m.Type == TypeMateriel.PcPortable);
     private Site? _site;
     private Personne? _personne;
     private bool _nouvellePersonne;
@@ -220,6 +236,7 @@ else
     {
         await using (var dbAnnuaire = await DbFactory.CreateDbContextAsync())
             _annuaireDisponible = await dbAnnuaire.ComptesMicrosoft.AnyAsync();
+        _postesPartages = await Service.PostesPartagesAsync(Config.GetSection("Parc:PostesPartages").Get<string[]>() ?? []);
         if (Enum.TryParse<TypeMouvement>(TypeQuery, out var t) && RegleMouvement.TypesSaisissables.Contains(t)) ChangerType(t);
         else ChangerType(TypeMouvement.Attribution);
         var ids = (Ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => int.TryParse(s, out var i) ? i : 0).Where(i => i > 0).ToList();
@@ -246,6 +263,16 @@ else
         _d.DestinationLibre = _regle.DestinationParDefaut;
         _erreur = null;
     }
+
+    private void ChoisirDestination(string valeur)
+    {
+        _partage = valeur == "partage";
+        _d.EmailDetenteur = null;
+        if (!_partage) ChangerTypeDest(Enum.Parse<TypeDetenteur>(valeur));
+    }
+
+    private Task<IEnumerable<string>> ChercherPostePartage(string? texte, CancellationToken ct) => Task.FromResult(
+        _postesPartages.Where(p => string.IsNullOrWhiteSpace(texte) || p.Contains(texte.Trim(), StringComparison.OrdinalIgnoreCase)));
 
     private void ChangerTypeDest(TypeDetenteur t)
     {
@@ -359,8 +386,14 @@ else
         {
             _d.MaterielIds = _materiels.Select(m => m.Id).ToList();
             _d.Correction = Correction;
-            _d.DestinationSiteId = _regle.DestinationEstDetenteur && _typeDest == TypeDetenteur.Site ? _site?.Id : null;
-            _d.DestinationPersonneId = _regle.DestinationEstDetenteur && _typeDest == TypeDetenteur.Personne ? _personne?.Id : null;
+            _d.DestinationSiteId = _regle.DestinationEstDetenteur && !_partage && _typeDest == TypeDetenteur.Site ? _site?.Id : null;
+            _d.DestinationPersonneId = _regle.DestinationEstDetenteur && !_partage && _typeDest == TypeDetenteur.Personne ? _personne?.Id : null;
+            if (_regle.DestinationEstDetenteur && _partage)
+            {
+                if (!QuePortables) throw new ErreurMetier("Un poste partagé (télétravail) ne reçoit que des PC portables.");
+                _d.DestinationPersonneId = (await Service.PostePartageAsync(_postePartage)).Id;
+                _d.EmailDetenteur = null;
+            }
             _resultat = await Service.CreerMouvementsAsync(_d, await Courant.ObtenirAsync());
         }
         catch (ErreurMetier ex) { _erreur = ex.Message; }
@@ -372,6 +405,8 @@ else
     {
         _resultat = null;
         _materiels = [];
+        _partage = false;
+        _postePartage = null;
         _site = null;
         _personne = null;
         _d = new DemandeMouvement();

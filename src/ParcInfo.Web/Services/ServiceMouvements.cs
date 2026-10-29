@@ -205,7 +205,10 @@ public sealed class ServiceMouvements(
         // Adresse du destinataire d'une attribution, obligatoire : enregistrée sur la personne ou le site,
         // elle donne accès à « Mon matériel » et au téléchargement de la fiche.
         string? emailDestinataire = null;
-        if (regle.DestinationEstDetenteur)
+        if (personne?.Partage == true && materiels.Any(m => m.Type != TypeMateriel.PcPortable))
+            throw new ErreurMetier($"« {personne.NomComplet} » est un poste partagé : seuls des PC portables peuvent lui être attribués.");
+        // Poste partagé (télétravail) : pas d'adresse mail
+        if (regle.DestinationEstDetenteur && personne?.Partage != true)
         {
             emailDestinataire = (Vide(d.EmailDetenteur) ?? personne?.Email ?? site?.Email)?.ToLowerInvariant();
             if (emailDestinataire is null) throw new ErreurMetier("L'adresse mail du destinataire est obligatoire.");
@@ -525,6 +528,29 @@ public sealed class ServiceMouvements(
         });
         await db.SaveChangesAsync(ct);
         return $"Mouvement n° {mv.Numero} supprimé{ficheSupprimee}{suite}.";
+    }
+
+    /// <summary>PC portable partagé (« Télétravail Compta 1 »…) : détenteur sans adresse ni compte Microsoft, créé au premier usage.</summary>
+    public async Task<Personne> PostePartageAsync(string? nom, CancellationToken ct = default)
+    {
+        var n = nom?.Trim();
+        if (string.IsNullOrEmpty(n)) throw new ErreurMetier("Choisissez le poste partagé.");
+        if (n.Length > 200) throw new ErreurMetier("Nom trop long (200 caractères maximum).");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var p = (await db.Personnes.Where(x => x.Partage).ToListAsync(ct)).FirstOrDefault(x => string.Equals(x.NomComplet, n, StringComparison.OrdinalIgnoreCase));
+        if (p is not null) return p;
+        p = new Personne { NomComplet = n, Partage = true, SansCompteMicrosoft = true };
+        db.Personnes.Add(p);
+        await db.SaveChangesAsync(ct);
+        return p;
+    }
+
+    /// <summary>Postes partagés proposés : ceux de la configuration (« Parc:PostesPartages ») et ceux déjà créés.</summary>
+    public async Task<List<string>> PostesPartagesAsync(IEnumerable<string> configures, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var existants = await db.Personnes.Where(x => x.Partage).Select(x => x.NomComplet).ToListAsync(ct);
+        return configures.Concat(existants).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
     /// <summary>Range des PC dans une catégorie (PC Site / PC Enrôlé), ou l'efface ; les autres matériels sont ignorés.</summary>

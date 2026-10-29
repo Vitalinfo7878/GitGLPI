@@ -443,4 +443,34 @@ public sealed class ServiceMouvementsTests : IDisposable
         var hd = await HistoriqueDetenteur.CalculerAsync(db2, [dominique], []);
         Assert.Equal(pc, Assert.Single(hd, x => x.EnCours).Materiel.Id);
     }
+
+    [Fact]
+    public async Task PC_portable_partage_de_teletravail()
+    {
+        var (pc, ecran, camille) = Donnees();
+        int portable;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = new Materiel { NumInterne = "PO0120", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.Attribue, PersonneId = camille };
+            db.Materiels.Add(m);
+            await db.SaveChangesAsync();
+            portable = m.Id;
+        }
+        var poste = await _service.PostePartageAsync(" Télétravail Compta 1 ");
+        Assert.Equal(poste.Id, (await _service.PostePartageAsync("télétravail compta 1")).Id); // pas de doublon
+        Assert.True(poste.Partage && poste.SansCompteMicrosoft);
+
+        // Changement de détenteur sans adresse mail ; un écran ne peut pas aller sur un poste partagé
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [portable], DestinationPersonneId = poste.Id, Correction = true }, Informatique);
+        var ex = await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [ecran], DestinationPersonneId = poste.Id }, Informatique));
+        Assert.Contains("seuls des PC portables", ex.Message);
+
+        await using var db2 = _fabrique.CreateDbContext();
+        var m2 = await db2.Materiels.Include(x => x.Personne).SingleAsync(x => x.Id == portable);
+        Assert.Equal("Télétravail Compta 1", m2.DetenteurLibelle);
+        Assert.Null(m2.Personne!.Email);
+        Assert.Contains("Télétravail Achat", await _service.PostesPartagesAsync(["Télétravail Achat"]));
+        Assert.Contains("Télétravail Compta 1", await _service.PostesPartagesAsync([]));
+    }
 }

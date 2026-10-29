@@ -18,7 +18,8 @@ else
     <MudBreadcrumbs Items="@([new("Annuaire", "/annuaire"), new(_nom, null, true)])" Class="px-0 pt-0" />
     <div class="d-flex flex-wrap align-center gap-3 mb-4">
         <MudText Typo="Typo.h4">@_nom</MudText>
-        @if (_compte is null) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Sans compte Microsoft</MudChip> }
+        @if (_partage) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Info" Icon="@Icons.Material.Outlined.Laptop">Poste partagé (télétravail)</MudChip> }
+        else if (_compte is null) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Sans compte Microsoft</MudChip> }
         @if (_sites.Count > 0) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Icon="@Icons.Material.Outlined.Restaurant">@(_sites.Count == 1 ? "Site" : $"{_sites.Count} sites") @string.Join(", ", _sites.Select(s => s.Code))</MudChip> }
     </div>
 
@@ -37,7 +38,7 @@ else
                     <dl class="champ-lecture">
                         <Champ Libelle="Adresse mail" Valeur="@_email" />
                     </dl>
-                    @if (_u!.EstGestionnaire)
+                    @if (_u!.EstGestionnaire && !_partage)
                     {
                         <MudText Typo="Typo.caption">Pas encore relié à un compte Microsoft : <MudLink Href="/comptes-microsoft" Typo="Typo.caption">Comptes Microsoft</MudLink></MudText>
                     }
@@ -137,6 +138,7 @@ else
     private Utilisateur? _u;
     private string? _nom;
     private string? _email;
+    private bool _partage;
     private CompteMicrosoft? _compte;
     private List<Site> _sites = [];
     private List<PeriodeDetention> _periodes = [];
@@ -176,6 +178,7 @@ else
                 personnes = await db.Personnes.AsNoTracking().Include(p => p.CompteMicrosoft).Where(p => p.Id == pid).ToListAsync();
                 _compte = personnes.FirstOrDefault()?.CompteMicrosoft;
                 _nom = personnes.FirstOrDefault()?.NomComplet;
+                _partage = personnes.FirstOrDefault()?.Partage == true;
                 _email = personnes.FirstOrDefault()?.Email;
                 break;
             case "s-" when int.TryParse(id, out var sid):

@@ -52,6 +52,11 @@ public class Personne
 {
     public int Id { get; set; }
     public string NomComplet { get; set; } = "";
+    /// <summary>
+    /// PC portable partagé (ex. « Télétravail Compta 1 ») : détenteur qui n'est pas une personne,
+    /// sans adresse mail ni compte Microsoft.
+    /// </summary>
+    public bool Partage { get; set; }
     public string? Email { get; set; }
     /// <summary>Compte Microsoft relié : le nom et l'adresse sont alors ceux de l'annuaire, actualisés chaque nuit.</summary>
     public string? EntraObjectId { get; set; }

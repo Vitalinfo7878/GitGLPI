@@ -47,7 +47,7 @@ else
                             <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
                             <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense"
                                                                   Error="@(_erreurs.ContainsKey("NumSerie"))" ErrorText="@_erreurs.GetValueOrDefault("NumSerie")" /></MudItem>
-                            @if (_m.Site is not null || _m.Personne is not null)
+                            @if (_m.Site is not null || (_m.Personne is not null && !_m.Personne.Partage))
                             {
                                 <MudItem xs="12">
                                     <MudTextField MaxLength="200" @bind-Value="_emailDetenteur" Label="@($"Adresse mail de {_m.DetenteurLibelle} *")" InputType="InputType.Email"
@@ -123,7 +123,7 @@ else
                                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@LienChangerDetenteur" Class="ml-1 py-0">Changer</MudButton>
                                     }
                                 </Champ>
-                                @if (_m.Site is not null || _m.Personne is not null)
+                                @if (_m.Site is not null || (_m.Personne is not null && !_m.Personne.Partage))
                                 {
                                     <Champ Libelle="Mail du détenteur" Valeur="@(_m.Personne?.Email ?? _m.Site?.Email)" />
                                 }
@@ -318,7 +318,7 @@ else
         var email = _emailDetenteur?.Trim().ToLowerInvariant();
         _erreurs = [];
         if (string.IsNullOrWhiteSpace(f.NumSerie)) _erreurs["NumSerie"] = "Le n° de série est obligatoire.";
-        if (_m!.Site is not null || _m.Personne is not null)
+        if (_m!.Site is not null || (_m.Personne is not null && !_m.Personne.Partage))
         {
             if (string.IsNullOrEmpty(email)) _erreurs["Email"] = "L'adresse mail est obligatoire.";
             else if (!FormulaireDemande.EmailValide(email)) _erreurs["Email"] = "Adresse mail invalide.";
