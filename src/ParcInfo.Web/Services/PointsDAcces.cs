@@ -29,6 +29,15 @@ public static class PointsDAcces
             return Results.File(fiche.Pdf, "application/pdf", $"{fiche.Code}.pdf");
         });
 
+        // Photo d'un ticket : seulement pour qui peut voir le ticket (et la note interne à laquelle elle est jointe)
+        app.MapGet("/tickets/photos/{id:int}", async (int id, ClaimsPrincipal user, ServiceTickets tickets, HttpContext ctx) =>
+        {
+            var p = await tickets.LirePhotoAsync(id, Utilisateur.Depuis(user));
+            if (p is null) return Results.NotFound();
+            ctx.Response.Headers.CacheControl = "private, max-age=86400";
+            return Results.File(p.Contenu, p.TypeContenu);
+        });
+
         // Contrôle de la connexion : informations reçues de Microsoft pour le compte connecté (rôles, adresses)
         app.MapGet("/connexion/infos", (ClaimsPrincipal user) =>
         {

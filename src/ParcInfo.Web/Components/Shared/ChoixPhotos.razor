@@ -1,0 +1,76 @@
+@* Photos à joindre (appareil photo du téléphone ou fichiers) : réduites dans le navigateur avant l'envoi. *@
+<div>
+    <MudFileUpload T="IReadOnlyList<IBrowserFile>" FilesChanged="Ajouter" Accept="image/*" MaximumFileCount="@Photos.MaxParEnvoi">
+        <CustomContent>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AddAPhoto"
+                       OnClick="@context.OpenFilePickerAsync" Disabled="@(_chargement || Valeurs.Count >= Photos.MaxParEnvoi)">
+                @(Valeurs.Count == 0 ? "Ajouter des photos" : "Ajouter d'autres photos")
+            </MudButton>
+        </CustomContent>
+    </MudFileUpload>
+    @if (_chargement) { <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-1" /> }
+    @if (Valeurs.Count > 0)
+    {
+        <div class="d-flex flex-wrap gap-2 mt-1">
+            @foreach (var p in Valeurs)
+            {
+                <div class="photo-apercu">
+                    <img src="@($"data:{p.TypeContenu};base64,{Convert.ToBase64String(p.Contenu)}")" alt="@p.Nom" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Class="photo-retirer" aria-label="@($"Retirer {p.Nom}")" OnClick="() => Retirer(p)" />
+                </div>
+            }
+        </div>
+    }
+    @if (_erreur is not null) { <MudText Typo="Typo.caption" Style="color:var(--mud-palette-error)">@_erreur</MudText> }
+</div>
+
+@code {
+    [Parameter] public List<PhotoEnvoyee> Valeurs { get; set; } = [];
+    [Parameter] public EventCallback<List<PhotoEnvoyee>> ValeursChanged { get; set; }
+
+    private bool _chargement;
+    private string? _erreur;
+
+    private async Task Ajouter(IReadOnlyList<IBrowserFile>? fichiers)
+    {
+        if (fichiers is null || fichiers.Count == 0) return;
+        _erreur = null;
+        _chargement = true;
+        var liste = Valeurs.ToList();
+        var refusees = new List<string>();
+        try
+        {
+            foreach (var f in fichiers.Take(Photos.MaxParEnvoi - liste.Count))
+            {
+                var photo = await LireAsync(f);
+                if (photo is null) refusees.Add(f.Name);
+                else liste.Add(photo);
+            }
+            if (fichiers.Count > Photos.MaxParEnvoi - Valeurs.Count) refusees.Add($"{Photos.MaxParEnvoi} photos au maximum");
+            if (refusees.Count > 0) _erreur = $"Non ajoutées : {string.Join(", ", refusees)}.";
+            await ValeursChanged.InvokeAsync(liste);
+        }
+        finally { _chargement = false; }
+    }
+
+    /// <summary>Photo réduite à 1920 px en JPEG dans le navigateur ; à défaut (format non lu par le navigateur), le fichier d'origine s'il est une image valide.</summary>
+    private static async Task<PhotoEnvoyee?> LireAsync(IBrowserFile f)
+    {
+        foreach (var essai in new Func<Task<IBrowserFile>>[] { () => f.RequestImageFileAsync("image/jpeg", 1920, 1920).AsTask(), () => Task.FromResult(f) })
+        {
+            try
+            {
+                var fichier = await essai();
+                if (fichier.Size > Photos.TailleMax) continue;
+                using var ms = new MemoryStream();
+                await fichier.OpenReadStream(Photos.TailleMax).CopyToAsync(ms);
+                var octets = ms.ToArray();
+                if (Photos.TypeReel(octets) is { } type) return new PhotoEnvoyee(Path.ChangeExtension(f.Name, type == "image/jpeg" ? ".jpg" : Path.GetExtension(f.Name)), type, octets);
+            }
+            catch (Exception e) when (e is IOException or JSException or InvalidOperationException) { }
+        }
+        return null;
+    }
+
+    private async Task Retirer(PhotoEnvoyee p) => await ValeursChanged.InvokeAsync(Valeurs.Where(x => x != p).ToList());
+}

@@ -21,6 +21,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<DoublonIgnore> DoublonsIgnores => Set<DoublonIgnore>();
     public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
     public DbSet<MessageDemande> MessagesDemandes => Set<MessageDemande>();
+    public DbSet<PhotoTicket> PhotosTickets => Set<PhotoTicket>();
     public DbSet<DroitAcces> DroitsAcces => Set<DroitAcces>();
     public DbSet<DemandeMateriel> DemandesMateriels => Set<DemandeMateriel>();
     /// <summary>Clés de chiffrement des cookies de connexion : conservées en base pour survivre aux redémarrages du conteneur.</summary>
@@ -154,6 +155,16 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.Auteur).HasMaxLength(200);
             e.Property(x => x.AuteurEmail).HasMaxLength(200);
             e.HasOne(x => x.Demande).WithMany(d => d.Messages).HasForeignKey(x => x.DemandeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<PhotoTicket>(e =>
+        {
+            e.Property(x => x.Nom).HasMaxLength(200);
+            e.Property(x => x.TypeContenu).HasMaxLength(40);
+            e.Property(x => x.AjouteePar).HasMaxLength(400);
+            e.Property(x => x.Contenu).Metadata.SetMaxLength(null);
+            e.HasOne(x => x.Ticket).WithMany().HasForeignKey(x => x.TicketId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Message).WithMany().HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.NoAction);
         });
 
         b.Entity<TicketMessage>(e =>

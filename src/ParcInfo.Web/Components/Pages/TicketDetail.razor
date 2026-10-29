@@ -65,6 +65,14 @@ else
                     <Champ Libelle="Mail"><a href="mailto:@_t.DemandeurEmail">@_t.DemandeurEmail</a></Champ>
                     <Champ Libelle="Téléphone"><a href="tel:@_t.DemandeurTelephone">@_t.DemandeurTelephone</a></Champ>
                     <Champ Libelle="Disponibilités" Valeur="@_t.Disponibilites" />
+                    @if (PhotosDe(null).Any())
+                    {
+                        <Champ Libelle="Photos">
+                            <div class="photos-ticket">
+                                @foreach (var p in PhotosDe(null)) { <a href="@($"/tickets/photos/{p.Id}")" target="_blank" title="@p.Nom"><img src="@($"/tickets/photos/{p.Id}")" alt="@p.Nom" loading="lazy" /></a> }
+                            </div>
+                        </Champ>
+                    }
                 </dl>
             </MudPaper>
 
@@ -85,6 +93,12 @@ else
                                     @if (msg.Interne) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text" Class="my-0">Note interne</MudChip> }
                                 </MudText>
                                 <MudText Typo="Typo.body2" Style="white-space:pre-line">@msg.Texte</MudText>
+                                @if (PhotosDe(msg.Id).Any())
+                                {
+                                    <div class="photos-ticket">
+                                        @foreach (var p in PhotosDe(msg.Id)) { <a href="@($"/tickets/photos/{p.Id}")" target="_blank" title="@p.Nom"><img src="@($"/tickets/photos/{p.Id}")" alt="@p.Nom" loading="lazy" /></a> }
+                                    </div>
+                                }
                             }
                         </div>
                     }
@@ -97,6 +111,7 @@ else
                 {
                     <MudTextField @bind-Value="_message" MaxLength="4000" Label="@(_interne ? "Note interne (invisible du demandeur)" : "Votre message")" Lines="3"
                                   Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-4" />
+                    <ChoixPhotos @bind-Valeurs="_photosMessage" />
                     <div class="d-flex flex-wrap align-center gap-2 mt-2">
                         @if (_u.EstAdminTickets)
                         {
@@ -259,6 +274,10 @@ else
     }
     private Dictionary<string, string> _erreurs = [];
     private string? _message;
+    private List<PhotoEnvoyee> _photosMessage = [];
+    private List<ApercuPhoto> _photos = [];
+
+    private IEnumerable<ApercuPhoto> PhotosDe(int? messageId) => _photos.Where(p => p.MessageId == messageId);
     private bool _interne;
     private int _note;
     private string? _avis;
@@ -280,6 +299,8 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         _t = await db.Tickets.AsNoTracking().Include(x => x.Messages).Include(x => x.Materiel).Include(x => x.Demande).FirstOrDefaultAsync(x => x.Id == Id);
         if (_t is null) return;
+        _u ??= await Courant.ObtenirAsync();
+        _photos = await Service.ListerPhotosAsync(_t.Id, _u);
         _m = MiseAJourTicket.Depuis(_t);
         _erreurs = [];
     }
@@ -306,8 +327,9 @@ else
 
     private Task Envoyer() => Executer(async () =>
     {
-        await Service.AjouterMessageAsync(_t!.Id, _message, _interne, _u!);
+        await Service.AjouterMessageAsync(_t!.Id, _message, _interne, _u!, photos: _photosMessage);
         _message = null;
+        _photosMessage = [];
     }, _interne ? "Note interne ajoutée." : "Message envoyé.");
 
     private Task Enregistrer() => Executer(() => Service.MettreAJourAsync(_t!.Id, _m, _u!), "Ticket mis à jour.");

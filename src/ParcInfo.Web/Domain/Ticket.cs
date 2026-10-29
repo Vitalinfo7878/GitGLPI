@@ -159,3 +159,20 @@ public class TicketMessage
     /// <summary>Trace générée par l'application (changement de statut…).</summary>
     public bool Systeme { get; set; }
 }
+
+/// <summary>Photo jointe à un ticket (à sa création ou à un message ; celle d'une note interne n'est visible que de l'informatique).</summary>
+public class PhotoTicket
+{
+    public int Id { get; set; }
+    public int TicketId { get; set; }
+    public Ticket Ticket { get; set; } = null!;
+    /// <summary>Message auquel la photo est jointe ; vide pour les photos de la création du ticket.</summary>
+    public int? MessageId { get; set; }
+    public TicketMessage? Message { get; set; }
+    public string Nom { get; set; } = "";
+    public string TypeContenu { get; set; } = "";
+    public int Taille { get; set; }
+    public byte[] Contenu { get; set; } = [];
+    public DateTime AjouteeLe { get; set; }
+    public string AjouteePar { get; set; } = "";
+}

@@ -804,6 +804,54 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("Personnes");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.PhotoTicket", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AjouteeLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AjouteePar")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<byte[]>("Contenu")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<int?>("MessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Nom")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Taille")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TicketId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TypeContenu")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("PhotosTickets");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.Region", b =>
                 {
                     b.Property<int>("Id")
@@ -1185,6 +1233,24 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Navigation("CompteMicrosoft");
 
                     b.Navigation("Region");
+                });
+
+            modelBuilder.Entity("ParcInfo.Web.Domain.PhotoTicket", b =>
+                {
+                    b.HasOne("ParcInfo.Web.Domain.TicketMessage", "Message")
+                        .WithMany()
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("ParcInfo.Web.Domain.Ticket", "Ticket")
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Message");
+
+                    b.Navigation("Ticket");
                 });
 
             modelBuilder.Entity("ParcInfo.Web.Domain.Site", b =>

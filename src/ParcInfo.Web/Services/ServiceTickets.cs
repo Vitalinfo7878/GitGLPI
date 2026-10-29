@@ -98,6 +98,44 @@ public sealed class MiseAJourTicket
     }
 }
 
+/// <summary>Photo envoyée depuis le navigateur (déjà réduite).</summary>
+public sealed record PhotoEnvoyee(string Nom, string TypeContenu, byte[] Contenu);
+
+/// <summary>Contrôle des photos jointes aux tickets : vraies images (JPEG, PNG, WebP, GIF), taille et nombre limités.</summary>
+public static class Photos
+{
+    public const int MaxParEnvoi = 6;
+    public const int TailleMax = 5 * 1024 * 1024;
+
+    /// <summary>Type réel d'après le contenu du fichier (et non son nom ou le type annoncé).</summary>
+    public static string? TypeReel(ReadOnlySpan<byte> o) =>
+        o.Length >= 3 && o[0] == 0xFF && o[1] == 0xD8 && o[2] == 0xFF ? "image/jpeg"
+        : o.Length >= 8 && o[..8].SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }) ? "image/png"
+        : o.Length >= 6 && (o[..6].SequenceEqual("GIF87a"u8) || o[..6].SequenceEqual("GIF89a"u8)) ? "image/gif"
+        : o.Length >= 12 && o[..4].SequenceEqual("RIFF"u8) && o[8..12].SequenceEqual("WEBP"u8) ? "image/webp"
+        : null;
+
+    public static List<PhotoTicket> Verifier(IReadOnlyCollection<PhotoEnvoyee>? photos, Utilisateur u, DateTime maintenant)
+    {
+        if (photos is null || photos.Count == 0) return [];
+        if (photos.Count > MaxParEnvoi) throw new ErreurMetier($"{MaxParEnvoi} photos au maximum par envoi.");
+        return photos.Select(p =>
+        {
+            var type = TypeReel(p.Contenu) ?? throw new ErreurMetier($"« {p.Nom} » n'est pas une photo (JPEG, PNG, WebP ou GIF).");
+            if (p.Contenu.Length > TailleMax) throw new ErreurMetier($"« {p.Nom} » est trop lourde (5 Mo au maximum).");
+            var nom = Path.GetFileName(p.Nom.Replace('\\', '/')); // chemin Windows éventuel
+            return new PhotoTicket
+            {
+                Nom = string.IsNullOrWhiteSpace(nom) ? "photo" : nom.Length > 200 ? nom[..200] : nom,
+                TypeContenu = type, Taille = p.Contenu.Length, Contenu = p.Contenu, AjouteeLe = maintenant, AjouteePar = u.Signature,
+            };
+        }).ToList();
+    }
+}
+
+/// <summary>Photo d'un ticket sans son contenu (affichage de la page).</summary>
+public sealed record ApercuPhoto(int Id, int? MessageId, string Nom);
+
 public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
 {
     /// <summary>Peut voir le ticket : son auteur / demandeur et les administrateurs des tickets.</summary>
@@ -105,7 +143,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
 
     public static bool EstDemandeur(Utilisateur u, Ticket t) => !t.Interne && (u.AEmail(t.SaisiePar) || u.AEmail(t.DemandeurEmail));
 
-    public async Task<Ticket> CreerAsync(FormulaireTicket f, Utilisateur auteur, CancellationToken ct = default)
+    public async Task<Ticket> CreerAsync(FormulaireTicket f, Utilisateur auteur, CancellationToken ct = default, IReadOnlyCollection<PhotoEnvoyee>? photos = null)
     {
         // Le mail du demandeur est toujours celui du compte connecté (non modifiable dans le formulaire)
         f.DemandeurEmail = auteur.Email;
@@ -134,6 +172,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
             Statut = StatutTicket.Nouveau,
         };
         await LierMaterielAsync(db, t, f.MaterielReference, ct);
+        var jointes = Photos.Verifier(photos, auteur, maintenant);
 
         // Numérotation à la suite (avec une nouvelle tentative si deux tickets arrivent en même temps)
         for (var essai = 0; ; essai++)
@@ -151,22 +190,50 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
             }
         }
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouveau ticket", Details = $"n° {t.Numero} – {t.Titre}", MaterielId = t.MaterielId });
+        foreach (var p in jointes) p.TicketId = t.Id;
+        db.PhotosTickets.AddRange(jointes);
         await db.SaveChangesAsync(ct);
         return t;
     }
 
-    /// <summary>Message du demandeur ou du service informatique ; une note interne n'est visible que des administrateurs.</summary>
-    public async Task AjouterMessageAsync(int id, string? texte, bool interne, Utilisateur u, CancellationToken ct = default)
+    /// <summary>Photos visibles par l'utilisateur (sans leur contenu) : celles des notes internes seulement pour l'informatique.</summary>
+    public async Task<List<ApercuPhoto>> ListerPhotosAsync(int ticketId, Utilisateur u, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(texte)) throw new ErreurMetier("Le message est vide.");
-        if (texte.Trim().Length > 4000) throw new ErreurMetier("Message trop long (4000 caractères maximum).");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.PhotosTickets.AsNoTracking()
+            .Where(p => p.TicketId == ticketId && (u.EstAdminTickets || p.MessageId == null || !p.Message!.Interne))
+            .OrderBy(p => p.Id).Select(p => new ApercuPhoto(p.Id, p.MessageId, p.Nom)).ToListAsync(ct);
+    }
+
+    /// <summary>Contenu d'une photo, si l'utilisateur peut voir le ticket (et la note interne à laquelle elle est jointe).</summary>
+    public async Task<PhotoTicket?> LirePhotoAsync(int id, Utilisateur u, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var p = await db.PhotosTickets.AsNoTracking().Include(x => x.Ticket).Include(x => x.Message).FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (p is null || !PeutVoir(u, p.Ticket) || (p.Message?.Interne == true && !u.EstAdminTickets)) return null;
+        return p;
+    }
+
+    /// <summary>Message du demandeur ou du service informatique ; une note interne n'est visible que des administrateurs.</summary>
+    public async Task AjouterMessageAsync(int id, string? texte, bool interne, Utilisateur u, CancellationToken ct = default, IReadOnlyCollection<PhotoEnvoyee>? photos = null)
+    {
+        if (string.IsNullOrWhiteSpace(texte) && (photos is null || photos.Count == 0)) throw new ErreurMetier("Le message est vide.");
+        if (texte?.Trim().Length > 4000) throw new ErreurMetier("Message trop long (4000 caractères maximum).");
+        var jointes = Photos.Verifier(photos, u, DateTime.UtcNow);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var t = await ChargerAsync(db, id, u, ct);
         if (interne && !u.EstAdminTickets) throw new ErreurMetier("Réservé au service informatique.");
         if (t.Statut == StatutTicket.Clos) throw new ErreurMetier("Ce ticket est clos : ouvrez un nouveau ticket si besoin.");
 
         var maintenant = DateTime.UtcNow;
-        t.Messages.Add(Message(u, texte.Trim(), interne, maintenant));
+        var message = Message(u, string.IsNullOrWhiteSpace(texte) ? (jointes.Count == 1 ? "Photo jointe" : $"{jointes.Count} photos jointes") : texte.Trim(), interne, maintenant);
+        t.Messages.Add(message);
+        foreach (var p in jointes)
+        {
+            p.Ticket = t;
+            p.Message = message;
+        }
+        db.PhotosTickets.AddRange(jointes);
         // La réponse du demandeur relance le traitement
         if (!u.EstAdminTickets && t.Statut == StatutTicket.AttenteDemandeur) ChangerStatut(t, StatutTicket.EnCours, u, maintenant);
         t.ModifieLe = maintenant;

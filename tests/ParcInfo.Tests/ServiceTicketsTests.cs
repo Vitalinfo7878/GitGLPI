@@ -138,4 +138,40 @@ public sealed class ServiceTicketsTests : IDisposable
         var t = await _service.CreerAsync(f, Salarie);
         Assert.Equal("camille.test@vitalrest.com", t.DemandeurEmail);
     }
+
+    private static readonly byte[] Jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00];
+    private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
+
+    [Fact]
+    public async Task Photos_jointes_au_ticket_et_aux_echanges()
+    {
+        // Création avec une photo ; un faux fichier (script renommé en .jpg) est refusé
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerAsync(Complet(), Salarie, photos: [new("ecran.jpg", "image/jpeg", "<script>"u8.ToArray())]));
+        var t = await _service.CreerAsync(Complet(), Salarie, photos: [new("C:\\Users\\camille\\ecran.jpg", "image/jpeg", Jpeg)]);
+
+        // Réponse du demandeur avec photo seule ; note interne avec photo
+        await _service.AjouterMessageAsync(t.Id, null, false, Salarie, photos: [new("imprimante.png", "image/png", Png)]);
+        await _service.AjouterMessageAsync(t.Id, "Photo du câblage", true, Informatique, photos: [new("baie.png", "image/png", Png)]);
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterMessageAsync(t.Id, "Trop", false, Salarie,
+            photos: Enumerable.Range(0, Photos.MaxParEnvoi + 1).Select(i => new PhotoEnvoyee($"{i}.jpg", "image/jpeg", Jpeg)).ToList()));
+
+        var duDemandeur = await _service.ListerPhotosAsync(t.Id, Salarie);
+        Assert.Equal(["ecran.jpg", "imprimante.png"], duDemandeur.Select(p => p.Nom)); // nom sans le chemin du poste ; pas la photo de la note interne
+        Assert.Equal(3, (await _service.ListerPhotosAsync(t.Id, Informatique)).Count);
+
+        var interne = (await _service.ListerPhotosAsync(t.Id, Informatique)).Single(p => p.Nom == "baie.png");
+        Assert.Null(await _service.LirePhotoAsync(interne.Id, Salarie));
+        Assert.Null(await _service.LirePhotoAsync(duDemandeur[0].Id, Autre)); // pas son ticket
+        var lue = await _service.LirePhotoAsync(duDemandeur[0].Id, Salarie);
+        Assert.Equal(("image/jpeg", Jpeg.Length), (lue!.TypeContenu, lue.Taille));
+
+        await using var db = _fabrique.CreateDbContext();
+        Assert.Contains(await db.MessagesTickets.Select(m => m.Texte).ToListAsync(), x => x == "Photo jointe");
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x47, 0x49, 0x46, 0x38, 0x39, 0x61 }, "image/gif")]
+    [InlineData(new byte[] { 0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50 }, "image/webp")]
+    [InlineData(new byte[] { 0x3C, 0x73, 0x76, 0x67 }, null)] // SVG : refusé
+    public void Type_reel_d_apres_le_contenu(byte[] octets, string? attendu) => Assert.Equal(attendu, Photos.TypeReel(octets));
 }

@@ -115,6 +115,10 @@
                     <MudTextField @bind-Value="_f.Disponibilites" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Ex. tous les matins avant 11 h" />
                 </Question>
 
+                <Question Numero="13" Libelle="Photos (facultatif)" Erreur="@Err("Photos")" Aide="Une photo de l'écran, du message d'erreur ou du matériel aide à résoudre plus vite.">
+                    <ChoixPhotos @bind-Valeurs="_photos" />
+                </Question>
+
                 @if (_erreurs.Count > 0)
                 {
                     <MudAlert Severity="Severity.Error" Dense="true">Certaines réponses obligatoires sont manquantes ou incorrectes : vérifiez les questions signalées en rouge.</MudAlert>
@@ -129,6 +133,7 @@
 
 @code {
     private FormulaireTicket _f = new();
+    private List<PhotoEnvoyee> _photos = [];
     private Dictionary<string, string> _erreurs = [];
     private bool _envoi;
     private bool _allerErreur;
@@ -151,6 +156,7 @@
     private void Prerenseigner()
     {
         _f = new FormulaireTicket { DemandeurEmail = _u?.Email };
+        _photos = [];
         if (_mesMateriels.Count == 1) _f.MaterielReference = _mesMateriels[0].NumInterne;
         _erreurs = [];
     }
@@ -163,8 +169,9 @@
         _allerErreur = _erreurs.Count > 0;
         if (_allerErreur) return;
         _envoi = true;
-        try { _cree = await Service.CreerAsync(_f, _u!); }
+        try { _cree = await Service.CreerAsync(_f, _u!, photos: _photos); }
         catch (ErreurFormulaire ex) { _erreurs = ex.Erreurs; _allerErreur = true; }
+        catch (ErreurMetier ex) { _erreurs = new() { ["Photos"] = ex.Message }; }
         finally { _envoi = false; }
     }
 
