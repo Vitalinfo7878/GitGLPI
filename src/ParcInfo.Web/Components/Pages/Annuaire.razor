@@ -1,0 +1,125 @@
+@page "/annuaire"
+@attribute [Authorize(Policy = Roles.PolitiqueInventaire)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Annuaire</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Annuaire</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Comptes Microsoft de l'organisation, et personnes ou sites sans compte. Chaque fiche montre le profil, le matériel actuel et tout l'historique du matériel.
+</MudText>
+
+<MudPaper Elevation="0" Class="carte pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="5">
+            <MudTextField T="string" Value="_recherche" ValueChanged="v => { _recherche = v; Appliquer(); }" Immediate="true" DebounceInterval="250"
+                          Placeholder="Nom, adresse mail, poste, service, n° de site…" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" />
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudSelect T="string" Value="_etat" ValueChanged="v => { _etat = v; Appliquer(); }" Label="État" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem Value="@("")">Tous</MudSelectItem>
+                @foreach (var e in Etats) { <MudSelectItem Value="e">@e</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="6" md="2" Class="d-flex align-center">
+            <MudCheckBox T="bool" Value="_avecMateriel" ValueChanged="v => { _avecMateriel = v; Appliquer(); }" Label="Avec du matériel" Dense="true" />
+        </MudItem>
+        <MudItem xs="12" md="2" Class="d-flex align-center justify-end">
+            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">@_filtres.Count fiche(s)</MudText>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_toutes is null)
+{
+    <Attente />
+}
+else
+{
+    <MudDataGrid T="Ligne" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
+                 RowClick="@(e => Nav.NavigateTo($"/annuaire/{e.Item.Cle}"))" RowClass="lien-ligne" HorizontalScrollbar="true">
+        <Columns>
+            <TemplateColumn T="Ligne" Title="Nom" SortBy="x => x.Nom">
+                <CellTemplate>
+                    <MudIcon Icon="@(context.Item.EstSite ? Icons.Material.Outlined.Restaurant : Icons.Material.Outlined.Person)" Size="Size.Small" Class="mr-1" Style="vertical-align:middle" />
+                    <b>@context.Item.Nom</b>
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.Email" Title="Mail" />
+            <PropertyColumn Property="x => x.Poste" Title="Poste" />
+            <PropertyColumn Property="x => x.Service" Title="Service" />
+            <TemplateColumn T="Ligne" Title="État" SortBy="x => x.Etat">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                             Color="@(context.Item.Etat switch { "Actif" => Color.Success, "Sans compte Microsoft" => Color.Default, _ => Color.Error })">@context.Item.Etat</MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.NbMateriels" Title="Matériel" />
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :" InfoFormat="{first_item}-{last_item} sur {all_items}" />
+        </PagerContent>
+        <NoRecordsContent><MudText>Aucune fiche ne correspond.</MudText></NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    private static readonly string[] Etats = ["Actif", "Compte désactivé", "Supprimé de l'annuaire", "Sans compte Microsoft"];
+
+    /// <summary>Une fiche : compte Microsoft (avec ses personnes ou sites reliés), ou personne / site sans compte.</summary>
+    private sealed record Ligne(string Cle, string Nom, string? Email, string? Poste, string? Service, string Etat, bool EstSite, int NbMateriels, string Recherche);
+
+    private List<Ligne>? _toutes;
+    private List<Ligne> _filtres = [];
+    private string? _recherche;
+    private string _etat = "";
+    private bool _avecMateriel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var comptes = await db.ComptesMicrosoft.AsNoTracking().ToListAsync();
+        var personnes = await db.Personnes.AsNoTracking()
+            .Select(p => new { p.Id, p.NomComplet, p.Email, p.EntraObjectId, N = p.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
+        var sites = await db.Sites.AsNoTracking()
+            .Select(s => new { s.Id, s.Code, s.Nom, s.Email, s.EntraObjectId, N = s.Materiels.Count(m => m.Statut == StatutMateriel.Attribue) }).ToListAsync();
+        var parCompte = personnes.Where(p => p.EntraObjectId != null).GroupBy(p => p.EntraObjectId!).ToDictionary(g => g.Key, g => g.Sum(p => p.N));
+        var sitesParCompte = sites.Where(s => s.EntraObjectId != null).GroupBy(s => s.EntraObjectId!).ToDictionary(g => g.Key, g => g.ToList());
+
+        static string Cherche(params string?[] t) => ParcInfo.Web.Import.Normalisation.SansAccents(string.Join(' ', t.Where(x => x != null))).ToLowerInvariant();
+
+        var lignes = comptes
+            // Comptes supprimés de l'annuaire : gardés seulement s'ils sont reliés à quelqu'un
+            .Where(c => !c.Supprime || parCompte.ContainsKey(c.Id) || sitesParCompte.ContainsKey(c.Id))
+            .Select(c =>
+            {
+                var sitesDuCompte = sitesParCompte.GetValueOrDefault(c.Id) ?? [];
+                var etat = c.Supprime ? "Supprimé de l'annuaire" : c.Actif ? "Actif" : "Compte désactivé";
+                return new Ligne($"c-{c.Id}", c.NomAffichage, c.AdressePrincipale, c.Poste, c.Service, etat, sitesDuCompte.Count > 0,
+                    parCompte.GetValueOrDefault(c.Id) + sitesDuCompte.Sum(s => s.N),
+                    Cherche(c.NomAffichage, c.AdressePrincipale, c.Poste, c.Service, string.Join(' ', sitesDuCompte.Select(s => s.Code))));
+            })
+            .Concat(personnes.Where(p => p.EntraObjectId == null).Select(p =>
+                new Ligne($"p-{p.Id}", p.NomComplet, p.Email, null, null, "Sans compte Microsoft", false, p.N, Cherche(p.NomComplet, p.Email))))
+            .Concat(sites.Where(s => s.EntraObjectId == null).Select(s =>
+                new Ligne($"s-{s.Id}", Site.LibelleDe(s.Code, s.Nom, false), s.Email, null, null, "Sans compte Microsoft", true, s.N, Cherche(s.Code, s.Nom, s.Email))))
+            .OrderBy(l => l.Nom, StringComparer.CurrentCultureIgnoreCase).ToList();
+        _toutes = lignes;
+        Appliquer();
+    }
+
+    private void Appliquer()
+    {
+        if (_toutes is null) return;
+        IEnumerable<Ligne> q = _toutes;
+        if (!string.IsNullOrWhiteSpace(_recherche))
+        {
+            var mots = ParcInfo.Web.Import.Normalisation.SansAccents(_recherche).ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            q = q.Where(l => mots.All(l.Recherche.Contains));
+        }
+        if (_etat.Length > 0) q = q.Where(l => l.Etat == _etat);
+        if (_avecMateriel) q = q.Where(l => l.NbMateriels > 0);
+        _filtres = q.ToList();
+    }
+}

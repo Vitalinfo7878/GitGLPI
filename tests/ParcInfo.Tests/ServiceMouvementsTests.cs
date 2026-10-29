@@ -409,4 +409,38 @@ public sealed class ServiceMouvementsTests : IDisposable
         var apres = await db2.Materiels.FindAsync(pc);
         Assert.Equal((StatutMateriel.EnStock, (int?)null), (apres!.Statut, apres.PersonneId));
     }
+
+    [Fact]
+    public async Task Historique_du_materiel_d_une_personne()
+    {
+        var (pc, ecran, camille) = Donnees();
+        int dominique, importe;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var p = new Personne { NomComplet = "Dominique MARTIN", Email = "dominique.martin@vitalrest.com" };
+            var m = new Materiel { NumInterne = "PC0099", Type = TypeMateriel.PcFixe, Statut = StatutMateriel.Attribue, PersonneId = camille }; // repris de l'Excel, sans mouvement
+            db.AddRange(p, m);
+            await db.SaveChangesAsync();
+            (dominique, importe) = (p.Id, m.Id);
+        }
+        Task Attribuer(int materiel, int personne) => _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [materiel], DestinationPersonneId = personne }, Informatique);
+
+        await Attribuer(pc, camille);
+        await Attribuer(pc, camille); // doublon : une seule période
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        await Attribuer(pc, dominique);
+        await Attribuer(ecran, camille);
+
+        await using var db2 = _fabrique.CreateDbContext();
+        var h = await HistoriqueDetenteur.CalculerAsync(db2, [camille], []);
+        Assert.Equal(["E0001", "PC0099"], h.Where(x => x.EnCours).Select(x => x.Materiel.NumInterne).Order());
+        Assert.Null(h.Single(x => x.Materiel.Id == importe).Arrivee);
+        var rendu = Assert.Single(h, x => !x.EnCours);
+        Assert.Equal(pc, rendu.Materiel.Id);
+        Assert.Equal(TypeMouvement.Restitution, rendu.Depart!.Type);
+        Assert.Equal(TypeMouvement.Attribution, rendu.Arrivee!.Type);
+
+        var hd = await HistoriqueDetenteur.CalculerAsync(db2, [dominique], []);
+        Assert.Equal(pc, Assert.Single(hd, x => x.EnCours).Materiel.Id);
+    }
 }

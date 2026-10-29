@@ -115,8 +115,8 @@ else
                                 <Champ Libelle="Modèle" Valeur="@_m.Modele" />
                                 <Champ Libelle="N° de série" Valeur="@_m.NumSerie" />
                                 <Champ Libelle="Attribué à">
-                                    @if (_m.Site is { } s) { @s.Libelle }
-                                    else if (_m.Personne is { } p) { @p.NomComplet }
+                                    @if (_m.Site is { } s) { <MudLink Href="@($"/annuaire/{(s.EntraObjectId is { } c ? $"c-{c}" : $"s-{s.Id}")}")">@s.Libelle</MudLink> }
+                                    else if (_m.Personne is { } p) { <MudLink Href="@($"/annuaire/{(p.EntraObjectId is { } c ? $"c-{c}" : $"p-{p.Id}")}")">@p.NomComplet</MudLink> }
                                     else { <span>—</span> }
                                     @if (_m.Statut == StatutMateriel.Attribue && Gestionnaire)
                                     {

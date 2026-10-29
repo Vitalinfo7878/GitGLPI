@@ -1,0 +1,203 @@
+@page "/annuaire/{Cle}"
+@attribute [Authorize(Policy = Roles.PolitiqueInventaire)]
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+
+<PageTitle>@(_nom ?? "Annuaire")</PageTitle>
+
+@if (_chargement)
+{
+    <Attente />
+}
+else if (_nom is null)
+{
+    <MudAlert Severity="Severity.Error">Fiche introuvable.</MudAlert>
+}
+else
+{
+    <MudBreadcrumbs Items="@([new("Annuaire", "/annuaire"), new(_nom, null, true)])" Class="px-0 pt-0" />
+    <div class="d-flex flex-wrap align-center gap-3 mb-4">
+        <MudText Typo="Typo.h4">@_nom</MudText>
+        @if (_compte is null) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Sans compte Microsoft</MudChip> }
+        @if (_sites.Count > 0) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Icon="@Icons.Material.Outlined.Restaurant">@(_sites.Count == 1 ? "Site" : $"{_sites.Count} sites") @string.Join(", ", _sites.Select(s => s.Code))</MudChip> }
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="4">
+            @if (_compte is not null)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                    <MudText Typo="Typo.h6" Class="mb-2">Profil Microsoft</MudText>
+                    <ProfilMicrosoft Compte="_compte" />
+                </MudPaper>
+            }
+            else
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                    <dl class="champ-lecture">
+                        <Champ Libelle="Adresse mail" Valeur="@_email" />
+                    </dl>
+                    @if (_u!.EstGestionnaire)
+                    {
+                        <MudText Typo="Typo.caption">Pas encore relié à un compte Microsoft : <MudLink Href="/comptes-microsoft" Typo="Typo.caption">Comptes Microsoft</MudLink></MudText>
+                    }
+                </MudPaper>
+            }
+            @if (_u!.VoitToutesLesDemandes || _u.EstAdminTickets)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4">
+                    @if (_u.VoitToutesLesDemandes)
+                    {
+                        <MudText Typo="Typo.h6" Class="mb-1">Demandes (@_demandes.Count)</MudText>
+                        @foreach (var d in _demandes)
+                        {
+                            <div class="py-1"><MudLink Href="@($"/demandes/{d.IdPublic}")">n° @d.Numero</MudLink> · @d.CreeLe.ToLocalTime().ToString("dd/MM/yyyy") · @d.Objets <ChipDemande Demande="d" /></div>
+                        }
+                        @if (_demandes.Count == 0) { <MudText Typo="Typo.body2">Aucune demande.</MudText> }
+                    }
+                    @if (_u.EstAdminTickets)
+                    {
+                        <MudText Typo="Typo.h6" Class="mt-3 mb-1">Tickets (@_tickets.Count)</MudText>
+                        @foreach (var t in _tickets)
+                        {
+                            <div class="py-1"><MudLink Href="@($"/tickets/{t.Id}")">n° @t.Numero</MudLink> · @t.CreeLe.ToLocalTime().ToString("dd/MM/yyyy") · @t.Titre <ChipTicket Statut="t.Statut" /></div>
+                        }
+                        @if (_tickets.Count == 0) { <MudText Typo="Typo.body2">Aucun ticket.</MudText> }
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+
+        <MudItem xs="12" lg="8">
+            <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                <MudText Typo="Typo.h6" Class="mb-2">Matériel actuel (@EnCours.Count())</MudText>
+                @if (!EnCours.Any()) { <MudText Typo="Typo.body2">Aucun matériel attribué.</MudText> }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                        <thead><tr><th>N° interne</th><th>Matériel</th><th>N° de série</th><th>Depuis le</th><th>Fiche</th></tr></thead>
+                        <tbody>
+                            @foreach (var p in EnCours)
+                            {
+                                <tr>
+                                    <td><MudLink Href="@($"/materiels/{p.Materiel.Id}")"><b>@p.Materiel.NumInterne</b></MudLink></td>
+                                    <td>@p.Materiel.Type.Libelle() @p.Materiel.Modele</td>
+                                    <td>@p.Materiel.NumSerie</td>
+                                    <td>@(p.Du?.ToString("dd/MM/yyyy") ?? "—")</td>
+                                    <td>@Fiche(p.Arrivee)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudPaper>
+
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Historique du matériel (@Passes.Count())</MudText>
+                @if (!Passes.Any()) { <MudText Typo="Typo.body2">Aucun matériel rendu ou réattribué.</MudText> }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                        <thead><tr><th>N° interne</th><th>Matériel</th><th>Du</th><th>Au</th><th>Parti par</th><th>Fiches</th></tr></thead>
+                        <tbody>
+                            @foreach (var p in Passes)
+                            {
+                                <tr>
+                                    <td><MudLink Href="@($"/materiels/{p.Materiel.Id}")"><b>@p.Materiel.NumInterne</b></MudLink></td>
+                                    <td>@p.Materiel.Type.Libelle() @p.Materiel.Modele</td>
+                                    <td>@(p.Du?.ToString("dd/MM/yyyy") ?? "—")</td>
+                                    <td>@(p.Au?.ToString("dd/MM/yyyy") ?? "—")</td>
+                                    <td>
+                                        @if (p.Depart is { } d)
+                                        {
+                                            <span>@d.Type.Libelle()</span>
+                                            @if (d.DestinationLibelle.Length > 0) { <small style="color:var(--mud-palette-text-secondary)"> → @d.DestinationLibelle</small> }
+                                        }
+                                        else
+                                        {
+                                            <span>Plus détenu (sans mouvement enregistré)</span>
+                                        }
+                                    </td>
+                                    <td>@Fiche(p.Arrivee) @Fiche(p.Depart)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    /// <summary>« c-{compte Microsoft} », « p-{personne} » ou « s-{site} ».</summary>
+    [Parameter] public string Cle { get; set; } = "";
+
+    private bool _chargement = true;
+    private Utilisateur? _u;
+    private string? _nom;
+    private string? _email;
+    private CompteMicrosoft? _compte;
+    private List<Site> _sites = [];
+    private List<PeriodeDetention> _periodes = [];
+    private List<Demande> _demandes = [];
+    private List<Ticket> _tickets = [];
+
+    private IEnumerable<PeriodeDetention> EnCours => _periodes.Where(p => p.EnCours);
+    private IEnumerable<PeriodeDetention> Passes => _periodes.Where(p => !p.EnCours);
+
+    /// <summary>Fiche (FIA, FIR…) d'un mouvement : lien de téléchargement pour le service informatique.</summary>
+    private RenderFragment Fiche(Mouvement? mv) => __builder =>
+    {
+        if (mv?.Fiche is { } f)
+        {
+            if (_u!.EstGestionnaire) { <MudLink Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Typo="Typo.body2" Class="mr-2">@f.Code</MudLink> }
+            else { <span class="mr-2">@f.Code</span> }
+        }
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _chargement = true;
+        _u ??= await Courant.ObtenirAsync();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        List<Personne> personnes = [];
+        var (type, id) = Cle.Length > 2 ? (Cle[..2], Cle[2..]) : ("", "");
+        switch (type)
+        {
+            case "c-":
+                _compte = await db.ComptesMicrosoft.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+                personnes = await db.Personnes.AsNoTracking().Where(p => p.EntraObjectId == id).ToListAsync();
+                _sites = await db.Sites.AsNoTracking().Where(s => s.EntraObjectId == id).OrderBy(s => s.Code).ToListAsync();
+                _nom = _compte?.NomAffichage;
+                _email = _compte?.AdressePrincipale;
+                break;
+            case "p-" when int.TryParse(id, out var pid):
+                personnes = await db.Personnes.AsNoTracking().Include(p => p.CompteMicrosoft).Where(p => p.Id == pid).ToListAsync();
+                _compte = personnes.FirstOrDefault()?.CompteMicrosoft;
+                _nom = personnes.FirstOrDefault()?.NomComplet;
+                _email = personnes.FirstOrDefault()?.Email;
+                break;
+            case "s-" when int.TryParse(id, out var sid):
+                _sites = await db.Sites.AsNoTracking().Include(s => s.CompteMicrosoft).Where(s => s.Id == sid).ToListAsync();
+                _compte = _sites.FirstOrDefault()?.CompteMicrosoft;
+                _nom = _sites.FirstOrDefault()?.Libelle;
+                _email = _sites.FirstOrDefault()?.Email;
+                break;
+        }
+        if (_nom is not null)
+        {
+            _periodes = await HistoriqueDetenteur.CalculerAsync(db, personnes.Select(p => p.Id).ToList(), _sites.Select(s => s.Id).ToList());
+            // Demandes et tickets de la personne (par ses adresses ; pour un site, ceux saisis avec la boîte du site)
+            var adresses = new[] { _email, _compte?.Email, _compte?.Upn }.Concat(personnes.Select(p => p.Email)).Concat(_sites.Select(s => s.Email))
+                .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a!.ToLowerInvariant()).Distinct().ToList();
+            if (_u.VoitToutesLesDemandes)
+                _demandes = await db.Demandes.AsNoTracking().Where(d => adresses.Contains(d.DemandeurEmail) || adresses.Contains(d.SaisiePar))
+                    .OrderByDescending(d => d.Numero).ToListAsync();
+            if (_u.EstAdminTickets)
+                _tickets = await db.Tickets.AsNoTracking().Where(t => adresses.Contains(t.DemandeurEmail) || adresses.Contains(t.SaisiePar))
+                    .OrderByDescending(t => t.Numero).ToListAsync();
+        }
+        _chargement = false;
+    }
+}
