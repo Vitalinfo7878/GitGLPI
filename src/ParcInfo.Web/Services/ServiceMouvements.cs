@@ -530,6 +530,33 @@ public sealed class ServiceMouvements(
         return $"Mouvement n° {mv.Numero} supprimé{ficheSupprimee}{suite}.";
     }
 
+    /// <summary>
+    /// N° de facture et d'immobilisation : modifiables aussi avec la consultation de l'inventaire (suivi comptable).
+    /// La modification est notée dans le journal d'inventaire et peut être restaurée.
+    /// </summary>
+    public async Task<bool> ModifierNumerosComptablesAsync(int id, string? numFacture, string? numImmo, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.VoitInventaire) throw new ErreurMetier("Réservé au service informatique et à la consultation de l'inventaire.");
+        if (numFacture?.Trim().Length > 400 || numImmo?.Trim().Length > 400) throw new ErreurMetier("Numéro trop long (400 caractères maximum).");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var m = await db.Materiels.Include(x => x.Personne).Include(x => x.Site).FirstOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ErreurMetier("Matériel introuvable.");
+        var avant = (Materiel)db.Entry(m).CurrentValues.ToObject();
+        m.NumFacture = Vide(numFacture);
+        m.NumImmo = Vide(numImmo);
+        var changements = JournalInventaire.Differences(avant, m, _ => null);
+        if (changements.Count == 0) return false;
+        m.ModifieLe = DateTime.UtcNow;
+        db.Journal.Add(new Journal
+        {
+            Date = m.ModifieLe, Utilisateur = u.Signature, Action = JournalInventaire.MaterielModifie, MaterielId = m.Id,
+            Details = JournalInventaire.Tronquer($"{m.NumInterne} : {string.Join(" ; ", changements)}"),
+            Instantane = InstantaneMateriel.Depuis(avant, m.Personne?.Email ?? m.Site?.Email).Serialiser(),
+        });
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
     /// <summary>PC portable partagé (« Télétravail Compta 1 »…) : détenteur sans adresse ni compte Microsoft, créé au premier usage.</summary>
     public async Task<Personne> PostePartageAsync(string? nom, CancellationToken ct = default)
     {

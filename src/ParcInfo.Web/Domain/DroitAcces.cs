@@ -11,7 +11,7 @@ public enum Droit
     Valideur,
     [Display(Name = "Admin tickets", Description = "Traite les tickets et consulte leur analyse.")]
     AdminTickets,
-    [Display(Name = "Consultation inventaire", Description = "Consulte l'inventaire (export Excel compris), les fiches matériel et le journal d'inventaire, sans rien modifier.")]
+    [Display(Name = "Consultation inventaire", Description = "Consulte l'inventaire (export Excel compris), les fiches matériel et le journal d'inventaire ; peut seulement renseigner les n° de facture et d'immobilisation.")]
     ConsultationInventaire,
 }
 

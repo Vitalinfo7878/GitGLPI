@@ -29,6 +29,10 @@ else
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
                        Href="@($"/mouvements/nouveau?ids={_m.Id}")">Nouveau mouvement</MudButton>
         }
+        else if (!Gestionnaire && !_editionCompta)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" OnClick="EditerCompta">N° de facture / immobilisation</MudButton>
+        }
     </div>
 
     <MudGrid Spacing="3">
@@ -130,8 +134,22 @@ else
                                 <Champ Libelle="Région / service" Valeur="@(_m.Region?.Nom ?? _m.Site?.Region?.Nom)" />
                                 <Champ Libelle="Année d'acquisition" Valeur="@_m.AnneeAcquisition?.ToString()" />
                                 <Champ Libelle="Date de mise en place" Valeur="@_m.DateMiseEnPlace?.ToString("dd/MM/yyyy")" />
-                                <Champ Libelle="N° immobilisation" Valeur="@_m.NumImmo" />
-                                <Champ Libelle="N° de facture" Valeur="@_m.NumFacture" />
+                                @if (_editionCompta)
+                                {
+                                    <div class="d-flex flex-column gap-2 my-2">
+                                        <MudTextField @bind-Value="_numImmo" MaxLength="400" Label="N° immobilisation" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <MudTextField @bind-Value="_numFacture" MaxLength="400" Label="N° de facture" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        <div class="d-flex gap-2 justify-end">
+                                            <MudButton OnClick="() => _editionCompta = false">Annuler</MudButton>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="EnregistrerCompta">Enregistrer</MudButton>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <Champ Libelle="N° immobilisation" Valeur="@_m.NumImmo" />
+                                    <Champ Libelle="N° de facture" Valeur="@_m.NumFacture" />
+                                }
                                 @if (_m.Demandes.Count > 0)
                                 {
                                     <Champ Libelle="Attribué pour la demande">
@@ -257,6 +275,27 @@ else
     private Utilisateur? _u;
     /// <summary>Service informatique : modification, mouvements, mot de passe ; sinon consultation seule.</summary>
     private bool Gestionnaire => _u?.EstGestionnaire == true;
+    /// <summary>Consultation de l'inventaire : seuls les n° de facture et d'immobilisation sont modifiables.</summary>
+    private bool _editionCompta;
+    private string? _numImmo, _numFacture;
+
+    private void EditerCompta()
+    {
+        (_numImmo, _numFacture) = (_m!.NumImmo, _m.NumFacture);
+        _editionCompta = true;
+    }
+
+    private async Task EnregistrerCompta()
+    {
+        try
+        {
+            var modifie = await Mouvements.ModifierNumerosComptablesAsync(Id, _numFacture, _numImmo, _u!);
+            Snackbar.Add(modifie ? "Numéros enregistrés." : "Aucun changement.", Severity.Success);
+            _editionCompta = false;
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
     private string LienChangerDetenteur => $"/mouvements/nouveau?ids={Id}&type={TypeMouvement.Attribution}";
     private List<Ticket> _tickets = [];
     private string? _emailDetenteur;

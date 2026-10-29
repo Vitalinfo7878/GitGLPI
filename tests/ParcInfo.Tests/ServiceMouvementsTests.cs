@@ -473,4 +473,27 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Contains("Télétravail Achat", await _service.PostesPartagesAsync(["Télétravail Achat"]));
         Assert.Contains("Télétravail Compta 1", await _service.PostesPartagesAsync([]));
     }
+
+    [Fact]
+    public async Task Consultation_de_l_inventaire_renseigne_les_numeros_comptables()
+    {
+        var (pc, _, _) = Donnees();
+        var thomas = new Utilisateur("Thomas Verchère", "thomas.verchere@groupe-vitalrest.com", false, true) { VoitInventaire = true };
+        await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.ModifierNumerosComptablesAsync(pc, "F-2026-118", "IMMO-42", new Utilisateur("Camille", "camille@vitalrest.com", false)));
+
+        Assert.True(await _service.ModifierNumerosComptablesAsync(pc, " F-2026-118 ", "IMMO-42", thomas));
+        Assert.False(await _service.ModifierNumerosComptablesAsync(pc, "F-2026-118", "IMMO-42", thomas)); // rien de changé
+
+        await using var db = _fabrique.CreateDbContext();
+        var m = await db.Materiels.FindAsync(pc);
+        Assert.Equal(("F-2026-118", "IMMO-42", "secret"), (m!.NumFacture, m.NumImmo, m.MotDePasseSession)); // le reste est intact
+        var j = await db.Journal.SingleAsync(x => x.Action == JournalInventaire.MaterielModifie);
+        Assert.Equal("PC0001 : N° immobilisation : — → IMMO-42 ; N° de facture : — → F-2026-118", j.Details);
+
+        // Restaurable par le service informatique
+        await _service.RestaurerAsync(j.Id, Informatique);
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Null((await db2.Materiels.FindAsync(pc))!.NumFacture);
+    }
 }
