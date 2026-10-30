@@ -89,3 +89,4 @@
     /* Boutons de filtre (À valider / À traiter…) plus compacts */
     .mud-toggle-group .mud-toggle-item { font-size: .72rem; padding: 4px 6px; line-height: 1.2; }
 }
+.groupe-notifications { background: color-mix(in srgb, var(--mud-palette-secondary) 7%, transparent); }

@@ -141,6 +141,36 @@ public sealed class ServiceMouvementsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reception_d_achat_notifiee_aux_abonnes()
+    {
+        Donnees();
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.DroitsAcces.AddRange(new DroitAcces { Email = "pierre.fragata@vitalrest.com", NotifReceptionAchat = true },
+                new DroitAcces { Email = "lamine.cisse@vitalrest.com", Gestionnaire = true });
+            await db.SaveChangesAsync();
+        }
+        var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique,
+            new OptionsMessagerie { UrlApplication = "https://parc.test" }, NullLogger<ServiceNotifications>.Instance);
+        var service = new ServiceMouvements(_fabrique, new GenerateurFiche(), NullLogger<ServiceMouvements>.Instance, notifications);
+
+        var r = await service.ReceptionnerAchatAsync(new DemandeAchat
+        {
+            Fournisseur = "AMAZON", DocumentReference = "CMD-42",
+            Materiels = [new() { Type = TypeMateriel.Ecran, Modele = "Dell P2422H", NumSerie = "CN-ABC", NumFacture = "FA-001" }],
+        }, Informatique);
+        Assert.Null(r.Avertissement);
+        await service.AjouterMaterielNonInventorieAsync(new MaterielNonInventorie { Type = TypeMateriel.Ecran, NumSerie = "X" }, Informatique);
+
+        await using var lecture = _fabrique.CreateDbContext();
+        var mail = Assert.Single(await lecture.Courriels.ToListAsync());
+        Assert.Equal("pierre.fragata@vitalrest.com", mail.Destinataire);
+        Assert.Equal("Réception d'achat : 1 matériel – AMAZON", mail.Sujet);
+        foreach (var attendu in new[] { "E0002", "Dell P2422H", "CN-ABC", "FA-001", "CMD-42", r.Fiche!.Code, "https://parc.test/inventaire?statut=EnStock" })
+            Assert.Contains(attendu, mail.CorpsHtml);
+    }
+
+    [Fact]
     public void Prochain_numero_interne()
     {
         Assert.Equal("PC0444", ServiceMouvements.ProchainNumero("PC", ["PC0443", "PC0099", "PCANCIEN2", "PO0500"]));

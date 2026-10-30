@@ -204,6 +204,36 @@ public sealed class ServiceNotifications(
         await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} réalisée", corps, ct);
     }
 
+    // --- Inventaire ---
+
+    /// <summary>Matériel entré au parc (réception d'achat ou ajout hors achat), pour les abonnés de la notification.</summary>
+    public async Task MaterielRecuAsync(IEnumerable<string> destinataires, string sujet, string introduction, IReadOnlyList<Materiel> materiels,
+        string? fournisseur, string? documentReference, Fiche? fiche, string? auteur, CancellationToken ct = default)
+    {
+        string Cellule(string? v) => $"""<td style="padding:4px 10px;border-bottom:1px solid #e3e7ef">{E(v)}</td>""";
+        var lignes = string.Join("", materiels.Select(m =>
+            $"<tr>{Cellule(m.NumInterne)}{Cellule(m.Type.Libelle())}{Cellule(m.Modele)}{Cellule(m.NumSerie)}{Cellule(m.NumFacture)}</tr>"));
+        string Info(string libelle, string? valeur) => string.IsNullOrWhiteSpace(valeur) ? "" :
+            $"""<tr><td style="padding:2px 12px 2px 0;color:#5b6478">{E(libelle)}</td><td style="padding:2px 0">{E(valeur)}</td></tr>""";
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">{introduction}</p>
+            <table style="border-collapse:collapse;font-size:14px;margin:0 0 12px">
+            {Info("Fournisseur", fournisseur)}
+            {Info("Référence", documentReference)}
+            {Info("Fiche", fiche?.Code)}
+            {Info("Enregistré par", auteur)}
+            </table>
+            <table style="border-collapse:collapse;font-size:13px;margin:0 0 16px">
+            <tr style="background:#f3f5fa;text-align:left"><th style="padding:6px 10px">N° interne</th><th style="padding:6px 10px">Type</th><th style="padding:6px 10px">Modèle</th><th style="padding:6px 10px">N° de série</th><th style="padding:6px 10px">N° de facture</th></tr>
+            {lignes}
+            </table>
+            <p style="margin:0 0 8px">{Bouton(Url("inventaire?statut=EnStock"), "Voir le stock", "#233d8e")}
+            {(fiche is null ? "" : $"&nbsp; {Bouton(Url($"fiches/{fiche.IdPublic}/pdf"), $"Fiche {fiche.Code}", "#5b6478")}")}</p>
+            <p style="margin:0;color:#5b6478;font-size:12px">Mail d'information automatique. Pour ne plus le recevoir, demandez au service informatique (informatique@vitalrest.com).</p>
+            """);
+        await EnvoyerATousAsync(destinataires, sujet, corps, ct);
+    }
+
     private static string Recapitulatif(Demande d)
     {
         string Ligne(string libelle, string? valeur) => string.IsNullOrWhiteSpace(valeur) ? "" :

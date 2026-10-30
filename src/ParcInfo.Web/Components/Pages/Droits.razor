@@ -11,10 +11,11 @@
 <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
     Qui a accès à quoi. Tout le monde peut créer des tickets et faire des demandes ; les droits ci-dessous donnent les accès supplémentaires.
     Un droit accordé ou retiré prend effet dès la page suivante de la personne, sans qu'elle ait à se reconnecter.
+    Les notifications par mail peuvent être données à n'importe quelle adresse, même sans aucun droit d'accès.
 </MudText>
 
 <MudGrid Spacing="3">
-    <MudItem xs="12" lg="8">
+    <MudItem xs="12" xl="8">
         <MudPaper Elevation="0" Class="carte pa-4 mb-3">
             <MudText Typo="Typo.h6" Class="mb-2">Administrateurs principaux</MudText>
             <MudText Typo="Typo.body2" Class="mb-2">Tous les droits du service informatique, et la gestion de cette page. Fixés dans la configuration de l'application : ils ne peuvent pas être retirés ici.</MudText>
@@ -53,8 +54,17 @@
                 <MudSimpleTable Dense="true" Hover="true" Elevation="0">
                     <thead>
                         <tr>
+                            <th></th>
+                            <th colspan="@(Enum.GetValues<Droit>().Length)" style="text-align:center;border-bottom:none">Accès</th>
+                            <th colspan="@(Enum.GetValues<Notification>().Length)" class="groupe-notifications" style="text-align:center;border-bottom:none">
+                                <MudIcon Icon="@Icons.Material.Outlined.Email" Size="Size.Small" Style="vertical-align:middle" /> Notifications par mail
+                            </th>
+                            <th></th>
+                        </tr>
+                        <tr>
                             <th>Compte</th>
                             @foreach (var d in Enum.GetValues<Droit>()) { <th style="text-align:center">@d.Libelle()</th> }
+                            @foreach (var n in Enum.GetValues<Notification>()) { <th class="groupe-notifications" style="text-align:center">@n.Libelle()</th> }
                             <th></th>
                         </tr>
                     </thead>
@@ -72,8 +82,14 @@
                                         <MudCheckBox T="bool" Value="c.A(d)" ValueChanged="v => Modifier(c, d, v)" Color="Color.Primary" Dense="true" aria-label="@($"{d.Libelle()} – {c.Nom ?? c.Email}")" />
                                     </td>
                                 }
+                                @foreach (var n in Enum.GetValues<Notification>())
+                                {
+                                    <td class="groupe-notifications" style="text-align:center">
+                                        <MudCheckBox T="bool" Value="c.A(n)" ValueChanged="v => Modifier(c, n, v)" Color="Color.Secondary" Dense="true" aria-label="@($"Notification {n.Libelle()} – {c.Nom ?? c.Email}")" />
+                                    </td>
+                                }
                                 <td>
-                                    <MudTooltip Text="Retirer de la liste (plus aucun droit)">
+                                    <MudTooltip Text="Retirer de la liste (plus aucun droit ni notification)">
                                         <MudIconButton Icon="@Icons.Material.Outlined.PersonRemove" Size="Size.Small" OnClick="() => Supprimer(c)" aria-label="Retirer" />
                                     </MudTooltip>
                                 </td>
@@ -85,7 +101,7 @@
         </MudPaper>
     </MudItem>
 
-    <MudItem xs="12" lg="4">
+    <MudItem xs="12" xl="4">
         <MudPaper Elevation="0" Class="carte pa-4">
             <MudText Typo="Typo.h6" Class="mb-2">Les droits</MudText>
             @foreach (var d in Enum.GetValues<Droit>())
@@ -93,7 +109,13 @@
                 <MudText Typo="Typo.subtitle2">@d.Libelle()</MudText>
                 <MudText Typo="Typo.body2" Class="mb-3">@d.Description()</MudText>
             }
-            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">Chaque changement de droit est noté dans le Journal.</MudText>
+            <MudText Typo="Typo.h6" Class="mb-2 mt-2">Notifications par mail</MudText>
+            @foreach (var n in Enum.GetValues<Notification>())
+            {
+                <MudText Typo="Typo.subtitle2">@n.Libelle()</MudText>
+                <MudText Typo="Typo.body2" Class="mb-3">@n.Description()</MudText>
+            }
+            <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">Chaque changement de droit ou de notification est noté dans le Journal.</MudText>
         </MudPaper>
     </MudItem>
 </MudGrid>
@@ -128,7 +150,7 @@
         {
             var d = await Service.AjouterAsync(email, nom, _u!);
             _droits = await Service.ListerAsync();
-            Snackbar.Add($"{d.Nom ?? d.Email} ajouté : cochez ses droits.", Severity.Success);
+            Snackbar.Add($"{d.Nom ?? d.Email} ajouté : cochez ses droits ou notifications.", Severity.Success);
             return true;
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); return false; }
@@ -145,9 +167,20 @@
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
+    private async Task Modifier(DroitAcces c, Notification n, bool valeur)
+    {
+        try
+        {
+            await Service.ModifierAsync(c.Id, n, valeur, _u!);
+            c.Definir(n, valeur);
+            Snackbar.Add($"{c.Nom ?? c.Email} : notification « {n.Libelle()} » {(valeur ? "activée" : "désactivée")}.", Severity.Success);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
     private async Task Supprimer(DroitAcces c)
     {
-        var ok = await Dialogues.ShowMessageBoxAsync("Retirer ce compte ?", $"{c.Nom ?? c.Email} n'aura plus aucun droit particulier.", yesText: "Retirer", cancelText: "Annuler");
+        var ok = await Dialogues.ShowMessageBoxAsync("Retirer ce compte ?", $"{c.Nom ?? c.Email} n'aura plus aucun droit particulier ni notification.", yesText: "Retirer", cancelText: "Annuler");
         if (ok != true) return;
         try
         {

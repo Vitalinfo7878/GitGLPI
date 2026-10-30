@@ -14,6 +14,7 @@ public sealed class ServiceDroits(
 {
     private const string CleCache = "droits-acces";
     private const string ActionInitialisation = "Droits initialisés";
+    private const string ActionInitialisationNotifications = "Notifications initialisées";
 
     public static IReadOnlyList<string> AdministrateursDe(IConfiguration config) =>
         (config.GetSection("Authentification:Administrateurs").Get<string[]>() ?? []).Select(a => a.Trim().ToLowerInvariant()).Where(a => a.Length > 0).ToList();
@@ -35,6 +36,14 @@ public sealed class ServiceDroits(
     /// <summary>Adresses des valideurs (destinataires des boutons Valider / Refuser et des relances).</summary>
     public static async Task<List<string>> ValideursAsync(ParcDbContext db, CancellationToken ct = default) =>
         await db.DroitsAcces.Where(d => d.Valideur).OrderBy(d => d.Email).Select(d => d.Email).ToListAsync(ct);
+
+    /// <summary>Adresses abonnées à une notification par mail.</summary>
+    public static async Task<List<string>> AbonnesAsync(ParcDbContext db, Notification n, CancellationToken ct = default) => n switch
+    {
+        Notification.ReceptionAchat => await db.DroitsAcces.Where(d => d.NotifReceptionAchat).OrderBy(d => d.Email).Select(d => d.Email).ToListAsync(ct),
+        Notification.NouveauMateriel => await db.DroitsAcces.Where(d => d.NotifNouveauMateriel).OrderBy(d => d.Email).Select(d => d.Email).ToListAsync(ct),
+        _ => [],
+    };
 
     public async Task<List<DroitAcces>> ListerAsync(CancellationToken ct = default)
     {
@@ -71,6 +80,24 @@ public sealed class ServiceDroits(
         {
             Date = d.ModifieLe, Utilisateur = u.Signature, Action = "Droits",
             Details = $"{d.Nom ?? d.Email} : « {droit.Libelle()} » {(valeur ? "accordé" : "retiré")}",
+        });
+        await db.SaveChangesAsync(ct);
+        cache.Remove(CleCache);
+    }
+
+    public async Task ModifierAsync(int id, Notification notification, bool valeur, Utilisateur u, CancellationToken ct = default)
+    {
+        Verifier(u);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var d = await db.DroitsAcces.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ErreurMetier("Compte introuvable.");
+        if (d.A(notification) == valeur) return;
+        d.Definir(notification, valeur);
+        d.ModifiePar = u.Signature;
+        d.ModifieLe = DateTime.UtcNow;
+        db.Journal.Add(new Journal
+        {
+            Date = d.ModifieLe, Utilisateur = u.Signature, Action = "Droits",
+            Details = $"{d.Nom ?? d.Email} : notification « {notification.Libelle()} » {(valeur ? "activée" : "désactivée")}",
         });
         await db.SaveChangesAsync(ct);
         cache.Remove(CleCache);
@@ -135,6 +162,44 @@ public sealed class ServiceDroits(
         await db.SaveChangesAsync(ct);
         cache.Remove(CleCache);
         return droits.Count;
+    }
+
+    /// <summary>
+    /// Une seule fois : abonne les adresses de la configuration (« Notifications:ReceptionAchat », « Notifications:NouveauMateriel »),
+    /// en les ajoutant à la liste si besoin. Les abonnements se gèrent ensuite sur la page « Droits ».
+    /// </summary>
+    public async Task<int> InitialiserNotificationsAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        if (await db.Journal.AnyAsync(j => j.Action == ActionInitialisationNotifications, ct)) return 0;
+        var existants = await db.DroitsAcces.ToListAsync(ct);
+        var comptes = await db.ComptesMicrosoft.AsNoTracking().Where(c => !c.Supprime).ToListAsync(ct);
+        var abonnes = new List<string>();
+        foreach (var n in Enum.GetValues<Notification>())
+        {
+            foreach (var adresse in config.GetSection($"Notifications:{n}").Get<string[]>() ?? [])
+            {
+                var e = adresse.Trim().ToLowerInvariant();
+                if (e.Length == 0) continue;
+                var d = existants.FirstOrDefault(x => x.Email == e);
+                if (d is null)
+                {
+                    d = new DroitAcces { Email = e, Nom = comptes.FirstOrDefault(c => c.Adresses.Contains(e))?.NomAffichage, ModifiePar = ActionInitialisationNotifications, ModifieLe = DateTime.UtcNow };
+                    db.DroitsAcces.Add(d);
+                    existants.Add(d);
+                }
+                d.Definir(n, true);
+                abonnes.Add($"{d.Nom ?? e} : {n.Libelle()}");
+            }
+        }
+        db.Journal.Add(new Journal
+        {
+            Date = DateTime.UtcNow, Utilisateur = "Application", Action = ActionInitialisationNotifications,
+            Details = abonnes.Count == 0 ? "aucun abonnement à reprendre" : JournalInventaire.Tronquer(string.Join(" ; ", abonnes)),
+        });
+        await db.SaveChangesAsync(ct);
+        cache.Remove(CleCache);
+        return abonnes.Count;
     }
 
     private static void Verifier(Utilisateur u)

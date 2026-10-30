@@ -67,7 +67,7 @@ public sealed class MaterielNonInventorie
 public sealed record ResultatMouvement(List<int> Numeros, Fiche? Fiche, string? Avertissement);
 
 public sealed class ServiceMouvements(
-    IDbContextFactory<ParcDbContext> dbFactory, GenerateurFiche generateur, ILogger<ServiceMouvements> log)
+    IDbContextFactory<ParcDbContext> dbFactory, GenerateurFiche generateur, ILogger<ServiceMouvements> log, ServiceNotifications? notifications = null)
 {
     /// <summary>Prochain numéro interne libre pour la nomenclature actuelle (PC, PO, E, I + 4 chiffres).</summary>
     public static string Prefixe(TypeMateriel type) => type switch
@@ -136,11 +136,37 @@ public sealed class ServiceMouvements(
         }
         await db.SaveChangesAsync(ct);
 
-        return await CreerMouvementsAsync(new DemandeMouvement
+        var resultat = await CreerMouvementsAsync(new DemandeMouvement
         {
             Type = TypeMouvement.Achat, MaterielIds = crees.Select(m => m.Id).ToList(), Date = demande.Date,
             Expediteur = demande.Fournisseur, DocumentReference = demande.DocumentReference, Commentaire = demande.Commentaire,
         }, auteur, ct);
+
+        var echec = await NotifierAsync(db, Notification.ReceptionAchat,
+            $"Réception d'achat : {crees.Count} matériel{(crees.Count > 1 ? "s" : "")} – {demande.Fournisseur!.Trim()}",
+            $"Du matériel acheté a été réceptionné le {demande.Date:dd/MM/yyyy} et entré en stock :",
+            crees, demande.Fournisseur, demande.DocumentReference, resultat.Fiche, auteur, ct);
+        return echec is null ? resultat
+            : resultat with { Avertissement = string.Join(" ", new[] { resultat.Avertissement, echec }.Where(x => x is not null)) };
+    }
+
+    /// <summary>Mail aux abonnés de la notification ; renvoie l'avertissement à afficher si un envoi a échoué (l'opération reste faite).</summary>
+    private async Task<string?> NotifierAsync(ParcDbContext db, Notification n, string sujet, string introduction, IReadOnlyList<Materiel> materiels,
+        string? fournisseur, string? documentReference, Fiche? fiche, Utilisateur auteur, CancellationToken ct)
+    {
+        if (notifications is null) return null;
+        try
+        {
+            var abonnes = await ServiceDroits.AbonnesAsync(db, n, ct);
+            if (abonnes.Count == 0) return null;
+            await notifications.MaterielRecuAsync(abonnes, sujet, introduction, materiels, fournisseur, documentReference, fiche, auteur.Nom, ct);
+            return null;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or DbUpdateException)
+        {
+            log.LogWarning(ex, "Notification « {Notification} » non envoyée", n);
+            return $"Notification « {n.Libelle()} » : {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -177,6 +203,8 @@ public sealed class ServiceMouvements(
             Details = $"{num} – {d.Type.Libelle()} {m.Modele} (n° série {m.NumSerie})" });
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException) { throw new ErreurMetier("Un autre enregistrement vient d'avoir lieu en même temps : réessayez."); }
+        await NotifierAsync(db, Notification.NouveauMateriel, $"Nouveau matériel au parc : {num} – {d.Type.Libelle()}",
+            "Un matériel qui n'était pas inventorié a été ajouté au parc (en stock) :", [m], d.Provenance, null, null, auteur, ct);
         return m;
     }
 

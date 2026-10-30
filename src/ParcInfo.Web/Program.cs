@@ -149,6 +149,7 @@ using (var scope = app.Services.CreateScope())
     {
         var repris = await scope.ServiceProvider.GetRequiredService<ServiceDroits>().InitialiserAsync();
         if (repris > 0) app.Logger.LogInformation("Droits initialisés pour {Nombre} compte(s)", repris);
+        await scope.ServiceProvider.GetRequiredService<ServiceDroits>().InitialiserNotificationsAsync();
     }
     catch (Exception ex) { app.Logger.LogError(ex, "Initialisation des droits impossible"); }
 }

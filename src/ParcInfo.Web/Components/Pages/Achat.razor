@@ -16,6 +16,10 @@
             <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="vertical-align:middle" /> Matériel entré en stock
         </MudText>
         <MudText Class="mb-3">Mouvements n° @string.Join(", ", _resultat.Numeros)</MudText>
+        @if (_resultat.Avertissement is { } avertissement)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3">@avertissement</MudAlert>
+        }
         @if (_resultat.Fiche is { } f)
         {
             <MudButton Href="@($"/fiches/{f.IdPublic}/pdf")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.PictureAsPdf">Fiche @f.Code</MudButton>

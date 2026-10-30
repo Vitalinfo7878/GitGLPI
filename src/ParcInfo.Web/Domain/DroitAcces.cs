@@ -15,6 +15,15 @@ public enum Droit
     ConsultationInventaire,
 }
 
+/// <summary>Courriel d'information auquel un compte peut être abonné sur la page « Droits » (sans droit d'accès nécessaire).</summary>
+public enum Notification
+{
+    [Display(Name = "Réception d'achat", Description = "Mail à chaque réception d'achat : matériel entré en stock (n° interne, modèle, n° de série, facture), fournisseur et fiche.")]
+    ReceptionAchat,
+    [Display(Name = "Nouveau matériel (hors achat)", Description = "Mail quand un matériel non inventorié est ajouté au parc (page « Nouveau matériel »).")]
+    NouveauMateriel,
+}
+
 /// <summary>
 /// Droits d'un compte Microsoft, gérés par les administrateurs principaux sur la page « Droits ».
 /// Les administrateurs principaux eux-mêmes sont fixés dans la configuration (« Authentification:Administrateurs »).
@@ -29,6 +38,8 @@ public class DroitAcces
     public bool Valideur { get; set; }
     public bool AdminTickets { get; set; }
     public bool ConsultationInventaire { get; set; }
+    public bool NotifReceptionAchat { get; set; }
+    public bool NotifNouveauMateriel { get; set; }
     public string? ModifiePar { get; set; }
     public DateTime ModifieLe { get; set; }
 
@@ -53,4 +64,22 @@ public class DroitAcces
     }
 
     public IEnumerable<Droit> Droits => Enum.GetValues<Droit>().Where(A);
+
+    public bool A(Notification n) => n switch
+    {
+        Notification.ReceptionAchat => NotifReceptionAchat,
+        Notification.NouveauMateriel => NotifNouveauMateriel,
+        _ => false,
+    };
+
+    public void Definir(Notification n, bool valeur)
+    {
+        switch (n)
+        {
+            case Notification.ReceptionAchat: NotifReceptionAchat = valeur; break;
+            case Notification.NouveauMateriel: NotifNouveauMateriel = valeur; break;
+        }
+    }
+
+    public IEnumerable<Notification> Notifications => Enum.GetValues<Notification>().Where(A);
 }

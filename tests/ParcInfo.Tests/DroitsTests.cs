@@ -152,4 +152,39 @@ public sealed class DroitsTests : IDisposable
         Assert.Equal(DomaineJournal.CompteMicrosoft, JournalInventaire.Domaine("Compte Microsoft relié"));
         Assert.Equal(DomaineJournal.Autre, JournalInventaire.Domaine("Droits"));
     }
+
+    [Fact]
+    public async Task Notifications_par_mail_sans_droit_d_acces()
+    {
+        var config = new ConfigurationBuilder().AddConfiguration(_config).AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Notifications:ReceptionAchat:0"] = " Pierre.Fragata@vitalrest.com ",
+        }).Build();
+        var service = new ServiceDroits(_fabrique, _cache, config, _annuaire, NullLogger<ServiceDroits>.Instance);
+        Assert.Equal(1, await service.InitialiserNotificationsAsync());
+        var pierre = Assert.Single(await service.ListerAsync());
+        Assert.Equal("pierre.fragata@vitalrest.com", pierre.Email);
+        Assert.Equal([Notification.ReceptionAchat], pierre.Notifications);
+        Assert.Empty(pierre.Droits);
+
+        // Abonné sans aucun accès supplémentaire
+        var u = await Connecter(new Claim("preferred_username", "pierre.fragata@vitalrest.com"));
+        Assert.False(u.EstGestionnaire || u.EstValideur || u.VoitInventaire);
+
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.Equal(["pierre.fragata@vitalrest.com"], await ServiceDroits.AbonnesAsync(db, Notification.ReceptionAchat));
+            Assert.Empty(await ServiceDroits.AbonnesAsync(db, Notification.NouveauMateriel));
+        }
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => service.ModifierAsync(pierre.Id, Notification.ReceptionAchat, false, Lamine));
+        await service.ModifierAsync(pierre.Id, Notification.ReceptionAchat, false, Anthony);
+        // Reprise unique : un désabonnement n'est pas annulé au redémarrage
+        Assert.Equal(0, await service.InitialiserNotificationsAsync());
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.Empty(await ServiceDroits.AbonnesAsync(db, Notification.ReceptionAchat));
+            Assert.Contains(await db.Journal.Select(j => j.Details).ToListAsync(), d => d == "pierre.fragata@vitalrest.com : notification « Réception d'achat » désactivée");
+        }
+    }
 }

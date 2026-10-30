@@ -395,6 +395,12 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("NotifNouveauMateriel")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("NotifReceptionAchat")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("Valideur")
                         .HasColumnType("boolean");
 
