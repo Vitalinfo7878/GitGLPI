@@ -31,9 +31,14 @@ public enum Notification
 public class DroitAcces
 {
     public int Id { get; set; }
-    /// <summary>Adresse du compte (en minuscules) : boîte mail ou identifiant de connexion.</summary>
+    /// <summary>Adresse du compte (en minuscules) : boîte mail ou identifiant de connexion ; « groupe:… » pour un groupe.</summary>
     public string Email { get; set; } = "";
     public string? Nom { get; set; }
+    /// <summary>
+    /// Groupe de l'annuaire Microsoft (nom exact, ex. « SERV_COMPTA ») : tous ses membres directs reçoivent les droits et notifications cochés.
+    /// Les membres sont ceux de la dernière synchronisation de l'annuaire.
+    /// </summary>
+    public string? Groupe { get; set; }
     public bool Gestionnaire { get; set; }
     public bool Valideur { get; set; }
     public bool AdminTickets { get; set; }
@@ -64,6 +69,17 @@ public class DroitAcces
     }
 
     public IEnumerable<Droit> Droits => Enum.GetValues<Droit>().Where(A);
+
+    public bool EstGroupe => Groupe is not null;
+
+    public static string CleGroupe(string groupe) => $"groupe:{groupe.Trim().ToLowerInvariant()}";
+
+    /// <summary>Ajoute les droits et notifications d'une autre ligne (groupe dont le compte est membre).</summary>
+    public void Cumuler(DroitAcces autre)
+    {
+        foreach (var d in autre.Droits) Definir(d, true);
+        foreach (var n in autre.Notifications) Definir(n, true);
+    }
 
     public bool A(Notification n) => n switch
     {

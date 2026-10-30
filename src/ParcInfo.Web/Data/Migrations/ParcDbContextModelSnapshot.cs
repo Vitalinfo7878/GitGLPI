@@ -384,6 +384,10 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Property<bool>("Gestionnaire")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Groupe")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<DateTime>("ModifieLe")
                         .HasColumnType("timestamp with time zone");
 

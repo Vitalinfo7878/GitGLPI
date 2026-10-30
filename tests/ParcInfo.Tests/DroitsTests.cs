@@ -187,4 +187,60 @@ public sealed class DroitsTests : IDisposable
             Assert.Contains(await db.Journal.Select(j => j.Details).ToListAsync(), d => d == "pierre.fragata@vitalrest.com : notification « Réception d'achat » désactivée");
         }
     }
+
+    [Fact]
+    public async Task Groupe_de_l_annuaire_donne_ses_droits_a_ses_membres()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.ComptesMicrosoft.AddRange(
+                new CompteMicrosoft { Id = "c1", NomAffichage = "Pierre Fragata", Email = "pierre.fragata@vitalrest.com", Upn = "pfragata@vitalrest.com", Groupes = "Tous les salariés; SERV_COMPTA", Actif = true },
+                new CompteMicrosoft { Id = "c2", NomAffichage = "Ancienne Comptable", Email = "ancienne@vitalrest.com", Groupes = "SERV_COMPTA", Actif = false },
+                new CompteMicrosoft { Id = "c3", NomAffichage = "Camille Test", Email = "camille.test@vitalrest.com", Groupes = "Tous les salariés; SERV_COMPTA_ARCHIVES", Actif = true });
+            db.DroitsAcces.Add(new DroitAcces { Email = "pierre.fragata@vitalrest.com", NotifReceptionAchat = true });
+            await db.SaveChangesAsync();
+        }
+        var config = new ConfigurationBuilder().AddConfiguration(_config).AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Droits:Groupes:0:Groupe"] = "SERV_COMPTA",
+            ["Droits:Groupes:0:Nom"] = "Comptable",
+            ["Droits:Groupes:0:Droits:0"] = "ConsultationInventaire",
+        }).Build();
+        var service = new ServiceDroits(_fabrique, _cache, config, _annuaire, NullLogger<ServiceDroits>.Instance);
+        Assert.Equal(1, await service.InitialiserGroupesAsync());
+        Assert.Equal(0, await service.InitialiserGroupesAsync());
+        var groupe = (await service.ListerAsync())[0];
+        Assert.True(groupe.EstGroupe);
+        Assert.Equal(("Comptable", "SERV_COMPTA"), (groupe.Nom, groupe.Groupe));
+        Assert.Equal([Droit.ConsultationInventaire], groupe.Droits);
+        Assert.Equal(["Pierre Fragata"], (await service.MembresDesGroupesAsync())[groupe.Id].Select(c => c.NomAffichage));
+        Assert.Equal([new GroupeAnnuaire("SERV_COMPTA", 1), new GroupeAnnuaire("SERV_COMPTA_ARCHIVES", 1)], await service.ChercherGroupesAsync("compta"));
+
+        // Membre (connecté avec son identifiant de connexion) : droits du groupe + ses propres notifications
+        var pierre = await Connecter(new Claim("preferred_username", "pfragata@vitalrest.com"));
+        Assert.True(pierre.VoitInventaire);
+        Assert.False(pierre.EstGestionnaire);
+        Assert.False((await Connecter(new Claim("preferred_username", "camille.test@vitalrest.com"))).VoitInventaire);
+        Assert.False((await Connecter(new Claim("preferred_username", "ancienne@vitalrest.com"))).VoitInventaire);
+
+        // Notification cochée sur le groupe : une seule adresse par personne
+        await service.ModifierAsync(groupe.Id, Notification.ReceptionAchat, true, Anthony);
+        await service.ModifierAsync(groupe.Id, Droit.Valideur, true, Anthony);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.Equal(["pierre.fragata@vitalrest.com"], await ServiceDroits.AbonnesAsync(db, Notification.ReceptionAchat));
+            Assert.Equal(["pierre.fragata@vitalrest.com"], await ServiceDroits.ValideursAsync(db));
+        }
+        Assert.True((await Connecter(new Claim("preferred_username", "pierre.fragata@vitalrest.com"))).EstValideur);
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => service.AjouterGroupeAsync("SERV_COMPTA", null, Anthony));
+        await Assert.ThrowsAsync<ErreurMetier>(() => service.AjouterGroupeAsync("INCONNU", null, Anthony));
+        await Assert.ThrowsAsync<ErreurMetier>(() => service.AjouterGroupeAsync("SERV_COMPTA_ARCHIVES", null, Lamine));
+        await service.RenommerAsync(groupe.Id, "Comptabilité", Anthony);
+
+        // Groupe retiré : plus de droits, et pas recréé au redémarrage
+        await service.SupprimerAsync(groupe.Id, Anthony);
+        Assert.Equal(0, await service.InitialiserGroupesAsync());
+        Assert.False((await Connecter(new Claim("preferred_username", "pfragata@vitalrest.com"))).VoitInventaire);
+    }
 }

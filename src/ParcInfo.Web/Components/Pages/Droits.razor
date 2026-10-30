@@ -12,6 +12,7 @@
     Qui a accès à quoi. Tout le monde peut créer des tickets et faire des demandes ; les droits ci-dessous donnent les accès supplémentaires.
     Un droit accordé ou retiré prend effet dès la page suivante de la personne, sans qu'elle ait à se reconnecter.
     Les notifications par mail peuvent être données à n'importe quelle adresse, même sans aucun droit d'accès.
+    Un groupe de l'annuaire Microsoft (ex. SERV_COMPTA) donne ses droits et notifications à tous ses membres d'un coup.
 </MudText>
 
 <MudGrid Spacing="3">
@@ -27,10 +28,16 @@
 
         <MudPaper Elevation="0" Class="carte pa-4">
             <div class="d-flex flex-wrap align-center gap-2 mb-3">
-                <MudText Typo="Typo.h6">Comptes</MudText>
+                <MudText Typo="Typo.h6">Groupes et comptes</MudText>
                 <MudSpacer />
-                <div style="min-width:320px">
-                    <MudAutocomplete T="CompteMicrosoft" SearchFunc="Chercher" ValueChanged="AjouterCompte" ResetValueOnEmptyText="true"
+                <div style="min-width:280px">
+                    <MudAutocomplete @ref="_autoGroupe" T="GroupeAnnuaire" SearchFunc="ChercherGroupes" ValueChanged="AjouterGroupe" ResetValueOnEmptyText="true"
+                                     ToStringFunc="@(g => g is null ? "" : $"{g.Nom} · {g.Membres} membre{(g.Membres > 1 ? "s" : "")}")"
+                                     Placeholder="Ajouter un groupe (annuaire Microsoft)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     AdornmentIcon="@Icons.Material.Outlined.GroupAdd" DebounceInterval="250" MinCharacters="0" />
+                </div>
+                <div style="min-width:280px">
+                    <MudAutocomplete @ref="_autoCompte" T="CompteMicrosoft" SearchFunc="Chercher" ValueChanged="AjouterCompte" ResetValueOnEmptyText="true"
                                      ToStringFunc="@(c => c is null ? "" : $"{c.NomAffichage} · {c.AdressePrincipale}")"
                                      Placeholder="Ajouter un compte (annuaire Microsoft)" Variant="Variant.Outlined" Margin="Margin.Dense"
                                      AdornmentIcon="@Icons.Material.Outlined.PersonAdd" DebounceInterval="250" MinCharacters="2" />
@@ -62,7 +69,7 @@
                             <th></th>
                         </tr>
                         <tr>
-                            <th>Compte</th>
+                            <th>Groupe / compte</th>
                             @foreach (var d in Enum.GetValues<Droit>()) { <th style="text-align:center">@d.Libelle()</th> }
                             @foreach (var n in Enum.GetValues<Notification>()) { <th class="groupe-notifications" style="text-align:center">@n.Libelle()</th> }
                             <th></th>
@@ -73,8 +80,45 @@
                         {
                             <tr>
                                 <td>
-                                    <b>@(c.Nom ?? c.Email)</b>
-                                    @if (c.Nom is not null) { <div><small>@c.Email</small></div> }
+                                    @if (_renomme == c.Id)
+                                    {
+                                        <div class="d-flex align-center gap-1">
+                                            <MudTextField @bind-Value="_nouveauNom" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" AutoFocus="true"
+                                                          OnKeyDown="@(e => e.Key == "Enter" ? Renommer(c) : Task.CompletedTask)" aria-label="Nouveau nom" />
+                                            <MudIconButton Icon="@Icons.Material.Outlined.Check" Size="Size.Small" OnClick="() => Renommer(c)" aria-label="Valider le nom" />
+                                            <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" OnClick="() => _renomme = null" aria-label="Annuler" />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex align-center gap-1">
+                                            @if (c.EstGroupe) { <MudIcon Icon="@Icons.Material.Outlined.Groups" Size="Size.Small" Color="Color.Primary" /> }
+                                            <b>@(c.Nom ?? c.Email)</b>
+                                            <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" Class="pa-1" OnClick="() => { _renomme = c.Id; _nouveauNom = c.Nom ?? (c.Groupe ?? c.Email); }"
+                                                           aria-label="@($"Renommer {c.Nom ?? c.Email}")" Style="opacity:.6" />
+                                        </div>
+                                    }
+                                    @if (c.EstGroupe)
+                                    {
+                                        var membres = _membres.GetValueOrDefault(c.Id) ?? [];
+                                        <div>
+                                            <small>Groupe @c.Groupe ·</small>
+                                            <MudLink Typo="Typo.caption" OnClick="() => Basculer(c.Id)">@membres.Count membre@(membres.Count > 1 ? "s" : "") @(_ouverts.Contains(c.Id) ? "▴" : "▾")</MudLink>
+                                        </div>
+                                        @if (_ouverts.Contains(c.Id))
+                                        {
+                                            <div class="membres-groupe">
+                                                @if (membres.Count == 0) { <small>Aucun membre actif dans la dernière synchronisation de l'annuaire.</small> }
+                                                @foreach (var m in membres) { <div><small>@m.NomAffichage</small></div> }
+                                            </div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (c.Nom is not null) { <div><small>@c.Email</small></div> }
+                                        var via = ViaGroupes(c);
+                                        if (via.Count > 0) { <div><small style="color:var(--mud-palette-primary)">+ droits du groupe @string.Join(", ", via)</small></div> }
+                                    }
                                 </td>
                                 @foreach (var d in Enum.GetValues<Droit>())
                                 {
@@ -89,7 +133,7 @@
                                     </td>
                                 }
                                 <td>
-                                    <MudTooltip Text="Retirer de la liste (plus aucun droit ni notification)">
+                                    <MudTooltip Text="@(c.EstGroupe ? "Retirer le groupe (ses membres perdent les droits du groupe)" : "Retirer de la liste (plus aucun droit ni notification)")">
                                         <MudIconButton Icon="@Icons.Material.Outlined.PersonRemove" Size="Size.Small" OnClick="() => Supprimer(c)" aria-label="Retirer" />
                                     </MudTooltip>
                                 </td>
@@ -115,6 +159,12 @@
                 <MudText Typo="Typo.subtitle2">@n.Libelle()</MudText>
                 <MudText Typo="Typo.body2" Class="mb-3">@n.Description()</MudText>
             }
+            <MudText Typo="Typo.h6" Class="mb-2 mt-2">Groupes</MudText>
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Les membres directs d'un groupe de l'annuaire Microsoft reçoivent ses droits et notifications, en plus des leurs.
+                La liste des membres est celle de la dernière synchronisation de l'annuaire (chaque nuit, ou « Synchroniser maintenant » sur la page Comptes Microsoft) :
+                une personne ajoutée au groupe dans Microsoft 365 a ses droits après la synchronisation suivante.
+            </MudText>
             <MudText Typo="Typo.body2" Style="color:var(--mud-palette-text-secondary)">Chaque changement de droit ou de notification est noté dans le Journal.</MudText>
         </MudPaper>
     </MudItem>
@@ -122,13 +172,61 @@
 
 @code {
     private List<DroitAcces>? _droits;
+    private Dictionary<int, List<CompteMicrosoft>> _membres = [];
+    private readonly HashSet<int> _ouverts = [];
+    private int? _renomme;
+    private MudAutocomplete<GroupeAnnuaire>? _autoGroupe;
+    private MudAutocomplete<CompteMicrosoft>? _autoCompte;
+    private string? _nouveauNom;
     private string? _email;
     private Utilisateur? _u;
 
     protected override async Task OnInitializedAsync()
     {
         _u = await Courant.ObtenirAsync();
+        await Recharger();
+    }
+
+    private async Task Recharger()
+    {
         _droits = await Service.ListerAsync();
+        _membres = await Service.MembresDesGroupesAsync();
+    }
+
+    private List<string> ViaGroupes(DroitAcces c) => _droits!.Where(g => g.EstGroupe && (_membres.GetValueOrDefault(g.Id)?.Any(m => m.Adresses.Contains(c.Email)) ?? false))
+        .Select(g => g.Nom ?? g.Groupe!).ToList();
+
+    private void Basculer(int id)
+    {
+        if (!_ouverts.Add(id)) _ouverts.Remove(id);
+    }
+
+    private Task<IEnumerable<GroupeAnnuaire>> ChercherGroupes(string? texte, CancellationToken ct) =>
+        Service.ChercherGroupesAsync(texte, ct).ContinueWith(t => (IEnumerable<GroupeAnnuaire>)t.Result, ct);
+
+    private async Task AjouterGroupe(GroupeAnnuaire? g)
+    {
+        if (g is null) return;
+        if (_autoGroupe is not null) await _autoGroupe.ClearAsync();
+        try
+        {
+            var d = await Service.AjouterGroupeAsync(g.Nom, null, _u!);
+            await Recharger();
+            _ouverts.Add(d.Id);
+            Snackbar.Add($"Groupe {d.Groupe} ajouté : cochez ses droits ou notifications.", Severity.Success);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    private async Task Renommer(DroitAcces c)
+    {
+        try
+        {
+            await Service.RenommerAsync(c.Id, _nouveauNom, _u!);
+            c.Nom = _nouveauNom!.Trim();
+            _renomme = null;
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
     }
 
     private Task<IEnumerable<CompteMicrosoft>> Chercher(string? texte, CancellationToken ct) =>
@@ -136,7 +234,9 @@
 
     private async Task AjouterCompte(CompteMicrosoft? c)
     {
-        if (c is not null) await Ajouter(c.AdressePrincipale, c.NomAffichage);
+        if (c is null) return;
+        if (_autoCompte is not null) await _autoCompte.ClearAsync();
+        await Ajouter(c.AdressePrincipale, c.NomAffichage);
     }
 
     private async Task AjouterAdresse()
@@ -149,7 +249,7 @@
         try
         {
             var d = await Service.AjouterAsync(email, nom, _u!);
-            _droits = await Service.ListerAsync();
+            await Recharger();
             Snackbar.Add($"{d.Nom ?? d.Email} ajouté : cochez ses droits ou notifications.", Severity.Success);
             return true;
         }
@@ -180,12 +280,12 @@
 
     private async Task Supprimer(DroitAcces c)
     {
-        var ok = await Dialogues.ShowMessageBoxAsync("Retirer ce compte ?", $"{c.Nom ?? c.Email} n'aura plus aucun droit particulier ni notification.", yesText: "Retirer", cancelText: "Annuler");
+        var ok = await Dialogues.ShowMessageBoxAsync(c.EstGroupe ? "Retirer ce groupe ?" : "Retirer ce compte ?", c.EstGroupe ? $"Les membres du groupe {c.Groupe} perdront les droits et notifications du groupe (ils gardent les leurs)." : $"{c.Nom ?? c.Email} n'aura plus aucun droit particulier ni notification.", yesText: "Retirer", cancelText: "Annuler");
         if (ok != true) return;
         try
         {
             await Service.SupprimerAsync(c.Id, _u!);
-            _droits = await Service.ListerAsync();
+            await Recharger();
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }

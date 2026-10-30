@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ParcInfo.Web.Data;
 using ParcInfo.Web.Domain;
 using ParcInfo.Web.Import;
@@ -19,7 +20,8 @@ public sealed record ATrancher(TypeDetenteur Type, int Id, string Nom, string? E
 /// les autres attendent une décision sur la page « Comptes Microsoft ».
 /// Une fois reliés, le nom et l'adresse affichés dans l'application sont ceux de l'annuaire.
 /// </summary>
-public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbFactory, IAnnuaireMicrosoft annuaire, ILogger<ServiceComptesMicrosoft> log)
+public sealed class ServiceComptesMicrosoft(
+    IDbContextFactory<ParcDbContext> dbFactory, IAnnuaireMicrosoft annuaire, ILogger<ServiceComptesMicrosoft> log, IMemoryCache? cache = null)
 {
     private static readonly SemaphoreSlim EnCours = new(1, 1);
 
@@ -82,6 +84,8 @@ public sealed class ServiceComptesMicrosoft(IDbContextFactory<ParcDbContext> dbF
                 Details = $"{rapport.Comptes} comptes, {rapport.ReliesAutomatiquement} rapprochement(s) automatique(s), {rapport.ATrancher} à trancher, {rapport.Departs} départ(s) à traiter",
             });
             await db.SaveChangesAsync(ct);
+            // Membres des groupes de la page « Droits » à jour
+            ServiceDroits.ViderCache(cache);
             log.LogInformation("Annuaire synchronisé : {Comptes} comptes, {Relies} reliés", rapport.Comptes, relies);
             return rapport;
         }

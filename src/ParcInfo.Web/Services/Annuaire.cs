@@ -154,7 +154,7 @@ public sealed class AnnuaireDemo : IAnnuaireMicrosoft
 
     private static CompteAnnuaire Compte(string id, string nom, string? prenom, string? famille, string mail, string? poste, string? service, string? responsable, bool actif) =>
         new(id, nom, prenom, famille, mail, mail, [], poste, service, "Siège", "Vitalrest", null, "06 12 34 56 78", null, null, "Paris",
-            responsable switch { null => null, "Thomas Verchère" => "d5", _ => "d1" }, responsable, ["Tous les salariés", service ?? "Divers"], ["Microsoft 365 Business Standard"], actif,
+            responsable switch { null => null, "Thomas Verchère" => "d5", _ => "d1" }, responsable, service == "Comptabilité" ? ["Tous les salariés", service, "SERV_COMPTA"] : ["Tous les salariés", service ?? "Divers"], ["Microsoft 365 Business Standard"], actif,
             new DateTime(2024, 1, 15, 0, 0, 0, DateTimeKind.Utc));
 }
 

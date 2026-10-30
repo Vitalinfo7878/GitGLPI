@@ -9,46 +9,138 @@ namespace ParcInfo.Web.Services;
 /// Droits des comptes (page « Droits »), réservés aux administrateurs principaux de la configuration.
 /// Un changement s'applique à la page suivante que la personne ouvre (ou après actualisation).
 /// </summary>
+public sealed record GroupeAnnuaire(string Nom, int Membres);
+
 public sealed class ServiceDroits(
     IDbContextFactory<ParcDbContext> dbFactory, IMemoryCache cache, IConfiguration config, IAnnuaireMicrosoft annuaire, ILogger<ServiceDroits> log)
 {
     private const string CleCache = "droits-acces";
     private const string ActionInitialisation = "Droits initialisés";
     private const string ActionInitialisationNotifications = "Notifications initialisées";
+    private const string ActionInitialisationGroupe = "Groupe initialisé";
 
     public static IReadOnlyList<string> AdministrateursDe(IConfiguration config) =>
         (config.GetSection("Authentification:Administrateurs").Get<string[]>() ?? []).Select(a => a.Trim().ToLowerInvariant()).Where(a => a.Length > 0).ToList();
 
     public IReadOnlyList<string> Administrateurs => AdministrateursDe(config);
 
-    /// <summary>Droits du compte (une de ses adresses), lus dans un cache vidé à chaque modification.</summary>
+    /// <summary>
+    /// Droits effectifs du compte (toutes ses adresses) : sa propre ligne et celles des groupes dont il est membre,
+    /// lus dans un cache vidé à chaque modification et après chaque synchronisation de l'annuaire.
+    /// </summary>
     public static async Task<DroitAcces?> DroitDeAsync(IDbContextFactory<ParcDbContext> dbFactory, IMemoryCache? cache, IEnumerable<string> adresses)
     {
-        if (cache is null || !cache.TryGetValue(CleCache, out Dictionary<string, DroitAcces>? parAdresse) || parAdresse is null)
+        if (cache is null || !cache.TryGetValue(CleCache, out Dictionary<string, List<DroitAcces>>? parAdresse) || parAdresse is null)
         {
             await using var db = await dbFactory.CreateDbContextAsync();
-            parAdresse = (await db.DroitsAcces.AsNoTracking().ToListAsync()).ToDictionary(d => d.Email, StringComparer.OrdinalIgnoreCase);
+            var lignes = await db.DroitsAcces.AsNoTracking().ToListAsync();
+            parAdresse = new Dictionary<string, List<DroitAcces>>(StringComparer.OrdinalIgnoreCase);
+            void Noter(string adresse, DroitAcces d)
+            {
+                if (!parAdresse.TryGetValue(adresse, out var l)) parAdresse[adresse] = l = [];
+                l.Add(d);
+            }
+            foreach (var d in lignes.Where(d => !d.EstGroupe)) Noter(d.Email, d);
+            foreach (var (groupe, membres) in await MembresAsync(db, lignes))
+                foreach (var a in membres.SelectMany(c => c.Adresses)) Noter(a, groupe);
             cache?.Set(CleCache, parAdresse, TimeSpan.FromMinutes(5));
         }
-        return adresses.Select(a => parAdresse.GetValueOrDefault(a)).FirstOrDefault(d => d is not null);
+        var trouves = adresses.SelectMany(a => parAdresse.GetValueOrDefault(a) ?? []).Distinct().ToList();
+        if (trouves.Count == 0) return null;
+        var propre = trouves.FirstOrDefault(d => !d.EstGroupe);
+        var effectif = new DroitAcces { Id = propre?.Id ?? 0, Email = propre?.Email ?? adresses.First(), Nom = propre?.Nom };
+        foreach (var d in trouves) effectif.Cumuler(d);
+        return effectif;
+    }
+
+    public static void ViderCache(IMemoryCache? cache) => cache?.Remove(CleCache);
+
+    /// <summary>Membres directs (comptes actifs) de chaque ligne « groupe », d'après la dernière synchronisation de l'annuaire.</summary>
+    public static async Task<Dictionary<DroitAcces, List<CompteMicrosoft>>> MembresAsync(ParcDbContext db, IEnumerable<DroitAcces> lignes, CancellationToken ct = default)
+    {
+        var groupes = lignes.Where(d => d.EstGroupe).ToList();
+        if (groupes.Count == 0) return [];
+        var comptes = await db.ComptesMicrosoft.AsNoTracking().Where(c => !c.Supprime && c.Actif && c.Groupes != null).ToListAsync(ct);
+        return groupes.ToDictionary(g => g, g => comptes
+            .Where(c => c.ListeGroupes.Contains(g.Groupe!, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(c => c.NomAffichage, StringComparer.CurrentCultureIgnoreCase).ToList());
+    }
+
+    /// <summary>Adresses des comptes retenus par le filtre, groupes développés en leurs membres (une adresse par personne).</summary>
+    private static async Task<List<string>> AdressesAsync(ParcDbContext db, Func<DroitAcces, bool> filtre, CancellationToken ct)
+    {
+        var lignes = (await db.DroitsAcces.AsNoTracking().ToListAsync(ct)).Where(filtre).ToList();
+        var adresses = lignes.Where(d => !d.EstGroupe).Select(d => d.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in (await MembresAsync(db, lignes, ct)).Values.SelectMany(m => m))
+            if (c.AdressePrincipale is { } a && !c.Adresses.Any(adresses.Contains)) adresses.Add(a);
+        return adresses.Order(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>Adresses des valideurs (destinataires des boutons Valider / Refuser et des relances).</summary>
-    public static async Task<List<string>> ValideursAsync(ParcDbContext db, CancellationToken ct = default) =>
-        await db.DroitsAcces.Where(d => d.Valideur).OrderBy(d => d.Email).Select(d => d.Email).ToListAsync(ct);
+    public static Task<List<string>> ValideursAsync(ParcDbContext db, CancellationToken ct = default) => AdressesAsync(db, d => d.Valideur, ct);
 
     /// <summary>Adresses abonnées à une notification par mail.</summary>
-    public static async Task<List<string>> AbonnesAsync(ParcDbContext db, Notification n, CancellationToken ct = default) => n switch
-    {
-        Notification.ReceptionAchat => await db.DroitsAcces.Where(d => d.NotifReceptionAchat).OrderBy(d => d.Email).Select(d => d.Email).ToListAsync(ct),
-        Notification.NouveauMateriel => await db.DroitsAcces.Where(d => d.NotifNouveauMateriel).OrderBy(d => d.Email).Select(d => d.Email).ToListAsync(ct),
-        _ => [],
-    };
+    public static Task<List<string>> AbonnesAsync(ParcDbContext db, Notification n, CancellationToken ct = default) => AdressesAsync(db, d => d.A(n), ct);
 
     public async Task<List<DroitAcces>> ListerAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.DroitsAcces.AsNoTracking().OrderBy(d => d.Nom ?? d.Email).ToListAsync(ct);
+        return await db.DroitsAcces.AsNoTracking().OrderBy(d => d.Groupe == null).ThenBy(d => d.Nom ?? d.Email).ToListAsync(ct);
+    }
+
+    /// <summary>Membres de chaque groupe de la liste, par identifiant de ligne.</summary>
+    public async Task<Dictionary<int, List<CompteMicrosoft>>> MembresDesGroupesAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return (await MembresAsync(db, await db.DroitsAcces.AsNoTracking().Where(d => d.Groupe != null).ToListAsync(ct), ct))
+            .ToDictionary(x => x.Key.Id, x => x.Value);
+    }
+
+    /// <summary>Groupes de l'annuaire Microsoft (dernière synchronisation) contenant le texte, avec leur nombre de membres actifs.</summary>
+    public async Task<List<GroupeAnnuaire>> ChercherGroupesAsync(string? texte, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var groupes = (await db.ComptesMicrosoft.AsNoTracking().Where(c => !c.Supprime && c.Actif && c.Groupes != null).Select(c => c.Groupes).ToListAsync(ct))
+            .SelectMany(g => g!.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .GroupBy(g => g, StringComparer.OrdinalIgnoreCase).Select(g => new GroupeAnnuaire(g.Key, g.Count()));
+        var t = texte?.Trim();
+        return groupes.Where(g => string.IsNullOrEmpty(t) || g.Nom.Contains(t, StringComparison.CurrentCultureIgnoreCase))
+            .OrderBy(g => g.Nom, StringComparer.CurrentCultureIgnoreCase).Take(30).ToList();
+    }
+
+    public async Task<DroitAcces> AjouterGroupeAsync(string? groupe, string? nom, Utilisateur u, CancellationToken ct = default)
+    {
+        Verifier(u);
+        var g = groupe?.Trim();
+        if (string.IsNullOrEmpty(g)) throw new ErreurMetier("Choisissez un groupe de l'annuaire Microsoft.");
+        var connu = (await ChercherGroupesAsync(g, ct)).FirstOrDefault(x => string.Equals(x.Nom, g, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ErreurMetier($"Groupe « {g} » inconnu de l'annuaire (ou sans membre actif) : synchronisez l'annuaire Microsoft s'il vient d'être créé.");
+        var cle = DroitAcces.CleGroupe(connu.Nom);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        if (await db.DroitsAcces.AnyAsync(d => d.Email == cle, ct)) throw new ErreurMetier($"Le groupe {connu.Nom} est déjà dans la liste.");
+        var d = new DroitAcces
+        {
+            Email = cle, Groupe = connu.Nom, Nom = string.IsNullOrWhiteSpace(nom) ? connu.Nom : nom.Trim(), ModifiePar = u.Signature, ModifieLe = DateTime.UtcNow,
+        };
+        db.DroitsAcces.Add(d);
+        db.Journal.Add(new Journal { Date = d.ModifieLe, Utilisateur = u.Signature, Action = "Droits", Details = $"Groupe {connu.Nom} ajouté à la liste des droits ({connu.Membres} membre(s))" });
+        await db.SaveChangesAsync(ct);
+        cache.Remove(CleCache);
+        return d;
+    }
+
+    public async Task RenommerAsync(int id, string? nom, Utilisateur u, CancellationToken ct = default)
+    {
+        Verifier(u);
+        if (string.IsNullOrWhiteSpace(nom)) throw new ErreurMetier("Indiquez un nom.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var d = await db.DroitsAcces.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ErreurMetier("Ligne introuvable.");
+        var ancien = d.Nom ?? d.Email;
+        d.Nom = nom.Trim();
+        d.ModifiePar = u.Signature;
+        d.ModifieLe = DateTime.UtcNow;
+        db.Journal.Add(new Journal { Date = d.ModifieLe, Utilisateur = u.Signature, Action = "Droits", Details = $"« {ancien} » renommé « {d.Nom} »" });
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<DroitAcces> AjouterAsync(string? email, string? nom, Utilisateur u, CancellationToken ct = default)
@@ -200,6 +292,38 @@ public sealed class ServiceDroits(
         await db.SaveChangesAsync(ct);
         cache.Remove(CleCache);
         return abonnes.Count;
+    }
+
+    /// <summary>
+    /// Une seule fois par groupe : crée les lignes « groupe » de la configuration (« Droits:Groupes »), avec leurs droits et notifications
+    /// de départ. Elles se modifient ensuite sur la page « Droits » (et une ligne retirée n'est pas recréée).
+    /// </summary>
+    public async Task<int> InitialiserGroupesAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var crees = 0;
+        foreach (var section in config.GetSection("Droits:Groupes").GetChildren())
+        {
+            var groupe = section["Groupe"]?.Trim();
+            if (string.IsNullOrEmpty(groupe)) continue;
+            var cle = DroitAcces.CleGroupe(groupe);
+            var trace = $"(groupe {groupe})";
+            if (await db.DroitsAcces.AnyAsync(d => d.Email == cle, ct)
+                || await db.Journal.AnyAsync(j => j.Action == ActionInitialisationGroupe && j.Details != null && j.Details.Contains(trace), ct)) continue;
+            var d = new DroitAcces { Email = cle, Groupe = groupe, Nom = section["Nom"]?.Trim() ?? groupe, ModifiePar = ActionInitialisationGroupe, ModifieLe = DateTime.UtcNow };
+            foreach (var x in section.GetSection("Droits").Get<string[]>() ?? []) if (Enum.TryParse<Droit>(x, out var droit)) d.Definir(droit, true);
+            foreach (var x in section.GetSection("Notifications").Get<string[]>() ?? []) if (Enum.TryParse<Notification>(x, out var n)) d.Definir(n, true);
+            db.DroitsAcces.Add(d);
+            db.Journal.Add(new Journal
+            {
+                Date = DateTime.UtcNow, Utilisateur = "Application", Action = ActionInitialisationGroupe,
+                Details = $"{d.Nom} {trace} : {string.Join(", ", d.Droits.Select(x => x.Libelle()).Concat(d.Notifications.Select(n => $"notification {n.Libelle()}")).DefaultIfEmpty("aucun droit"))}",
+            });
+            crees++;
+        }
+        await db.SaveChangesAsync(ct);
+        if (crees > 0) cache.Remove(CleCache);
+        return crees;
     }
 
     private static void Verifier(Utilisateur u)

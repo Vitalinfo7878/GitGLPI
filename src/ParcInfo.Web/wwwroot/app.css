@@ -90,3 +90,4 @@
     .mud-toggle-group .mud-toggle-item { font-size: .72rem; padding: 4px 6px; line-height: 1.2; }
 }
 .groupe-notifications { background: color-mix(in srgb, var(--mud-palette-secondary) 7%, transparent); }
+.membres-groupe { max-height: 220px; overflow-y: auto; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--mud-palette-lines-default); }

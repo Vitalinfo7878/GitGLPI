@@ -200,6 +200,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.Email).HasMaxLength(200);
             e.HasIndex(x => x.Email).IsUnique();
             e.Property(x => x.Nom).HasMaxLength(200);
+            e.Property(x => x.Groupe).HasMaxLength(256);
             e.Property(x => x.ModifiePar).HasMaxLength(400);
         });
     }
