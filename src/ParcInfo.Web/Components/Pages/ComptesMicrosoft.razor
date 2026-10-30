@@ -95,7 +95,7 @@ else
         </MudTabPanel>
 
         <MudTabPanel Text="@($"Reliés ({_relies.Count})")">
-            <MudDataGrid T="Relie" Items="RelieFiltres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" HorizontalScrollbar="true">
+            <MudDataGrid T="Relie" Breakpoint="Breakpoint.None" Items="RelieFiltres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" HorizontalScrollbar="true">
                 <ToolBarContent>
                     <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Filtrer (nom, mail, poste, service, groupe…)"
                                   Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Clearable="true" />
@@ -105,11 +105,11 @@ else
                         <CellTemplate><MudIcon Icon="@(context.Item.Type == TypeDetenteur.Site ? Icons.Material.Outlined.Restaurant : Icons.Material.Outlined.Person)" Size="Size.Small" /></CellTemplate>
                     </TemplateColumn>
                     <PropertyColumn Property="x => x.Compte.NomAffichage" Title="Nom" CellStyle="font-weight:600" />
-                    <PropertyColumn Property="x => x.Compte.AdressePrincipale" Title="Mail" />
-                    <PropertyColumn Property="x => x.Compte.Poste" Title="Poste" />
-                    <PropertyColumn Property="x => x.Compte.Service" Title="Service" />
-                    <PropertyColumn Property="x => x.Compte.ResponsableNom" Title="Responsable" />
-                    <PropertyColumn Property="x => x.Compte.TelephoneMobile" Title="Mobile" />
+                    <PropertyColumn Property="x => x.Compte.AdressePrincipale" Title="Mail" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+                    <PropertyColumn Property="x => x.Compte.Poste" Title="Poste" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+                    <PropertyColumn Property="x => x.Compte.Service" Title="Service" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+                    <PropertyColumn Property="x => x.Compte.ResponsableNom" Title="Responsable" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+                    <PropertyColumn Property="x => x.Compte.TelephoneMobile" Title="Mobile" HeaderClass="mobile-cache" CellClass="mobile-cache" />
                     <PropertyColumn Property="x => x.NbMateriels" Title="Matériel" />
                     <TemplateColumn T="Relie" Title="État" SortBy="x => x.Compte.EstParti">
                         <CellTemplate>

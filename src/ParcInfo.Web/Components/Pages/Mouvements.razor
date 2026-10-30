@@ -45,18 +45,18 @@
 }
 else
 {
-    <MudDataGrid T="Ligne" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
+    <MudDataGrid T="Ligne" Breakpoint="Breakpoint.None" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
                  RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
         <Columns>
-            <PropertyColumn Property="x => x.Numero" Title="N°" />
-            <PropertyColumn Property="x => x.Date" Title="Date" Format="dd/MM/yyyy" />
+            <PropertyColumn Property="x => x.Numero" Title="N°" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Date" Title="Date" HeaderClass="mobile-cache" CellClass="mobile-cache" Format="dd/MM/yyyy" />
             <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
             <PropertyColumn Property="x => x.NumInterne" Title="N° interne" CellStyle="font-weight:600" />
-            <PropertyColumn Property="x => x.Materiel" Title="Matériel" />
-            <PropertyColumn Property="x => x.Expediteur" Title="Expéditeur" />
+            <PropertyColumn Property="x => x.Materiel" Title="Matériel" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Expediteur" Title="Expéditeur" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <PropertyColumn Property="x => x.Destination" Title="Destination" />
-            <PropertyColumn Property="x => x.Region" Title="Région" />
-            <TemplateColumn T="Ligne" Title="Fiche" SortBy="x => x.Fiche">
+            <PropertyColumn Property="x => x.Region" Title="Région" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <TemplateColumn T="Ligne" Title="Fiche" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.Fiche">
                 <CellTemplate>
                     @if (context.Item.FicheId is { } f)
                     {
@@ -64,7 +64,7 @@ else
                     }
                 </CellTemplate>
             </TemplateColumn>
-            <TemplateColumn T="Ligne" Title="" Sortable="false">
+            <TemplateColumn T="Ligne" Title="" Sortable="false" HeaderClass="mobile-cache" CellClass="mobile-cache">
                 <CellTemplate>
                     @* Sans ouvrir la fiche matériel (clic sur la ligne) *@
                     <span @onclick:stopPropagation="true">

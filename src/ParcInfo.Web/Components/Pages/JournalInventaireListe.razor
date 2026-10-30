@@ -19,7 +19,7 @@
 }
 else
 {
-    <MudDataGrid T="Journal" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50">
+    <MudDataGrid T="Journal" Breakpoint="Breakpoint.None" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50">
         <ToolBarContent>
             <MudToggleGroup T="DomaineJournal?" @bind-Value="_domaine" Color="Color.Primary" Size="Size.Small" Class="mr-4">
                 <MudToggleItem Value="@((DomaineJournal?)null)" Text="Tout" />
@@ -36,7 +36,7 @@ else
             <TemplateColumn T="Journal" Title="Date" SortBy="x => x.Date">
                 <CellTemplate><span style="white-space:nowrap">@context.Item.Date.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span></CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.Utilisateur" Title="Par" />
+            <PropertyColumn Property="x => x.Utilisateur" Title="Par" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <TemplateColumn T="Journal" Title="Action" SortBy="x => x.Action">
                 <CellTemplate>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"

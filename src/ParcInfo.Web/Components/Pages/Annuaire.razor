@@ -37,7 +37,7 @@
 }
 else
 {
-    <MudDataGrid T="Ligne" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
+    <MudDataGrid T="Ligne" Breakpoint="Breakpoint.None" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
                  RowClick="@(e => Nav.NavigateTo($"/annuaire/{e.Item.Cle}"))" RowClass="lien-ligne" HorizontalScrollbar="true">
         <Columns>
             <TemplateColumn T="Ligne" Title="Nom" SortBy="x => x.Nom">
@@ -46,9 +46,9 @@ else
                     <b>@context.Item.Nom</b>
                 </CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.Email" Title="Mail" />
-            <PropertyColumn Property="x => x.Poste" Title="Poste" />
-            <PropertyColumn Property="x => x.Service" Title="Service" />
+            <PropertyColumn Property="x => x.Email" Title="Mail" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Poste" Title="Poste" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Service" Title="Service" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <TemplateColumn T="Ligne" Title="État" SortBy="x => x.Etat">
                 <CellTemplate>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"

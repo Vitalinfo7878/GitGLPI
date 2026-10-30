@@ -12,14 +12,14 @@
 }
 else
 {
-    <MudDataGrid T="Journal" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50">
+    <MudDataGrid T="Journal" Breakpoint="Breakpoint.None" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50">
         <ToolBarContent>
             <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="Filtrer (utilisateur, action, n° interne…)"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Clearable="true" />
         </ToolBarContent>
         <Columns>
             <TemplateColumn T="Journal" Title="Date" SortBy="x => x.Date"><CellTemplate>@context.Item.Date.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</CellTemplate></TemplateColumn>
-            <PropertyColumn Property="x => x.Utilisateur" Title="Utilisateur" />
+            <PropertyColumn Property="x => x.Utilisateur" Title="Utilisateur" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <PropertyColumn Property="x => x.Action" Title="Action" />
             <TemplateColumn T="Journal" Title="Détails">
                 <CellTemplate>

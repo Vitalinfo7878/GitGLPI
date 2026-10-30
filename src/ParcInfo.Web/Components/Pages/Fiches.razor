@@ -30,13 +30,13 @@
 }
 else
 {
-    <MudDataGrid T="Fiche" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" HorizontalScrollbar="true">
+    <MudDataGrid T="Fiche" Breakpoint="Breakpoint.None" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" HorizontalScrollbar="true">
         <Columns>
             <PropertyColumn Property="x => x.Code" Title="Fiche" CellStyle="font-weight:600;white-space:nowrap" />
-            <PropertyColumn Property="x => x.CreeLe" Title="Créée le" Format="dd/MM/yyyy" />
-            <TemplateColumn T="Fiche" Title="Type" SortBy="x => x.Type"><CellTemplate>@context.Item.Type.Libelle()</CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.CreeLe" Title="Créée le" HeaderClass="mobile-cache" CellClass="mobile-cache" Format="dd/MM/yyyy" />
+            <TemplateColumn T="Fiche" Title="Type" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.Type"><CellTemplate>@context.Item.Type.Libelle()</CellTemplate></TemplateColumn>
             <PropertyColumn Property="x => x.DestinataireNom" Title="Destinataire" />
-            <TemplateColumn T="Fiche" Title="Matériel">
+            <TemplateColumn T="Fiche" Title="Matériel" HeaderClass="mobile-cache" CellClass="mobile-cache">
                 <CellTemplate>@string.Join(", ", context.Item.Mouvements.Select(m => m.Materiel.NumInterne))</CellTemplate>
             </TemplateColumn>
             <TemplateColumn T="Fiche" Title="" Sortable="false">

@@ -29,16 +29,16 @@ else
         </div>
     </MudPaper>
 
-    <MudDataGrid T="Demande" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
+    <MudDataGrid T="Demande" Breakpoint="Breakpoint.None" Items="Filtrees" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
         <Columns>
             <PropertyColumn Property="x => x.Numero" Title="N°" CellStyle="font-weight:600" />
-            <TemplateColumn T="Demande" Title="Reçue le" SortBy="x => x.CreeLe"><CellTemplate>@context.Item.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")</CellTemplate></TemplateColumn>
+            <TemplateColumn T="Demande" Title="Reçue le" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.CreeLe"><CellTemplate>@context.Item.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")</CellTemplate></TemplateColumn>
             <PropertyColumn Property="x => x.DemandeurNom" Title="Demandeur" />
             <PropertyColumn Property="x => x.Objets" Title="Objet" />
-            <PropertyColumn Property="x => x.Concerne" Title="Concerne" />
-            <PropertyColumn Property="x => x.AdresseLivraison" Title="Livraison" />
-            <TemplateColumn T="Demande" Title="Échéance" SortBy="x => x.Echeance"><CellTemplate>@context.Item.Echeance?.ToString("dd/MM/yyyy")</CellTemplate></TemplateColumn>
-            <TemplateColumn T="Demande" Title="Priorité" SortBy="x => x.Priorite">
+            <PropertyColumn Property="x => x.Concerne" Title="Concerne" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.AdresseLivraison" Title="Livraison" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <TemplateColumn T="Demande" Title="Échéance" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.Echeance"><CellTemplate>@context.Item.Echeance?.ToString("dd/MM/yyyy")</CellTemplate></TemplateColumn>
+            <TemplateColumn T="Demande" Title="Priorité" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.Priorite">
                 <CellTemplate>@(context.Item.StatutValidation == StatutValidation.Validee ? context.Item.Priorite.Libelle() : "")</CellTemplate>
             </TemplateColumn>
             <TemplateColumn T="Demande" Title="Statut" SortBy="x => x.StatutLibelle"><CellTemplate><ChipDemande Demande="context.Item" /></CellTemplate></TemplateColumn>

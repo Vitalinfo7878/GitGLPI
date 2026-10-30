@@ -35,17 +35,17 @@ else
         </div>
     </MudPaper>
 
-    <MudDataGrid T="Ticket" Items="Filtres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
+    <MudDataGrid T="Ticket" Breakpoint="Breakpoint.None" Items="Filtres" Dense="true" Hover="true" Elevation="0" Class="carte" RowsPerPage="50" RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
         <Columns>
             <PropertyColumn Property="x => x.Numero" Title="N°" CellStyle="font-weight:600" />
-            <TemplateColumn T="Ticket" Title="Ouvert le" SortBy="x => x.CreeLe"><CellTemplate>@context.Item.CreeLe.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</CellTemplate></TemplateColumn>
-            <TemplateColumn T="Ticket" Title="Priorité" SortBy="x => x.Priorite"><CellTemplate><ChipTicket Priorite="context.Item.Priorite" /></CellTemplate></TemplateColumn>
+            <TemplateColumn T="Ticket" Title="Ouvert le" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.CreeLe"><CellTemplate>@context.Item.CreeLe.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</CellTemplate></TemplateColumn>
+            <TemplateColumn T="Ticket" Title="Priorité" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.Priorite"><CellTemplate><ChipTicket Priorite="context.Item.Priorite" /></CellTemplate></TemplateColumn>
             <PropertyColumn Property="x => x.Titre" Title="Problème" />
-            <TemplateColumn T="Ticket" Title="Catégorie" SortBy="x => x.Categorie"><CellTemplate>@context.Item.Categorie.Libelle()</CellTemplate></TemplateColumn>
-            <PropertyColumn Property="x => x.DemandeurNom" Title="Demandeur" />
-            <PropertyColumn Property="x => x.Lieu" Title="Lieu" />
-            <PropertyColumn Property="x => x.MaterielReference" Title="Matériel" />
-            <PropertyColumn Property="x => x.AssigneA" Title="Pris en charge par" />
+            <TemplateColumn T="Ticket" Title="Catégorie" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.Categorie"><CellTemplate>@context.Item.Categorie.Libelle()</CellTemplate></TemplateColumn>
+            <PropertyColumn Property="x => x.DemandeurNom" Title="Demandeur" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Lieu" Title="Lieu" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.MaterielReference" Title="Matériel" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.AssigneA" Title="Pris en charge par" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <TemplateColumn T="Ticket" Title="Statut" SortBy="x => x.Statut"><CellTemplate><ChipTicket Statut="context.Item.Statut" /></CellTemplate></TemplateColumn>
             <TemplateColumn T="Ticket" Title="Âge" SortBy="x => x.CreeLe">
                 <CellTemplate>@(context.Item.EstOuvert ? Duree.Texte(DateTime.UtcNow - context.Item.CreeLe) : "")</CellTemplate>

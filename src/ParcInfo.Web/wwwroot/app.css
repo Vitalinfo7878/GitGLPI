@@ -51,3 +51,41 @@
 .photos-ticket { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .photos-ticket a { display: block; width: 120px; height: 120px; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; overflow: hidden; }
 .photos-ticket img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Téléphone : les listes restent des tableaux, réduits aux colonnes essentielles */
+@media (max-width: 599.98px) {
+    .mobile-cache { display: none !important; }
+}
+@media (max-width: 599.98px) {
+    /* Barre d'outils des listes (filtres) : sur plusieurs lignes */
+    .mud-table-toolbar { flex-wrap: wrap; height: auto !important; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
+    .mud-table-toolbar .mud-toggle-group { width: 100%; }
+    .mud-table-toolbar .mud-toggle-item { font-size: .72rem; padding-left: 4px; padding-right: 4px; }
+    .mud-table-toolbar .mud-input-control { max-width: none !important; }
+}
+@media (max-width: 599.98px) {
+    /* Cellules plus serrées pour que les colonnes essentielles tiennent dans la largeur */
+    .mud-table-root .mud-table-cell { padding: 6px 6px !important; font-size: .8125rem; }
+    .mud-table-root .mud-table-cell:first-child { padding-left: 10px !important; }
+    .mud-table-root .mud-chip { margin: 0; }
+}
+@media (max-width: 599.98px) {
+    .mud-table-root .mud-table-cell { white-space: normal !important; overflow-wrap: break-word; }
+    .mud-table-root .mud-chip { height: auto; min-height: 22px; white-space: normal; text-align: center; }
+}
+@media (max-width: 599.98px) {
+    /* En-têtes : sans les boutons de tri et de menu (tri en touchant le titre) */
+    .mud-table-root .column-options { display: none !important; }
+    .mud-table-root .mud-chip .mud-chip-content { white-space: normal; }
+}
+@media (max-width: 599.98px) {
+    .mud-table-root .mud-chip, .mud-table-root .mud-chip * { white-space: normal !important; }
+}
+@media (max-width: 599.98px) {
+    .mud-table-container .mud-table-root { width: 100% !important; }
+    .mud-table-root .mud-chip { max-width: 100%; }
+}
+@media (max-width: 599.98px) {
+    /* Boutons de filtre (À valider / À traiter…) plus compacts */
+    .mud-toggle-group .mud-toggle-item { font-size: .72rem; padding: 4px 6px; line-height: 1.2; }
+}

@@ -15,9 +15,9 @@
     <MudButton Href="/export/inventaire.xlsx" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FileDownload">Export Excel</MudButton>
     @if (_gestionnaire)
     {
-    <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping">Réception d'achat</MudButton>
-    <MudButton Href="/materiels/nouveau" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddBox">Nouveau matériel</MudButton>
-    <MudMenu Label="Catégorie PC" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Category" Disabled="_selection.Count == 0"
+    <MudButton Href="/achat" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LocalShipping" Class="mobile-cache">Réception d'achat</MudButton>
+    <MudButton Href="/materiels/nouveau" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AddBox" Class="mobile-cache">Nouveau matériel</MudButton>
+    <MudMenu Label="Catégorie PC" Variant="Variant.Outlined" Class="mobile-cache" StartIcon="@Icons.Material.Outlined.Category" Disabled="_selection.Count == 0"
              AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft">
         @foreach (var c in Enum.GetValues<CategoriePc>())
         {
@@ -25,7 +25,7 @@
         }
         <MudMenuItem OnClick="() => DefinirCategorie(null)">Non renseignée</MudMenuItem>
     </MudMenu>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz"
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SwapHoriz" Class="mobile-cache"
                Disabled="_selection.Count == 0" OnClick="NouveauMouvement">
         Mouvement@(_selection.Count > 0 ? $" ({_selection.Count})" : "")
     </MudButton>
@@ -97,18 +97,18 @@
 }
 else
 {
-    <MudDataGrid T="Ligne" Items="_filtres" MultiSelection="_gestionnaire" @bind-SelectedItems="_selection" Hover="true" Dense="true"
+    <MudDataGrid T="Ligne" Breakpoint="Breakpoint.None" Items="_filtres" MultiSelection="_gestionnaire" @bind-SelectedItems="_selection" Hover="true" Dense="true"
                  Elevation="0" Class="carte" RowClick="Ouvrir" RowClass="lien-ligne"
                  RowsPerPage="50" SortMode="SortMode.Single" HorizontalScrollbar="true">
         <Columns>
-            @if (_gestionnaire) { <SelectColumn T="Ligne" /> }
+            @if (_gestionnaire) { <SelectColumn T="Ligne" HeaderClass="mobile-cache" CellClass="mobile-cache" /> }
             <PropertyColumn Property="x => x.NumInterne" Title="N° interne" CellStyle="font-weight:600;white-space:nowrap" />
-            <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
-            <TemplateColumn T="Ligne" Title="Catégorie PC" SortBy="x => x.CategoriePc">
+            <PropertyColumn Property="x => x.TypeLibelle" Title="Type" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <TemplateColumn T="Ligne" Title="Catégorie PC" HeaderClass="mobile-cache" CellClass="mobile-cache" SortBy="x => x.CategoriePc">
                 <CellTemplate>@if (context.Item.CategoriePc is { } cat) { <ChipCategoriePc Categorie="cat" /> }</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.Modele" Title="Modèle" />
-            <PropertyColumn Property="x => x.NumSerie" Title="N° série" />
+            <PropertyColumn Property="x => x.Modele" Title="Modèle" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.NumSerie" Title="N° série" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <TemplateColumn T="Ligne" Title="Site / personne" SortBy="x => x.Detenteur">
                 <CellTemplate>
                     @if (context.Item.Parc == TypeDetenteur.Site)
@@ -122,17 +122,17 @@ else
                     @context.Item.Detenteur
                 </CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.Email" Title="Mail" />
-            <PropertyColumn Property="x => x.Region" Title="Région / service" />
+            <PropertyColumn Property="x => x.Email" Title="Mail" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Region" Title="Région / service" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <TemplateColumn T="Ligne" Title="Statut" SortBy="x => x.Statut">
                 <CellTemplate><ChipStatut Statut="context.Item.Statut" /></CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.ProfilMicrosoft" Title="Profil Microsoft" />
-            <PropertyColumn Property="x => x.VersionWindows" Title="Windows" />
-            <PropertyColumn Property="x => x.Note" Title="Note /5" />
-            <PropertyColumn Property="x => x.Annee" Title="Année" />
-            <PropertyColumn Property="x => x.NumFacture" Title="N° facture" />
-            <PropertyColumn Property="x => x.NumImmo" Title="N° immo" />
+            <PropertyColumn Property="x => x.ProfilMicrosoft" Title="Profil Microsoft" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.VersionWindows" Title="Windows" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Note" Title="Note /5" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.Annee" Title="Année" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.NumFacture" Title="N° facture" HeaderClass="mobile-cache" CellClass="mobile-cache" />
+            <PropertyColumn Property="x => x.NumImmo" Title="N° immo" HeaderClass="mobile-cache" CellClass="mobile-cache" />
         </Columns>
         <PagerContent>
             <MudDataGridPager T="Ligne" PageSizeOptions="[25, 50, 100, 500]" RowsPerPageString="Lignes par page :"
