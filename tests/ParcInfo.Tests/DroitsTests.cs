@@ -113,7 +113,11 @@ public sealed class DroitsTests : IDisposable
     public async Task Gestion_des_droits_reservee_aux_administrateurs_principaux()
     {
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterAsync("nouveau@vitalrest.com", null, Lamine)); // gestionnaire, pas administrateur
-        await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterAsync("informatique@vitalrest.com", null, Anthony)); // déjà administrateur
+        // Administrateur principal : ajouté pour ses notifications seulement, ses droits ne se règlent pas
+        var admin = await _service.AjouterAsync("informatique@vitalrest.com", null, Anthony);
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.ModifierAsync(admin.Id, Droit.Valideur, true, Anthony));
+        await _service.ModifierAsync(admin.Id, Notification.NouveauTicket, true, Anthony);
+        await _service.SupprimerAsync(admin.Id, Anthony);
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.AjouterAsync("pas-une-adresse", null, Anthony));
         var d = await _service.AjouterAsync(" Nouveau@VitalRest.com ", "Nouvelle Personne", Anthony);
         Assert.Equal("nouveau@vitalrest.com", d.Email);
@@ -242,5 +246,28 @@ public sealed class DroitsTests : IDisposable
         await service.SupprimerAsync(groupe.Id, Anthony);
         Assert.Equal(0, await service.InitialiserGroupesAsync());
         Assert.False((await Connecter(new Claim("preferred_username", "pfragata@vitalrest.com"))).VoitInventaire);
+    }
+
+    [Fact]
+    public async Task Nouvelle_notification_initialisee_apres_les_precedentes()
+    {
+        // Production : « Réception d'achat » déjà initialisée (et Pierre désabonné depuis)
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.Journal.Add(new ParcInfo.Web.Domain.Journal { Date = DateTime.UtcNow, Utilisateur = "Application", Action = "Notifications initialisées", Details = "pierre.fragata@vitalrest.com : Réception d'achat" });
+            db.DroitsAcces.Add(new DroitAcces { Email = "pierre.fragata@vitalrest.com" });
+            await db.SaveChangesAsync();
+        }
+        var config = new ConfigurationBuilder().AddConfiguration(_config).AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Notifications:ReceptionAchat:0"] = "pierre.fragata@vitalrest.com",
+            ["Notifications:NouveauTicket:0"] = "informatique@vitalrest.com",
+        }).Build();
+        var service = new ServiceDroits(_fabrique, _cache, config, _annuaire, NullLogger<ServiceDroits>.Instance);
+        Assert.Equal(1, await service.InitialiserNotificationsAsync());
+        Assert.Equal(0, await service.InitialiserNotificationsAsync());
+        await using var lecture = _fabrique.CreateDbContext();
+        Assert.Equal(["informatique@vitalrest.com"], await ServiceDroits.AbonnesAsync(lecture, Notification.NouveauTicket));
+        Assert.Empty(await ServiceDroits.AbonnesAsync(lecture, Notification.ReceptionAchat));
     }
 }

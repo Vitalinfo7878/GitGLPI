@@ -431,6 +431,9 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Property<bool>("NotifNouveauMateriel")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("NotifNouveauTicket")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("NotifReceptionAchat")
                         .HasColumnType("boolean");
 

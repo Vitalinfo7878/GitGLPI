@@ -145,7 +145,7 @@ public sealed record ResumeClassement(int Id, string Nom, int Tickets);
 
 public sealed record ApercuPhoto(int Id, int? MessageId, string Nom);
 
-public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
+public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, ServiceNotifications? notifications = null)
 {
     /// <summary>Peut voir le ticket : son auteur / demandeur et les administrateurs des tickets.</summary>
     public static bool PeutVoir(Utilisateur u, Ticket t) => u.EstAdminTickets || EstDemandeur(u, t);
@@ -203,6 +203,14 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
         foreach (var p in jointes) p.TicketId = t.Id;
         db.PhotosTickets.AddRange(jointes);
         await db.SaveChangesAsync(ct);
+
+        // Notification « Nouveau ticket » (pas à l'auteur lui-même) ; un échec d'envoi n'empêche pas l'ouverture du ticket (il est tracé)
+        if (notifications is not null)
+        {
+            var abonnes = (await ServiceDroits.AbonnesAsync(db, Notification.NouveauTicket, ct)).Where(x => !auteur.AEmail(x)).ToList();
+            try { if (abonnes.Count > 0) await notifications.NouveauTicketAsync(t, jointes.Count, abonnes, ct); }
+            catch (InvalidOperationException) { }
+        }
         return t;
     }
 

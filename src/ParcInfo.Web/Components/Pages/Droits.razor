@@ -116,6 +116,7 @@
                                     else
                                     {
                                         if (c.Nom is not null) { <div><small>@c.Email</small></div> }
+                                        if (EstAdmin(c)) { <div><small style="color:var(--mud-palette-primary)">Administrateur principal : tous les droits, notifications au choix</small></div> }
                                         var via = ViaGroupes(c);
                                         if (via.Count > 0) { <div><small style="color:var(--mud-palette-primary)">+ droits du groupe @string.Join(", ", via)</small></div> }
                                     }
@@ -123,7 +124,7 @@
                                 @foreach (var d in Enum.GetValues<Droit>())
                                 {
                                     <td style="text-align:center">
-                                        <MudCheckBox T="bool" Value="c.A(d)" ValueChanged="v => Modifier(c, d, v)" Color="Color.Primary" Dense="true" aria-label="@($"{d.Libelle()} – {c.Nom ?? c.Email}")" />
+                                        <MudCheckBox T="bool" Value="@(c.A(d) || EstAdmin(c))" ValueChanged="v => Modifier(c, d, v)" Disabled="EstAdmin(c)" Color="Color.Primary" Dense="true" aria-label="@($"{d.Libelle()} – {c.Nom ?? c.Email}")" />
                                     </td>
                                 }
                                 @foreach (var n in Enum.GetValues<Notification>())
@@ -192,6 +193,8 @@
         _droits = await Service.ListerAsync();
         _membres = await Service.MembresDesGroupesAsync();
     }
+
+    private bool EstAdmin(DroitAcces c) => !c.EstGroupe && Service.Administrateurs.Contains(c.Email);
 
     private List<string> ViaGroupes(DroitAcces c) => _droits!.Where(g => g.EstGroupe && (_membres.GetValueOrDefault(g.Id)?.Any(m => m.Adresses.Contains(c.Email)) ?? false))
         .Select(g => g.Nom ?? g.Groupe!).ToList();

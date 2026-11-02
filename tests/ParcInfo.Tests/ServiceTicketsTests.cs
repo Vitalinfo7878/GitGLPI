@@ -254,4 +254,31 @@ public sealed class ServiceTicketsTests : IDisposable
         await using (var db = _fabrique.CreateDbContext())
             Assert.Null((await db.Tickets.SingleAsync(x => x.Id == t.Id)).CategorieAutre);
     }
+
+    [Fact]
+    public async Task Nouveau_ticket_notifie_aux_abonnes_sauf_a_l_auteur()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.DroitsAcces.AddRange(new DroitAcces { Email = "informatique@vitalrest.com", NotifNouveauTicket = true },
+                new DroitAcces { Email = "lamine.cisse@vitalrest.com", AdminTickets = true });
+            await db.SaveChangesAsync();
+        }
+        var notifications = new ServiceNotifications(new EnvoiCourrielSimule(Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvoiCourrielSimule>.Instance), _fabrique,
+            new OptionsMessagerie { UrlApplication = "https://parc.test" }, Microsoft.Extensions.Logging.Abstractions.NullLogger<ServiceNotifications>.Instance);
+        var service = new ServiceTickets(_fabrique, notifications);
+
+        var f = Complet();
+        f.Categorie = CategorieTicket.Autre;
+        f.CategorieAutre = "Badgeuse";
+        var t = await service.CreerAsync(f, Salarie);
+        await service.CreerAsync(Complet(), Informatique); // ouvert par le service informatique lui-même : pas de mail
+
+        await using var lecture = _fabrique.CreateDbContext();
+        var mail = Assert.Single(await lecture.Courriels.ToListAsync());
+        Assert.Equal("informatique@vitalrest.com", mail.Destinataire);
+        Assert.Equal($"Nouveau ticket n° {t.Numero} – Critique – L'imprimante n'imprime plus", mail.Sujet);
+        foreach (var attendu in new[] { "Autre : Badgeuse", "Bourrage papier permanent", "Site 087", "06 12 34 56 78", $"https://parc.test/tickets/{t.Id}" })
+            Assert.Contains(System.Net.WebUtility.HtmlEncode(attendu), mail.CorpsHtml);
+    }
 }

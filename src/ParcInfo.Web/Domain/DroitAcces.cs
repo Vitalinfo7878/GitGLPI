@@ -22,6 +22,8 @@ public enum Notification
     ReceptionAchat,
     [Display(Name = "Nouveau matériel (hors achat)", Description = "Mail quand un matériel non inventorié est ajouté au parc (page « Nouveau matériel »).")]
     NouveauMateriel,
+    [Display(Name = "Nouveau ticket", Description = "Mail à chaque nouveau ticket ouvert par un salarié (pas les tickets internes de rapatriement) : problème, demandeur, lieu, priorité, avec le lien vers le ticket.")]
+    NouveauTicket,
 }
 
 /// <summary>
@@ -45,6 +47,7 @@ public class DroitAcces
     public bool ConsultationInventaire { get; set; }
     public bool NotifReceptionAchat { get; set; }
     public bool NotifNouveauMateriel { get; set; }
+    public bool NotifNouveauTicket { get; set; }
     public string? ModifiePar { get; set; }
     public DateTime ModifieLe { get; set; }
 
@@ -85,6 +88,7 @@ public class DroitAcces
     {
         Notification.ReceptionAchat => NotifReceptionAchat,
         Notification.NouveauMateriel => NotifNouveauMateriel,
+        Notification.NouveauTicket => NotifNouveauTicket,
         _ => false,
     };
 
@@ -94,6 +98,7 @@ public class DroitAcces
         {
             case Notification.ReceptionAchat: NotifReceptionAchat = valeur; break;
             case Notification.NouveauMateriel: NotifNouveauMateriel = valeur; break;
+            case Notification.NouveauTicket: NotifNouveauTicket = valeur; break;
         }
     }
 

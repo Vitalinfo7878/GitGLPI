@@ -204,6 +204,36 @@ public sealed class ServiceNotifications(
         await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} réalisée", corps, ct);
     }
 
+    // --- Tickets ---
+
+    /// <summary>Nouveau ticket ouvert par un salarié, pour les abonnés de la notification « Nouveau ticket ».</summary>
+    public async Task NouveauTicketAsync(Ticket t, int photos, IEnumerable<string> destinataires, CancellationToken ct = default)
+    {
+        string Ligne(string libelle, string? valeur) => string.IsNullOrWhiteSpace(valeur) ? "" :
+            $"""<tr><td style="padding:4px 12px 4px 0;color:#5b6478;vertical-align:top;white-space:nowrap">{E(libelle)}</td><td style="padding:4px 0;white-space:pre-line">{E(valeur)}</td></tr>""";
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Nouveau ticket <b>n° {t.Numero}</b> ouvert par {E(t.DemandeurNom)} :</p>
+            <p style="margin:0 0 12px;font-size:16px"><b>{E(t.Titre)}</b></p>
+            <table style="border-collapse:collapse;font-size:14px">
+            {Ligne("Type de problème", t.LibelleCategorie)}
+            {Ligne("Priorité proposée", t.Priorite.Libelle())}
+            {Ligne("Impact", t.Impact.Libelle())}
+            {Ligne("Personnes concernées", t.Portee.Libelle())}
+            {Ligne("Description", t.Description)}
+            {Ligne("Déjà essayé", t.DejaEssaye)}
+            {Ligne("Matériel", t.MaterielReference)}
+            {Ligne("Lieu", t.Lieu)}
+            {Ligne("Demandeur", t.DemandeurNom)}
+            {Ligne("Mail", t.DemandeurEmail)}
+            {Ligne("Téléphone", t.DemandeurTelephone)}
+            {Ligne("Disponibilités", t.Disponibilites)}
+            {Ligne("Photos", photos > 0 ? $"{photos} photo(s) jointe(s), visibles sur le ticket" : null)}
+            </table>
+            <p style="margin:20px 0 8px">{Bouton(Url($"tickets/{t.Id}"), "Ouvrir le ticket", "#233d8e")}</p>
+            """);
+        await EnvoyerATousAsync(destinataires, $"Nouveau ticket n° {t.Numero} – {t.Priorite.Libelle()} – {t.Titre}", corps, ct);
+    }
+
     // --- Inventaire ---
 
     /// <summary>Matériel entré au parc (réception d'achat ou ajout hors achat), pour les abonnés de la notification.</summary>

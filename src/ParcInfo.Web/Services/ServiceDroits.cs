@@ -148,7 +148,6 @@ public sealed class ServiceDroits(
         Verifier(u);
         var e = email?.Trim().ToLowerInvariant();
         if (string.IsNullOrEmpty(e) || !FormulaireDemande.EmailValide(e)) throw new ErreurMetier("Adresse mail invalide.");
-        if (Administrateurs.Contains(e)) throw new ErreurMetier($"{e} est administrateur principal : il a déjà tous les droits.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         if (await db.DroitsAcces.AnyAsync(d => d.Email == e, ct)) throw new ErreurMetier($"{e} est déjà dans la liste.");
         var d = new DroitAcces { Email = e, Nom = string.IsNullOrWhiteSpace(nom) ? null : nom.Trim(), ModifiePar = u.Signature, ModifieLe = DateTime.UtcNow };
@@ -164,6 +163,7 @@ public sealed class ServiceDroits(
         Verifier(u);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var d = await db.DroitsAcces.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ErreurMetier("Compte introuvable.");
+        if (Administrateurs.Contains(d.Email)) throw new ErreurMetier($"{d.Email} est administrateur principal : il a déjà tous les droits (seules ses notifications se règlent ici).");
         if (d.A(droit) == valeur) return;
         d.Definir(droit, valeur);
         d.ModifiePar = u.Signature;
@@ -257,22 +257,23 @@ public sealed class ServiceDroits(
     }
 
     /// <summary>
-    /// Une seule fois : abonne les adresses de la configuration (« Notifications:ReceptionAchat », « Notifications:NouveauMateriel »),
-    /// en les ajoutant à la liste si besoin. Les abonnements se gèrent ensuite sur la page « Droits ».
+    /// Une seule fois par notification : abonne les adresses de la configuration (« Notifications:ReceptionAchat », « Notifications:NouveauTicket »…),
+    /// en les ajoutant à la liste si besoin. Les abonnements se gèrent ensuite sur la page « Droits » (un désabonnement n'est pas annulé).
     /// </summary>
     public async Task<int> InitialiserNotificationsAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        if (await db.Journal.AnyAsync(j => j.Action == ActionInitialisationNotifications, ct)) return 0;
+        var dejaFaites = await db.Journal.Where(j => j.Action == ActionInitialisationNotifications).Select(j => j.Details ?? "").ToListAsync(ct);
         var existants = await db.DroitsAcces.ToListAsync(ct);
         var comptes = await db.ComptesMicrosoft.AsNoTracking().Where(c => !c.Supprime).ToListAsync(ct);
-        var abonnes = new List<string>();
+        var total = 0;
         foreach (var n in Enum.GetValues<Notification>())
         {
-            foreach (var adresse in config.GetSection($"Notifications:{n}").Get<string[]>() ?? [])
+            var adresses = (config.GetSection($"Notifications:{n}").Get<string[]>() ?? []).Select(a => a.Trim().ToLowerInvariant()).Where(a => a.Length > 0).ToList();
+            if (adresses.Count == 0 || dejaFaites.Any(d => d.Contains(n.Libelle()))) continue;
+            var abonnes = new List<string>();
+            foreach (var e in adresses)
             {
-                var e = adresse.Trim().ToLowerInvariant();
-                if (e.Length == 0) continue;
                 var d = existants.FirstOrDefault(x => x.Email == e);
                 if (d is null)
                 {
@@ -281,17 +282,18 @@ public sealed class ServiceDroits(
                     existants.Add(d);
                 }
                 d.Definir(n, true);
-                abonnes.Add($"{d.Nom ?? e} : {n.Libelle()}");
+                abonnes.Add(d.Nom ?? e);
             }
+            db.Journal.Add(new Journal
+            {
+                Date = DateTime.UtcNow, Utilisateur = "Application", Action = ActionInitialisationNotifications,
+                Details = JournalInventaire.Tronquer($"{n.Libelle()} : {string.Join(", ", abonnes)}"),
+            });
+            total += abonnes.Count;
         }
-        db.Journal.Add(new Journal
-        {
-            Date = DateTime.UtcNow, Utilisateur = "Application", Action = ActionInitialisationNotifications,
-            Details = abonnes.Count == 0 ? "aucun abonnement à reprendre" : JournalInventaire.Tronquer(string.Join(" ; ", abonnes)),
-        });
         await db.SaveChangesAsync(ct);
         cache.Remove(CleCache);
-        return abonnes.Count;
+        return total;
     }
 
     /// <summary>
