@@ -5,6 +5,7 @@
 @inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogues
+@inject IJSRuntime JS
 
 <PageTitle>Demande @(_d?.Numero)</PageTitle>
 
@@ -176,9 +177,25 @@ else
                             @if (_d.StatutRealisation is not (StatutRealisation.Realisee or StatutRealisation.Annulee))
                             {
                                 <MudItem xs="12" Class="pt-3" Style="border-top:1px solid var(--mud-palette-lines-default)">
+                                    @if (EtiquettesUps.Liste(_d, _d.Materiels.Select(x => x.Materiel)).Count > 0)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Inventory2" Class="mr-2" OnClick="Pret">Prêt</MudButton>
+                                    }
                                     <MudButton Variant="Variant.Outlined" Color="Color.Success" StartIcon="@Icons.Material.Outlined.LocalShipping" OnClick="Envoyer" Disabled="_envoi">
                                         Envoyer
                                     </MudButton>
+                                    @if (_texteUps is not null)
+                                    {
+                                        <div class="texte-ups mt-3">
+                                            <div class="d-flex align-center gap-2 mb-1">
+                                                <MudText Typo="Typo.subtitle2">Étiquettes UPS : à coller dans un mail</MudText>
+                                                <MudSpacer />
+                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.ContentCopy" OnClick="CopierUps">Copier</MudButton>
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small" OnClick="() => _texteUps = null" aria-label="Fermer" />
+                                            </div>
+                                            <pre>@_texteUps</pre>
+                                        </div>
+                                    }
                                     <MudText Typo="Typo.caption" Class="d-block mt-1">
                                         @if (_d.EnvoiNotifieLe is { } e)
                                         {
@@ -441,6 +458,25 @@ else
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
         finally { _envoi = false; }
+    }
+
+    private string? _texteUps;
+
+    /// <summary>Bouton « Prêt » : texte pour faire préparer les étiquettes UPS, affiché pour être copié dans un mail.</summary>
+    private void Pret()
+    {
+        var aujourdhui = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Paris")).Date);
+        _texteUps = EtiquettesUps.Texte(_d!, _d!.Materiels.Select(x => x.Materiel), aujourdhui);
+    }
+
+    private async Task CopierUps()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _texteUps);
+            Snackbar.Add("Texte copié : collez-le dans votre mail.", Severity.Success);
+        }
+        catch (JSException) { Snackbar.Add("Copie automatique impossible : sélectionnez le texte et faites Ctrl+C.", Severity.Warning); }
     }
 
     private async Task EnvoyerFiche()

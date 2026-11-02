@@ -97,3 +97,5 @@
     .ligne-achat { grid-template-columns: 1fr 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--mud-palette-lines-default); }
 }
 .solution-ticket { white-space: pre-line; font-size: .875rem; padding: 8px 12px; border-left: 4px solid var(--mud-palette-success); background: color-mix(in srgb, var(--mud-palette-success) 7%, transparent); border-radius: 0 4px 4px 0; }
+.texte-ups { padding: 10px 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; background: var(--mud-palette-background-gray); }
+.texte-ups pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: .875rem; user-select: all; }
