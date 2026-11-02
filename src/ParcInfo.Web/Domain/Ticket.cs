@@ -115,6 +115,9 @@ public class Ticket
     public string? Solution { get; set; }
     public ModeResolution? ModeResolution { get; set; }
     public int? TempsPasseMinutes { get; set; }
+    /// <summary>Classement choisi à la résolution, parmi des catégories créées au fur et à mesure (recherche de solutions).</summary>
+    public int? ClassementId { get; set; }
+    public ClassementTicket? Classement { get; set; }
 
     // Retour du demandeur
     public int? SatisfactionNote { get; set; }
@@ -175,4 +178,16 @@ public class PhotoTicket
     public byte[] Contenu { get; set; } = [];
     public DateTime AjouteeLe { get; set; }
     public string AjouteePar { get; set; } = "";
+}
+
+/// <summary>
+/// Catégorie de résolution créée par le service informatique au fil des tickets (ex. « Imprimante – bourrage », « Outlook – profil »),
+/// pour regrouper les tickets résolus et retrouver une solution.
+/// </summary>
+public class ClassementTicket
+{
+    public int Id { get; set; }
+    public string Nom { get; set; } = "";
+    public DateTime CreeLe { get; set; }
+    public string CreePar { get; set; } = "";
 }

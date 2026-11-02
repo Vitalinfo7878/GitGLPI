@@ -1,0 +1,182 @@
+@page "/tickets/solutions"
+@attribute [Authorize(Policy = Roles.PolitiqueTickets)]
+@inject ServiceTickets Service
+@inject UtilisateurCourant Courant
+@inject NavigationManager Nav
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
+
+<PageTitle>Solutions</PageTitle>
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Solutions</MudText>
+    <MudSpacer />
+    <MudButton Href="/tickets" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ConfirmationNumber">Tickets à traiter</MudButton>
+</div>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Tickets résolus et clos, regroupés par classement : retrouvez comment un problème déjà rencontré a été réglé.
+    Le classement se choisit (ou se crée) dans « Analyse et résolution » sur le ticket.
+</MudText>
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" md="3">
+        <MudPaper Elevation="0" Class="carte pa-2">
+            <MudText Typo="Typo.overline" Class="px-2">Classements</MudText>
+            @if (_classements is null)
+            {
+                <Attente />
+            }
+            else
+            {
+                <MudList T="int?" Dense="true" SelectedValue="Classement" SelectedValueChanged="Choisir" Color="Color.Primary">
+                    <MudListItem T="int?" Value="null" Icon="@Icons.Material.Outlined.SelectAll">Tous</MudListItem>
+                    @foreach (var c in _classements)
+                    {
+                        <MudListItem T="int?" Value="c.Id" Icon="@Icons.Material.Outlined.Label">
+                            <div class="d-flex align-center"><span>@c.Nom</span><MudSpacer /><small class="ml-2">@c.Tickets</small></div>
+                        </MudListItem>
+                    }
+                    <MudListItem T="int?" Value="0" Icon="@Icons.Material.Outlined.LabelOff">Non classés</MudListItem>
+                </MudList>
+                @if (_classements.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="pa-2">Aucun classement pour l'instant.</MudText>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="9">
+        <MudPaper Elevation="0" Class="carte pa-3 mb-3">
+            <div class="d-flex flex-wrap align-center gap-2">
+                <MudTextField T="string" Value="Q" ValueChanged="Chercher" Immediate="true" DebounceInterval="300" Clearable="true" AutoFocus="true"
+                              Placeholder="Décrivez le problème : imprimante bourrage, outlook mot de passe, écran noir…"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Style="min-width:260px;flex:1" />
+                @if (ClasseChoisi is { } choisi && _u?.EstAdminTickets == true)
+                {
+                    <MudTooltip Text="Renommer (vers un nom existant : fusionne les deux classements)">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Edit" OnClick="() => Renommer(choisi)" aria-label="Renommer le classement" />
+                    </MudTooltip>
+                    <MudTooltip Text="Supprimer le classement (ses tickets deviennent non classés)">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" OnClick="() => Supprimer(choisi)" aria-label="Supprimer le classement" />
+                    </MudTooltip>
+                }
+            </div>
+            @if (_renommage is not null)
+            {
+                <div class="d-flex flex-wrap align-center gap-2 mt-2">
+                    <MudTextField @bind-Value="_renommage" Immediate="true" Label="Nouveau nom" MaxLength="100" Variant="Variant.Outlined" Margin="Margin.Dense" AutoFocus="true" Style="min-width:260px" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValiderRenommage" Disabled="string.IsNullOrWhiteSpace(_renommage)">Renommer</MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="() => _renommage = null">Annuler</MudButton>
+                </div>
+            }
+        </MudPaper>
+
+        @if (_resultats is null)
+        {
+            <Attente />
+        }
+        else if (_resultats.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info">Aucun ticket résolu ne correspond. Essayez d'autres mots ou un autre classement.</MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="d-block mb-2">
+                @_resultats.Count ticket@(_resultats.Count > 1 ? "s" : "")@(_resultats.Count == 200 ? " (les 200 premiers)" : "")@(string.IsNullOrWhiteSpace(Q) ? ", du plus récent au plus ancien" : ", les plus proches d'abord")
+            </MudText>
+            @foreach (var t in _resultats)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-2">
+                    <div class="d-flex flex-wrap align-center gap-2 mb-1">
+                        <MudLink Href="@($"/tickets/{t.Id}")" Typo="Typo.subtitle1" Style="font-weight:600">n° @t.Numero – @t.Titre</MudLink>
+                        <MudSpacer />
+                        @if (t.Classement is { } c)
+                        {
+                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Outlined.Label" Color="Color.Primary" Variant="Variant.Outlined" OnClick="() => Choisir(c.Id)">@c.Nom</MudChip>
+                        }
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Categorie.Libelle()</MudChip>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="d-block mb-2">
+                        @t.DemandeurNom · @t.Lieu@(t.MaterielReference is null ? "" : $" · {t.MaterielReference}")@(t.Materiel?.Modele is { } mod ? $" ({mod})" : "")
+                        · résolu le @((t.ResoluLe ?? t.ModifieLe).ToLocalTime().ToString("dd/MM/yyyy"))@(t.Cause is { } cause ? $" · cause : {cause.Libelle().ToLowerInvariant()}" : "")
+                    </MudText>
+                    <MudText Typo="Typo.body2" Class="mb-2" Style="white-space:pre-line;color:var(--mud-palette-text-secondary)">@Extrait(t.Description, 300)</MudText>
+                    @if (t.Diagnostic is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-1" Style="white-space:pre-line"><b>Diagnostic :</b> @t.Diagnostic</MudText>
+                    }
+                    <div class="solution-ticket"><b>Solution :</b> @(t.Solution ?? "non renseignée")</div>
+                </MudPaper>
+            }
+        }
+    </MudItem>
+</MudGrid>
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "classement")] public int? Classement { get; set; }
+
+    private List<ResumeClassement>? _classements;
+    private List<Ticket>? _resultats;
+    private Utilisateur? _u;
+    private string? _renommage;
+
+    private ResumeClassement? ClasseChoisi => Classement is > 0 ? _classements?.FirstOrDefault(c => c.Id == Classement) : null;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _u ??= await Courant.ObtenirAsync();
+        _classements ??= await Service.ListerClassementsAsync();
+        _resultats = await Service.ChercherSolutionsAsync(Q, Classement);
+    }
+
+    private void Naviguer(string? q, int? classement)
+    {
+        var parametres = new Dictionary<string, object?> { ["q"] = string.IsNullOrWhiteSpace(q) ? null : q, ["classement"] = classement };
+        Nav.NavigateTo(Nav.GetUriWithQueryParameters(parametres), replace: true);
+    }
+
+    private void Chercher(string? q) => Naviguer(q, Classement);
+
+    private void Choisir(int? classement)
+    {
+        _renommage = null;
+        Naviguer(Q, classement);
+    }
+
+    private void Renommer(ResumeClassement c) => _renommage = c.Nom;
+
+    private async Task ValiderRenommage()
+    {
+        if (ClasseChoisi is not { } c) return;
+        try
+        {
+            var nom = _renommage!.Trim();
+            await Service.RenommerClassementAsync(c.Id, nom, _u!);
+            _renommage = null;
+            _classements = await Service.ListerClassementsAsync();
+            // Fusion : le classement choisi n'existe plus, on affiche celui qui l'a absorbé
+            if (_classements.All(x => x.Id != c.Id))
+                Naviguer(Q, _classements.FirstOrDefault(x => string.Equals(x.Nom, string.Join(' ', nom.Split(' ', StringSplitOptions.RemoveEmptyEntries)), StringComparison.CurrentCultureIgnoreCase))?.Id);
+            else _resultats = await Service.ChercherSolutionsAsync(Q, Classement);
+            Snackbar.Add("Classement mis à jour.", Severity.Success);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    private async Task Supprimer(ResumeClassement c)
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync("Supprimer ce classement ?",
+            $"« {c.Nom} » sera supprimé ; ses {c.Tickets} ticket(s) deviendront non classés (rien d'autre n'est effacé).", yesText: "Supprimer", cancelText: "Annuler");
+        if (ok != true) return;
+        try
+        {
+            await Service.SupprimerClassementAsync(c.Id, _u!);
+            _classements = await Service.ListerClassementsAsync();
+            Naviguer(Q, null);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    private static string Extrait(string s, int max) => s.Length <= max ? s : s[..max].TrimEnd() + "…";
+}

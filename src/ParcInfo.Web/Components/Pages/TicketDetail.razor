@@ -181,7 +181,15 @@ else
                 </MudPaper>
 
                 <MudPaper Elevation="0" Class="carte pa-4 mb-3">
-                    <MudText Typo="Typo.h6" Class="mb-1">Analyse et résolution</MudText>
+                    <div class="d-flex flex-wrap align-center gap-2 mb-1">
+                        <MudText Typo="Typo.h6">Analyse et résolution</MudText>
+                        <MudSpacer />
+                        @if (_t.EstOuvert)
+                        {
+                            <MudButton Href="@($"/tickets/solutions?q={Uri.EscapeDataString(_t.Titre)}")" Target="_blank" Variant="Variant.Text" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Outlined.TipsAndUpdates">Solutions similaires</MudButton>
+                        }
+                    </div>
                     <MudText Typo="Typo.caption" Class="d-block mb-2">Cause, solution et mode de résolution sont obligatoires pour passer le ticket à « Résolu » ou « Clos ».</MudText>
                     <MudGrid Spacing="2">
                         <MudItem xs="12">
@@ -202,6 +210,13 @@ else
                         <MudItem xs="12">
                             <MudTextField @bind-Value="_m.Solution" MaxLength="4000" Label="Solution apportée (visible par le demandeur)" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
                                           Error="@(Err(nameof(MiseAJourTicket.Solution)) is not null)" ErrorText="@Err(nameof(MiseAJourTicket.Solution))" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudAutocomplete T="string" @bind-Value="_m.Classement" SearchFunc="ChercherClassement" CoerceValue="true" Strict="false" MinCharacters="0"
+                                             MaxLength="100" Clearable="true" ShowProgressIndicator="false" DebounceInterval="150" MaxItems="20"
+                                             Label="Classement (pour retrouver la solution)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                             AdornmentIcon="@Icons.Material.Outlined.Label" Adornment="Adornment.Start"
+                                             HelperText="@AideClassement" Error="@(Err(nameof(MiseAJourTicket.Classement)) is not null)" ErrorText="@Err(nameof(MiseAJourTicket.Classement))" />
                         </MudItem>
                         <MudItem xs="12" sm="6">
                             <MudNumericField T="int?" @bind-Value="_m.TempsPasseMinutes" Label="Temps passé (min)" Min="0" Max="100000" Variant="Variant.Outlined" Margin="Margin.Dense"
@@ -297,13 +312,23 @@ else
     private async Task Charger()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _t = await db.Tickets.AsNoTracking().Include(x => x.Messages).Include(x => x.Materiel).Include(x => x.Demande).FirstOrDefaultAsync(x => x.Id == Id);
+        _t = await db.Tickets.AsNoTracking().Include(x => x.Messages).Include(x => x.Materiel).Include(x => x.Demande).Include(x => x.Classement).FirstOrDefaultAsync(x => x.Id == Id);
         if (_t is null) return;
         _u ??= await Courant.ObtenirAsync();
         _photos = await Service.ListerPhotosAsync(_t.Id, _u);
         _m = MiseAJourTicket.Depuis(_t);
+        if (_u.EstAdminTickets) _classements = (await Service.ListerClassementsAsync()).Select(c => c.Nom).ToList();
         _erreurs = [];
     }
+
+    private List<string> _classements = [];
+
+    private Task<IEnumerable<string>> ChercherClassement(string? texte, CancellationToken ct) =>
+        Task.FromResult(_classements.Where(c => ServiceTickets.MotsCles(texte).All(m => c.Contains(m, StringComparison.CurrentCultureIgnoreCase))));
+
+    private string AideClassement => string.IsNullOrWhiteSpace(_m.Classement)
+        ? "Choisissez un classement existant ou tapez-en un nouveau"
+        : _classements.Contains(_m.Classement.Trim(), StringComparer.CurrentCultureIgnoreCase) ? "" : $"Nouveau classement « {_m.Classement.Trim()} » : créé à l'enregistrement";
 
     private string? Err(string champ) => _erreurs.GetValueOrDefault(champ);
 

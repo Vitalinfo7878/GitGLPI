@@ -69,9 +69,12 @@ public sealed class MiseAJourTicket
     public string? Solution { get; set; }
     public ModeResolution? ModeResolution { get; set; }
     public int? TempsPasseMinutes { get; set; }
+    /// <summary>Nom du classement : existant, ou nouveau (créé à l'enregistrement).</summary>
+    public string? Classement { get; set; }
 
     public static MiseAJourTicket Depuis(Ticket t) => new()
     {
+        Classement = t.Classement?.Nom,
         Statut = t.Statut, Priorite = t.Priorite, Categorie = t.Categorie, AssigneA = t.AssigneA, MaterielReference = t.MaterielReference,
         Diagnostic = t.Diagnostic, Cause = t.Cause, Solution = t.Solution, ModeResolution = t.ModeResolution, TempsPasseMinutes = t.TempsPasseMinutes,
     };
@@ -91,7 +94,7 @@ public sealed class MiseAJourTicket
         foreach (var (champ, valeur, max) in new (string, string?, int)[]
         {
             (nameof(AssigneA), AssigneA, 200), (nameof(MaterielReference), MaterielReference, 60),
-            (nameof(Diagnostic), Diagnostic, 4000), (nameof(Solution), Solution, 4000),
+            (nameof(Diagnostic), Diagnostic, 4000), (nameof(Solution), Solution, 4000), (nameof(Classement), Classement, 100),
         })
             if (valeur?.Trim().Length > max && !e.ContainsKey(champ)) e[champ] = $"Texte trop long ({max} caractères maximum).";
         return e;
@@ -134,6 +137,8 @@ public static class Photos
 }
 
 /// <summary>Photo d'un ticket sans son contenu (affichage de la page).</summary>
+public sealed record ResumeClassement(int Id, string Nom, int Tickets);
+
 public sealed record ApercuPhoto(int Id, int? MessageId, string Nom);
 
 public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
@@ -269,12 +274,118 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
         t.Solution = Vide(m.Solution);
         t.ModeResolution = m.ModeResolution;
         t.TempsPasseMinutes = m.TempsPasseMinutes;
+        if (await ClassementAsync(db, m.Classement, u, maintenant, ct) is { } classement) t.Classement = classement;
+        else t.ClassementId = null;
         if (m.Statut != ancien) ChangerStatut(t, m.Statut, u, maintenant);
         if (t.AssigneA is not null) t.PrisEnChargeLe ??= maintenant;
         t.ModifieLe = maintenant;
 
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Ticket mis à jour", Details = $"n° {t.Numero} : {t.Statut.Libelle()}", MaterielId = t.MaterielId });
         await db.SaveChangesAsync(ct);
+    }
+
+    // --- Classements (catégories de résolution créées au fur et à mesure) ---
+
+    /// <summary>Classement portant ce nom (casse indifférente), créé s'il n'existe pas encore ; null si le nom est vide.</summary>
+    private static async Task<ClassementTicket?> ClassementAsync(ParcDbContext db, string? nom, Utilisateur u, DateTime maintenant, CancellationToken ct)
+    {
+        var n = NomClassement(nom);
+        if (n is null) return null;
+        var c = await db.ClassementsTickets.FirstOrDefaultAsync(x => x.Nom.ToLower() == n.ToLower(), ct);
+        if (c is not null) return c;
+        c = new ClassementTicket { Nom = n, CreeLe = maintenant, CreePar = u.Signature };
+        db.ClassementsTickets.Add(c);
+        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Classement de tickets créé", Details = n });
+        return c;
+    }
+
+    private static string? NomClassement(string? nom) => Vide(nom) is { } n ? string.Join(' ', n.Split(' ', StringSplitOptions.RemoveEmptyEntries)) : null;
+
+    public async Task<List<ResumeClassement>> ListerClassementsAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var liste = await db.ClassementsTickets.AsNoTracking()
+            .Select(c => new ResumeClassement(c.Id, c.Nom, db.Tickets.Count(t => t.ClassementId == c.Id))).ToListAsync(ct);
+        return liste.OrderBy(c => c.Nom, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>Renomme un classement ; vers le nom d'un autre classement, les deux sont fusionnés (ses tickets y passent).</summary>
+    public async Task RenommerClassementAsync(int id, string? nom, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstAdminTickets) throw new ErreurMetier("Réservé au service informatique.");
+        var n = NomClassement(nom) ?? throw new ErreurMetier("Indiquez un nom.");
+        if (n.Length > 100) throw new ErreurMetier("Nom trop long (100 caractères maximum).");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var c = await db.ClassementsTickets.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ErreurMetier("Classement introuvable.");
+        var cible = await db.ClassementsTickets.FirstOrDefaultAsync(x => x.Id != id && x.Nom.ToLower() == n.ToLower(), ct);
+        var maintenant = DateTime.UtcNow;
+        if (cible is null)
+        {
+            db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Classement de tickets renommé", Details = $"« {c.Nom} » → « {n} »" });
+            c.Nom = n;
+        }
+        else
+        {
+            var tickets = await db.Tickets.Where(t => t.ClassementId == id).ToListAsync(ct);
+            foreach (var t in tickets) t.ClassementId = cible.Id;
+            db.ClassementsTickets.Remove(c);
+            db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Classements de tickets fusionnés", Details = $"« {c.Nom} » fusionné dans « {cible.Nom} » ({tickets.Count} ticket(s))" });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Supprime un classement : ses tickets deviennent « non classés ».</summary>
+    public async Task SupprimerClassementAsync(int id, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstAdminTickets) throw new ErreurMetier("Réservé au service informatique.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var c = await db.ClassementsTickets.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ErreurMetier("Classement introuvable.");
+        var tickets = await db.Tickets.Where(t => t.ClassementId == id).ToListAsync(ct);
+        foreach (var t in tickets) t.ClassementId = null;
+        db.ClassementsTickets.Remove(c);
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Classement de tickets supprimé", Details = $"« {c.Nom} » ({tickets.Count} ticket(s) déclassé(s))" });
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Tickets résolus ou clos, pour retrouver une solution : filtrés par classement (0 = non classés) et classés par pertinence
+    /// (nombre de mots trouvés dans le titre, la description, le diagnostic, la solution, le lieu, le matériel), puis du plus récent au plus ancien.
+    /// </summary>
+    public async Task<List<Ticket>> ChercherSolutionsAsync(string? texte, int? classementId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var q = db.Tickets.AsNoTracking().Include(t => t.Classement).Include(t => t.Materiel)
+            .Where(t => t.Statut == StatutTicket.Resolu || t.Statut == StatutTicket.Clos);
+        if (classementId == 0) q = q.Where(t => t.ClassementId == null);
+        else if (classementId is { } cid) q = q.Where(t => t.ClassementId == cid);
+        var tickets = await q.ToListAsync(ct);
+        var mots = MotsCles(texte);
+        if (mots.Count == 0) return tickets.OrderByDescending(t => t.ResoluLe ?? t.ModifieLe).Take(200).ToList();
+        return tickets
+            .Select(t => (t, Score: Pertinence(t, mots)))
+            .Where(x => x.Score > 0)
+            .OrderByDescending(x => x.Score).ThenByDescending(x => x.t.ResoluLe ?? x.t.ModifieLe)
+            .Select(x => x.t).Take(200).ToList();
+    }
+
+    public static List<string> MotsCles(string? texte) => (texte ?? "")
+        .Split([' ', ',', ';', '.', ':', '!', '?', '\'', '’', '(', ')', '/', '-', '"'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(m => m.Length >= 3 || m.Any(char.IsDigit))
+        .Select(m => m.ToLowerInvariant()).Distinct().ToList();
+
+    private static int Pertinence(Ticket t, List<string> mots)
+    {
+        var titre = Sans(t.Titre);
+        var texte = Sans($"{t.Classement?.Nom} {t.Description} {t.Diagnostic} {t.Solution} {t.Lieu} {t.MaterielReference} {t.Materiel?.Modele} {t.Numero}");
+        // Un mot du titre compte en plus
+        return mots.Select(Sans).Sum(m => (titre.Contains(m) ? 2 : 0) + (texte.Contains(m) ? 1 : 0));
+    }
+
+    /// <summary>Minuscules sans accents, pour chercher « imprimante » dans « Imprimanté » comme « ecran » dans « écran ».</summary>
+    private static string Sans(string? s)
+    {
+        var d = (s ?? "").ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        return new string(d.Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
     }
 
     /// <summary>Le demandeur confirme que le problème est réglé et note la réponse apportée (1 à 5).</summary>

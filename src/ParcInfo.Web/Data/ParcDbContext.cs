@@ -20,6 +20,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
     public DbSet<CompteMicrosoft> ComptesMicrosoft => Set<CompteMicrosoft>();
     public DbSet<DoublonIgnore> DoublonsIgnores => Set<DoublonIgnore>();
     public DbSet<TicketMessage> MessagesTickets => Set<TicketMessage>();
+    public DbSet<ClassementTicket> ClassementsTickets => Set<ClassementTicket>();
     public DbSet<MessageDemande> MessagesDemandes => Set<MessageDemande>();
     public DbSet<PhotoTicket> PhotosTickets => Set<PhotoTicket>();
     public DbSet<DroitAcces> DroitsAcces => Set<DroitAcces>();
@@ -146,7 +147,14 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.Property(x => x.SatisfactionCommentaire).HasMaxLength(2000);
             e.HasOne(x => x.Materiel).WithMany().HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Demande).WithMany().HasForeignKey(x => x.DemandeId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Classement).WithMany().HasForeignKey(x => x.ClassementId).OnDelete(DeleteBehavior.SetNull);
             e.Ignore(x => x.EstOuvert);
+        });
+        b.Entity<ClassementTicket>(e =>
+        {
+            e.Property(x => x.Nom).HasMaxLength(100);
+            e.HasIndex(x => x.Nom).IsUnique();
+            e.Property(x => x.CreePar).HasMaxLength(400);
         });
 
         b.Entity<MessageDemande>(e =>

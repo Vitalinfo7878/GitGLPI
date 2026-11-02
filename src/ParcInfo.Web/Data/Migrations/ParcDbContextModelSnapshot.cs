@@ -41,6 +41,35 @@ namespace ParcInfo.Web.Data.Migrations
                     b.ToTable("DataProtectionKeys");
                 });
 
+            modelBuilder.Entity("ParcInfo.Web.Domain.ClassementTicket", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreeLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreePar")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Nom")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Nom")
+                        .IsUnique();
+
+                    b.ToTable("ClassementsTickets");
+                });
+
             modelBuilder.Entity("ParcInfo.Web.Domain.CompteMicrosoft", b =>
                 {
                     b.Property<string>("Id")
@@ -965,6 +994,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<int?>("ClassementId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime?>("ClosLe")
                         .HasColumnType("timestamp with time zone");
 
@@ -1085,6 +1117,8 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasColumnType("character varying(400)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ClassementId");
 
                     b.HasIndex("CreeLe");
 
@@ -1284,6 +1318,11 @@ namespace ParcInfo.Web.Data.Migrations
 
             modelBuilder.Entity("ParcInfo.Web.Domain.Ticket", b =>
                 {
+                    b.HasOne("ParcInfo.Web.Domain.ClassementTicket", "Classement")
+                        .WithMany()
+                        .HasForeignKey("ClassementId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ParcInfo.Web.Domain.Demande", "Demande")
                         .WithMany()
                         .HasForeignKey("DemandeId")
@@ -1293,6 +1332,8 @@ namespace ParcInfo.Web.Data.Migrations
                         .WithMany()
                         .HasForeignKey("MaterielId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Classement");
 
                     b.Navigation("Demande");
 

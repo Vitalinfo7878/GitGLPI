@@ -174,4 +174,54 @@ public sealed class ServiceTicketsTests : IDisposable
     [InlineData(new byte[] { 0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50 }, "image/webp")]
     [InlineData(new byte[] { 0x3C, 0x73, 0x76, 0x67 }, null)] // SVG : refusé
     public void Type_reel_d_apres_le_contenu(byte[] octets, string? attendu) => Assert.Equal(attendu, Photos.TypeReel(octets));
+
+    private async Task<Ticket> Resolu(string titre, string solution, string? classement)
+    {
+        var f = Complet();
+        f.Titre = titre;
+        var t = await _service.CreerAsync(f, Salarie);
+        await _service.MettreAJourAsync(t.Id, new MiseAJourTicket
+        {
+            Statut = StatutTicket.Resolu, Priorite = PrioriteTicket.Normale, Categorie = f.Categorie!.Value, Cause = CauseTicket.Materiel,
+            Solution = solution, ModeResolution = ModeResolution.SurSite, Classement = classement,
+        }, Informatique);
+        return t;
+    }
+
+    [Fact]
+    public async Task Classements_crees_au_fil_des_resolutions_et_solutions_retrouvees()
+    {
+        await Resolu("Imprimante bourrage papier", "Rouleau d'entraînement nettoyé", "Imprimante  – bourrage");
+        await Resolu("Bourrage à l'accueil", "Pièce changée", "imprimante – BOURRAGE"); // même classement (casse, espaces)
+        await Resolu("Outlook demande le mot de passe", "Profil Outlook recréé", "Outlook – profil");
+        var sans = await Resolu("Écran noir au démarrage", "Câble HDMI remplacé", null);
+        var ouvert = await _service.CreerAsync(Complet(), Salarie);
+
+        var classements = await _service.ListerClassementsAsync();
+        Assert.Equal([("Imprimante – bourrage", 2), ("Outlook – profil", 1)], classements.Select(c => (c.Nom, c.Tickets)));
+        var bourrage = classements[0].Id;
+
+        // Par classement, non classés, et jamais les tickets ouverts
+        Assert.Equal(2, (await _service.ChercherSolutionsAsync(null, bourrage)).Count);
+        Assert.Equal([sans.Id], (await _service.ChercherSolutionsAsync(null, 0)).Select(t => t.Id));
+        Assert.DoesNotContain(await _service.ChercherSolutionsAsync(null, null), t => t.Id == ouvert.Id);
+
+        // Mots-clés : sans accents ni casse, le plus pertinent d'abord, la solution comprise
+        Assert.Equal("Écran noir au démarrage", (await _service.ChercherSolutionsAsync("ecran noir", null))[0].Titre);
+        Assert.Equal("Outlook demande le mot de passe", Assert.Single(await _service.ChercherSolutionsAsync("profil recréé", null)).Titre);
+        Assert.Equal("Imprimante bourrage papier", (await _service.ChercherSolutionsAsync("imprimante bourrage", null))[0].Titre);
+
+        // Le ticket garde son classement à la réouverture du formulaire ; vide = déclassé
+        await using (var db = _fabrique.CreateDbContext())
+            Assert.Equal("Outlook – profil", MiseAJourTicket.Depuis(await db.Tickets.Include(t => t.Classement).SingleAsync(t => t.Titre.StartsWith("Outlook"))).Classement);
+
+        // Renommer vers un nom existant = fusion ; supprimer = tickets non classés
+        var outlook = classements[1].Id;
+        await _service.RenommerClassementAsync(outlook, "IMPRIMANTE – bourrage", Informatique);
+        Assert.Equal([("Imprimante – bourrage", 3)], (await _service.ListerClassementsAsync()).Select(c => (c.Nom, c.Tickets)));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.SupprimerClassementAsync(bourrage, Salarie));
+        await _service.SupprimerClassementAsync(bourrage, Informatique);
+        Assert.Empty(await _service.ListerClassementsAsync());
+        Assert.Equal(4, (await _service.ChercherSolutionsAsync(null, 0)).Count);
+    }
 }
