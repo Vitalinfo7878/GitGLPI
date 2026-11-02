@@ -254,13 +254,18 @@ public sealed class ServiceDemandesTests : IDisposable
         await using (var db = _fabrique.CreateDbContext())
         {
             var m1 = new Materiel { NumInterne = "PC0455", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.Attribue };
-            var m2 = new Materiel { NumInterne = "E0032", Type = TypeMateriel.Ecran, Statut = StatutMateriel.Attribue };
-            db.Materiels.AddRange(m1, m2);
+            var m2 = new Materiel { NumInterne = "E0032", Type = TypeMateriel.Ecran, Statut = StatutMateriel.Attribue, NumSerie = "CN-0XYZ" };
+            db.Materiels.AddRange(m1, m2,
+                new Materiel { NumInterne = "E0040", Type = TypeMateriel.Ecran, NumSerie = "DOUBLON" }, new Materiel { NumInterne = "E0041", Type = TypeMateriel.Ecran, NumSerie = "doublon" });
             await db.SaveChangesAsync();
             (pc, ecran) = (m1.Id, m2.Id);
         }
-        var r = await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0455 envoyé", Informatique, materiels: ["pc0455", "E0032"]);
+        var r = await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0455 envoyé", Informatique, materiels: ["pc0455", "cn-0xyz"]); // l'écran par son n° de série
         Assert.NotNull(r.Demande.RealiseeLe);
+        Assert.Equal(["E0032", "PC0455"], (await _fabrique.CreateDbContext().DemandesMateriels.Include(x => x.Materiel).Select(x => x.Materiel.NumInterne).ToListAsync()).Order());
+        var ambigu = await Assert.ThrowsAsync<ErreurMetier>(() =>
+            _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, null, Informatique, materiels: ["PC0455", "Doublon"]));
+        Assert.Contains("E0040, E0041", ambigu.Message);
         // Un n° retiré est détaché ; les autres restent
         await _service.MettreAJourTraitementAsync(d.Id, Priorite.Haute, StatutRealisation.Realisee, "PC0455 envoyé", Informatique, materiels: ["PC0455"]);
 

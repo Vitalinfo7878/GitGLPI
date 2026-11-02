@@ -143,9 +143,27 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <MudTextField @bind-Value="_materielsAttribues" MaxLength="400" Label="@(EstDemandeDeMateriel ? "N° interne du matériel attribué *" : "N° interne du matériel attribué")"
-                                              Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="PC0455, E0032"
-                                              HelperText="@(EstDemandeDeMateriel ? "Obligatoire pour passer la demande à « Réalisée » ; plusieurs : séparez par une virgule. Rattaché à la fiche matériel." : "Plusieurs : séparez par une virgule. Rattaché à la fiche matériel.")" />
+                                <MudAutocomplete @ref="_rechercheMateriel" T="Materiel" SearchFunc="ChercherMateriel" ValueChanged="AjouterMateriel" ToStringFunc="@(m => m?.NumInterne ?? "")"
+                                                 Label="@(EstDemandeDeMateriel ? "Matériel attribué *" : "Matériel attribué")" Placeholder="N° interne, n° de série ou modèle"
+                                                 Variant="Variant.Outlined" Margin="Margin.Dense" MinCharacters="2" DebounceInterval="200" MaxItems="15" ShowProgressIndicator="false"
+                                                 ResetValueOnEmptyText="true" AdornmentIcon="@Icons.Material.Outlined.Search"
+                                                 HelperText="@(EstDemandeDeMateriel ? "Obligatoire pour passer la demande à « Réalisée » ; plusieurs possibles. Rattaché à la fiche matériel." : "Plusieurs possibles. Rattaché à la fiche matériel.")">
+                                    <ItemTemplate>
+                                        <div>
+                                            <b>@context.NumInterne</b> · @context.Type.Libelle() @context.Modele
+                                            <div><small>S/N @(context.NumSerie ?? "—") · @context.Statut.Libelle()@(context.DetenteurLibelle.Length > 0 ? $" · {context.DetenteurLibelle}" : "")</small></div>
+                                        </div>
+                                    </ItemTemplate>
+                                </MudAutocomplete>
+                                @if (_attribues.Count > 0)
+                                {
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                        @foreach (var n in _attribues)
+                                        {
+                                            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Outlined.Devices" OnClose="() => _attribues.Remove(n)">@n</MudChip>
+                                        }
+                                    </div>
+                                }
                             </MudItem>
                             <MudItem xs="12">
                                 <MudTextField @bind-Value="_commentaireInfo" MaxLength="4000" Label="Commentaire du service informatique" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
@@ -271,7 +289,26 @@ else
     private Priorite _priorite;
     private StatutRealisation _statut;
     private string? _commentaireInfo;
-    private string? _materielsAttribues;
+    private List<string> _attribues = [];
+    private MudAutocomplete<Materiel>? _rechercheMateriel;
+
+    /// <summary>Matériel cherché par n° interne, n° de série ou modèle ; le matériel en stock d'abord.</summary>
+    private async Task<IEnumerable<Materiel>> ChercherMateriel(string? texte, CancellationToken ct)
+    {
+        var t = texte?.Trim().ToLower();
+        if (string.IsNullOrEmpty(t) || t.Length < 2) return [];
+        await using var db = await DbFactory.CreateDbContextAsync(ct);
+        return await db.Materiels.AsNoTracking().Include(x => x.Site).Include(x => x.Personne)
+            .Where(x => x.NumInterne.ToLower().Contains(t) || (x.NumSerie != null && x.NumSerie.ToLower().Contains(t)) || (x.Modele != null && x.Modele.ToLower().Contains(t)))
+            .OrderBy(x => x.Statut != StatutMateriel.EnStock).ThenBy(x => x.NumInterne).Take(15).ToListAsync(ct);
+    }
+
+    private async Task AjouterMateriel(Materiel? m)
+    {
+        if (m is null) return;
+        if (!_attribues.Contains(m.NumInterne, StringComparer.OrdinalIgnoreCase)) _attribues.Add(m.NumInterne);
+        if (_rechercheMateriel is not null) await _rechercheMateriel.ClearAsync();
+    }
     private bool EstDemandeDeMateriel => _d is not null && ServiceTickets.TypesDemandes(_d).Count > 0;
     private string? _message;
     private Severity _severite;
@@ -297,7 +334,7 @@ else
         _priorite = _d.Priorite;
         _statut = _d.StatutRealisation;
         _commentaireInfo = _d.CommentaireInformatique;
-        _materielsAttribues = string.Join(", ", _d.Materiels.Select(x => x.Materiel.NumInterne).Order());
+        _attribues = _d.Materiels.Select(x => x.Materiel.NumInterne).Order().ToList();
     }
 
     private void Afficher(string message, Severity s)
@@ -398,7 +435,7 @@ else
         try
         {
             var r = await Service.MettreAJourTraitementAsync(_d!.Id, _priorite, _statut, _commentaireInfo, _u!,
-                materiels: (_materielsAttribues ?? "").Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                materiels: _attribues);
             Snackbar.Add(r.AvertissementCourriel ?? "Demande mise à jour.", r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
             await Charger();
         }

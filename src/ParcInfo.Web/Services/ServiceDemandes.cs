@@ -318,8 +318,18 @@ public sealed class ServiceDemandes(
         if (materiels is not null)
         {
             var numeros = materiels.Select(n => n.Trim().ToUpperInvariant()).Where(n => n.Length > 0).Distinct().ToList();
-            var trouves = await db.Materiels.Where(m => numeros.Contains(m.NumInterne.ToUpper())).ToListAsync(ct);
-            var inconnus = numeros.Where(n => trouves.All(m => !m.NumInterne.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
+            // N° interne, ou à défaut n° de série
+            var candidats = await db.Materiels.Where(m => numeros.Contains(m.NumInterne.ToUpper()) || (m.NumSerie != null && numeros.Contains(m.NumSerie.ToUpper()))).ToListAsync(ct);
+            var trouves = new List<Materiel>();
+            var inconnus = new List<string>();
+            foreach (var n in numeros)
+            {
+                var parNumero = candidats.Where(m => m.NumInterne.Equals(n, StringComparison.OrdinalIgnoreCase)).ToList();
+                var retenus = parNumero.Count > 0 ? parNumero : candidats.Where(m => string.Equals(m.NumSerie?.Trim(), n, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (retenus.Count == 0) inconnus.Add(n);
+                else if (retenus.Count > 1) throw new ErreurMetier($"N° de série {n} porté par plusieurs matériels ({string.Join(", ", retenus.Select(m => m.NumInterne))}) : choisissez le n° interne.");
+                else if (!trouves.Contains(retenus[0])) trouves.Add(retenus[0]);
+            }
             if (inconnus.Count > 0) throw new ErreurMetier($"Introuvable dans l'inventaire : {string.Join(", ", inconnus)}.");
             foreach (var lien in d.Materiels.Where(l => trouves.All(m => m.Id != l.MaterielId)).ToList())
             {
