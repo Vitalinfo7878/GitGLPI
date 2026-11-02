@@ -281,6 +281,19 @@ public sealed class ServiceDemandes(
         return new ResultatDemande(d, avertissement);
     }
 
+    /// <summary>
+    /// Détenteur proposé pour attribuer le matériel d'une demande : le site trouvé dans l'adresse de livraison (s'il n'y en a qu'un),
+    /// sinon le demandeur (s'il est déjà connu de l'inventaire).
+    /// </summary>
+    public static async Task<(Site? Site, Personne? Personne)> DestinationParDefautAsync(ParcDbContext db, Demande d, CancellationToken ct = default)
+    {
+        var sites = ServiceTickets.SitesDeLAdresse(d.AdresseLivraison,
+            await db.Sites.AsNoTracking().Where(s => s.Actif).Select(s => new ServiceTickets.SiteConnu(s.Id, s.Code, s.Nom)).ToListAsync(ct));
+        if (sites.Count == 1) return (await db.Sites.AsNoTracking().FirstAsync(s => s.Id == sites[0].Id, ct), null);
+        var email = d.DemandeurEmail.ToLower();
+        return (null, await db.Personnes.AsNoTracking().FirstOrDefaultAsync(p => p.Actif && p.Email != null && p.Email.ToLower() == email, ct));
+    }
+
     /// <summary>Envoie les fiches d'attribution prévues ce jour (ou avant, en cas de retard). Renvoie le nombre de demandes traitées.</summary>
     public async Task<int> EnvoyerFichesAttributionAsync(DateOnly aujourdhui, CancellationToken ct = default)
     {

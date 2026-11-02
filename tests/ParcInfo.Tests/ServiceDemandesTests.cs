@@ -635,4 +635,20 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Equal(_options.Destinataires.Order(), alertes.Select(a => a.Destinataire).Order()); // une alerte par destinataire, une seule fois
         Assert.Null((await db.Demandes.SingleAsync()).FicheAttributionEnvoyeeLe);
     }
+
+    [Fact]
+    public async Task Detenteur_propose_site_de_livraison_sinon_demandeur()
+    {
+        await using var db = _fabrique.CreateDbContext();
+        db.Sites.AddRange(new Site { Code = "440", Nom = "Restaurant Les Tilleuls", Email = "site440@vitalrest.com" }, new Site { Code = "087", Nom = "EHPAD Les Lilas" });
+        db.Personnes.Add(new Personne { NomComplet = "Camille TEST", Email = "camille.test@vitalrest.com" });
+        await db.SaveChangesAsync();
+
+        var (site, personne) = await ServiceDemandes.DestinationParDefautAsync(db, new Demande { AdresseLivraison = "Site 440 – 12 rue de la Paix, 75002 Paris", DemandeurEmail = "camille.test@vitalrest.com" });
+        Assert.Equal(("440", null), (site?.Code, personne?.NomComplet));
+        (site, personne) = await ServiceDemandes.DestinationParDefautAsync(db, new Demande { AdresseLivraison = "Siège – 10 rue du Commerce, 92100 Boulogne", DemandeurEmail = "Camille.Test@vitalrest.com" });
+        Assert.Equal((null, "Camille TEST"), (site?.Code, personne?.NomComplet));
+        (site, personne) = await ServiceDemandes.DestinationParDefautAsync(db, new Demande { AdresseLivraison = "Siège", DemandeurEmail = "inconnu@vitalrest.com" });
+        Assert.Equal((null, null), (site?.Code, personne?.NomComplet));
+    }
 }
