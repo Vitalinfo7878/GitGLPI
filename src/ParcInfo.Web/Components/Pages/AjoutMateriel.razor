@@ -42,7 +42,7 @@ else
                 <MudDatePicker Date="@(_d.Date.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? x) => _d.Date = DateOnly.FromDateTime(x ?? DateTime.Today))"
                                Label="Date d'arrivée" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" />
             </MudItem>
-            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_d.Modele" MaxLength="400" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="6"><ChampModele @bind-Value="_d.Modele" Type="_d.Type" /></MudItem>
             <MudItem xs="12" sm="6"><MudTextField @bind-Value="_d.NumSerie" MaxLength="400" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             @if (EstPc)
             {

@@ -48,7 +48,7 @@ else
                                     @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
                                 </MudSelect>
                             </MudItem>
-                            <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                            <MudItem xs="12" sm="6"><ChampModele @bind-Value="_form.Modele" Type="_form.Type" /></MudItem>
                             <MudItem xs="12" sm="6"><MudTextField MaxLength="400" @bind-Value="_form.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense"
                                                                   Error="@(_erreurs.ContainsKey("NumSerie"))" ErrorText="@_erreurs.GetValueOrDefault("NumSerie")" /></MudItem>
                             @if (_m.Site is not null || (_m.Personne is not null && !_m.Personne.Partage))

@@ -1,0 +1,25 @@
+@inject ServiceMouvements Service
+
+@* Modèle avec suggestions des modèles déjà au parc pour le même type de matériel ; une saisie libre reste possible. *@
+<MudAutocomplete T="string" Value="Value" ValueChanged="ValueChanged" SearchFunc="Chercher" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense"
+                 MaxLength="400" CoerceText="false" CoerceValue="true" Strict="false" MinCharacters="0" DebounceInterval="150" MaxItems="15"
+                 ShowProgressIndicator="false" />
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter, EditorRequired] public TypeMateriel Type { get; set; }
+
+    private TypeMateriel? _charge;
+    private List<string> _modeles = [];
+
+    private async Task<IEnumerable<string>> Chercher(string? texte, CancellationToken ct)
+    {
+        if (_charge != Type)
+        {
+            _modeles = await Service.ModelesConnusAsync(Type, ct);
+            _charge = Type;
+        }
+        return ServiceMouvements.FiltrerModeles(_modeles, texte);
+    }
+}

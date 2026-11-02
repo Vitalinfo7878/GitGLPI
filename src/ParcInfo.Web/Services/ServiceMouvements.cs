@@ -81,6 +81,26 @@ public sealed class ServiceMouvements(
         _ => throw new ArgumentOutOfRangeException(nameof(type)),
     };
 
+    /// <summary>Modèles déjà présents dans le parc pour ce type de matériel, du plus courant au plus rare (suggestions de saisie).</summary>
+    public async Task<List<string>> ModelesConnusAsync(TypeMateriel type, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var modeles = await db.Materiels.Where(m => m.Type == type && m.Modele != null).Select(m => m.Modele!).ToListAsync(ct);
+        return modeles.Select(m => m.Trim()).Where(m => m.Length > 0)
+            .GroupBy(m => m, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase)
+            // Orthographe la plus fréquente parmi les variantes de casse
+            .Select(g => g.GroupBy(x => x).OrderByDescending(x => x.Count()).First().Key)
+            .ToList();
+    }
+
+    /// <summary>Modèles contenant tous les mots saisis (« v15 g4 » trouve « LENOVO - V15 G4 AMN »).</summary>
+    public static IEnumerable<string> FiltrerModeles(IEnumerable<string> modeles, string? texte)
+    {
+        var mots = (texte ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return modeles.Where(m => mots.All(x => m.Contains(x, StringComparison.CurrentCultureIgnoreCase)));
+    }
+
     public async Task<string> ProchainNumInterneAsync(TypeMateriel type, IEnumerable<string>? dejaReserves = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync();

@@ -63,7 +63,7 @@ else
                         {
                             <div class="mobile-cache"></div>
                         }
-                        <MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <ChampModele @bind-Value="m.Modele" Type="m.Type" />
                         <MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" />
                         <MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture *" Variant="Variant.Outlined" Margin="Margin.Dense" />
                         <div class="d-flex align-center">

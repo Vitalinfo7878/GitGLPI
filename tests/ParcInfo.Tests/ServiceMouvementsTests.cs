@@ -553,4 +553,26 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal("Camille TEST", retour.Expediteur);
         Assert.Contains(await db2.Journal.Select(j => j.Details).ToListAsync(), x => x!.Contains("profil Microsoft effacé : PC0001 (camille.test@vitalrest.com)"));
     }
+
+    [Fact]
+    public async Task Modeles_suggeres_par_type()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.Materiels.AddRange(
+                new Materiel { NumInterne = "PO0001", Type = TypeMateriel.PcPortable, Modele = "LENOVO - V15 G4 AMN" },
+                new Materiel { NumInterne = "PO0002", Type = TypeMateriel.PcPortable, Modele = "Lenovo - V15 G4 AMN " },
+                new Materiel { NumInterne = "PO0003", Type = TypeMateriel.PcPortable, Modele = "LENOVO - V15 G4 AMN" },
+                new Materiel { NumInterne = "PO0004", Type = TypeMateriel.PcPortable, Modele = "HP ProBook 450 G9" },
+                new Materiel { NumInterne = "PO0005", Type = TypeMateriel.PcPortable, Modele = " " },
+                new Materiel { NumInterne = "PC0001", Type = TypeMateriel.PcFixe, Modele = "Lenovo M75q" });
+            await db.SaveChangesAsync();
+        }
+        var portables = await _service.ModelesConnusAsync(TypeMateriel.PcPortable);
+        Assert.Equal(["LENOVO - V15 G4 AMN", "HP ProBook 450 G9"], portables);
+        Assert.Equal(["LENOVO - V15 G4 AMN"], ServiceMouvements.FiltrerModeles(portables, "v15 g4"));
+        Assert.Equal(portables, ServiceMouvements.FiltrerModeles(portables, ""));
+        Assert.Empty(ServiceMouvements.FiltrerModeles(portables, "m75q"));
+        Assert.Equal(["Lenovo M75q"], await _service.ModelesConnusAsync(TypeMateriel.PcFixe));
+    }
 }
