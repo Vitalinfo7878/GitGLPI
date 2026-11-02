@@ -15,6 +15,8 @@ public sealed class FormulaireTicket
     public string? DemandeurTelephone { get; set; }
     public string? Lieu { get; set; }
     public CategorieTicket? Categorie { get; set; }
+    /// <summary>Sujet, obligatoire quand le type de problème est « Autre ».</summary>
+    public string? CategorieAutre { get; set; }
     public ImpactTicket? Impact { get; set; }
     public PorteeTicket? Portee { get; set; }
     public string? Titre { get; set; }
@@ -40,6 +42,7 @@ public sealed class FormulaireTicket
             e[nameof(DemandeurTelephone)] = "Numéro de téléphone incomplet (10 chiffres minimum).";
         Obligatoire(nameof(Lieu), Lieu);
         Obligatoire(nameof(Categorie), Categorie);
+        if (Categorie == CategorieTicket.Autre) Obligatoire(nameof(CategorieAutre), CategorieAutre);
         Obligatoire(nameof(Impact), Impact);
         Obligatoire(nameof(Portee), Portee);
         Obligatoire(nameof(Titre), Titre);
@@ -47,7 +50,7 @@ public sealed class FormulaireTicket
         foreach (var (champ, valeur, max) in new (string, string?, int)[]
         {
             (nameof(DemandeurNom), DemandeurNom, 200), (nameof(DemandeurEmail), DemandeurEmail, 200),
-            (nameof(DemandeurTelephone), DemandeurTelephone, 50), (nameof(Lieu), Lieu, 400), (nameof(Titre), Titre, 150),
+            (nameof(DemandeurTelephone), DemandeurTelephone, 50), (nameof(Lieu), Lieu, 400), (nameof(Titre), Titre, 150), (nameof(CategorieAutre), CategorieAutre, 100),
             (nameof(Description), Description, LongueurDescription), (nameof(DejaEssaye), DejaEssaye, 2000),
             (nameof(MaterielReference), MaterielReference, 60), (nameof(Disponibilites), Disponibilites, 400),
         })
@@ -62,6 +65,7 @@ public sealed class MiseAJourTicket
     public StatutTicket Statut { get; set; }
     public PrioriteTicket Priorite { get; set; }
     public CategorieTicket Categorie { get; set; }
+    public string? CategorieAutre { get; set; }
     public string? AssigneA { get; set; }
     public string? MaterielReference { get; set; }
     public string? Diagnostic { get; set; }
@@ -75,7 +79,7 @@ public sealed class MiseAJourTicket
     public static MiseAJourTicket Depuis(Ticket t) => new()
     {
         Classement = t.Classement?.Nom,
-        Statut = t.Statut, Priorite = t.Priorite, Categorie = t.Categorie, AssigneA = t.AssigneA, MaterielReference = t.MaterielReference,
+        Statut = t.Statut, Priorite = t.Priorite, Categorie = t.Categorie, CategorieAutre = t.CategorieAutre, AssigneA = t.AssigneA, MaterielReference = t.MaterielReference,
         Diagnostic = t.Diagnostic, Cause = t.Cause, Solution = t.Solution, ModeResolution = t.ModeResolution, TempsPasseMinutes = t.TempsPasseMinutes,
     };
 
@@ -94,7 +98,7 @@ public sealed class MiseAJourTicket
         foreach (var (champ, valeur, max) in new (string, string?, int)[]
         {
             (nameof(AssigneA), AssigneA, 200), (nameof(MaterielReference), MaterielReference, 60),
-            (nameof(Diagnostic), Diagnostic, 4000), (nameof(Solution), Solution, 4000), (nameof(Classement), Classement, 100),
+            (nameof(Diagnostic), Diagnostic, 4000), (nameof(Solution), Solution, 4000), (nameof(Classement), Classement, 100), (nameof(CategorieAutre), CategorieAutre, 100),
         })
             if (valeur?.Trim().Length > max && !e.ContainsKey(champ)) e[champ] = $"Texte trop long ({max} caractères maximum).";
         return e;
@@ -167,6 +171,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
             DemandeurTelephone = f.DemandeurTelephone!.Trim(),
             Lieu = f.Lieu!.Trim(),
             Categorie = f.Categorie!.Value,
+            CategorieAutre = f.Categorie == CategorieTicket.Autre ? Vide(f.CategorieAutre) : null,
             Impact = f.Impact!.Value,
             Portee = f.Portee!.Value,
             Titre = f.Titre!.Trim(),
@@ -259,6 +264,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
         if (t.Priorite != m.Priorite) t.Messages.Add(Trace(u, $"Priorité : {t.Priorite.Libelle()} → {m.Priorite.Libelle()}", maintenant));
         t.Priorite = m.Priorite;
         t.Categorie = m.Categorie;
+        t.CategorieAutre = m.Categorie == CategorieTicket.Autre ? Vide(m.CategorieAutre) : null;
         var assigne = Vide(m.AssigneA);
         if (assigne != t.AssigneA && assigne is not null) t.Messages.Add(Trace(u, $"Pris en charge par {assigne}", maintenant));
         t.AssigneA = assigne;
@@ -376,7 +382,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory)
     private static int Pertinence(Ticket t, List<string> mots)
     {
         var titre = Sans(t.Titre);
-        var texte = Sans($"{t.Classement?.Nom} {t.Description} {t.Diagnostic} {t.Solution} {t.Lieu} {t.MaterielReference} {t.Materiel?.Modele} {t.Numero}");
+        var texte = Sans($"{t.Classement?.Nom} {t.CategorieAutre} {t.Description} {t.Diagnostic} {t.Solution} {t.Lieu} {t.MaterielReference} {t.Materiel?.Modele} {t.Numero}");
         // Un mot du titre compte en plus
         return mots.Select(Sans).Sum(m => (titre.Contains(m) ? 2 : 0) + (texte.Contains(m) ? 1 : 0));
     }

@@ -224,4 +224,34 @@ public sealed class ServiceTicketsTests : IDisposable
         Assert.Empty(await _service.ListerClassementsAsync());
         Assert.Equal(4, (await _service.ChercherSolutionsAsync(null, 0)).Count);
     }
+
+    [Fact]
+    public async Task Type_autre_avec_sujet_ecrit_par_le_demandeur()
+    {
+        var f = Complet();
+        f.Categorie = CategorieTicket.Autre;
+        Assert.Equal(FormulaireDemande.MessageObligatoire, f.Valider()[nameof(FormulaireTicket.CategorieAutre)]);
+        f.CategorieAutre = "  Badgeuse ";
+        var t = await _service.CreerAsync(f, Salarie);
+        Assert.Equal("Autre : Badgeuse", t.LibelleCategorie);
+
+        // Sujet ignoré pour un autre type de problème
+        var g = Complet();
+        g.CategorieAutre = "Badgeuse";
+        Assert.Empty(g.Valider());
+        var u = await _service.CreerAsync(g, Salarie);
+        Assert.Null(u.CategorieAutre);
+        Assert.Equal("Imprimante / scanner", u.LibelleCategorie);
+
+        // Le service informatique peut corriger le type : le sujet disparaît
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = MiseAJourTicket.Depuis(await db.Tickets.SingleAsync(x => x.Id == t.Id));
+            Assert.Equal("Badgeuse", m.CategorieAutre);
+            m.Categorie = CategorieTicket.Poste;
+            await _service.MettreAJourAsync(t.Id, m, Informatique);
+        }
+        await using (var db = _fabrique.CreateDbContext())
+            Assert.Null((await db.Tickets.SingleAsync(x => x.Id == t.Id)).CategorieAutre);
+    }
 }

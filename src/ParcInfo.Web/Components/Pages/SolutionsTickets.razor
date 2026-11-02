@@ -94,7 +94,7 @@
                         {
                             <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Outlined.Label" Color="Color.Primary" Variant="Variant.Outlined" OnClick="() => Choisir(c.Id)">@c.Nom</MudChip>
                         }
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.Categorie.Libelle()</MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@t.LibelleCategorie</MudChip>
                     </div>
                     <MudText Typo="Typo.caption" Class="d-block mb-2">
                         @t.DemandeurNom · @t.Lieu@(t.MaterielReference is null ? "" : $" · {t.MaterielReference}")@(t.Materiel?.Modele is { } mod ? $" ({mod})" : "")

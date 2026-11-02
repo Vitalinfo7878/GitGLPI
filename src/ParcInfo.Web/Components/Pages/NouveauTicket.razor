@@ -43,6 +43,12 @@
                             }
                         </div>
                     </MudRadioGroup>
+                    @if (_f.Categorie == CategorieTicket.Autre)
+                    {
+                        <MudTextField @bind-Value="_f.CategorieAutre" MaxLength="100" Label="Précisez le sujet *" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                                      Placeholder="Ex. badgeuse, TPE, caméra, vidéoprojecteur…" AutoFocus="true"
+                                      Error="@(Err(nameof(FormulaireTicket.CategorieAutre)) is not null)" ErrorText="@Err(nameof(FormulaireTicket.CategorieAutre))" />
+                    }
                 </Question>
 
                 <Question Numero="2" Libelle="Résumez le problème en une phrase" Obligatoire="true" Erreur="@Err(nameof(FormulaireTicket.Titre))">

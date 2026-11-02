@@ -89,6 +89,8 @@ public class Ticket
     /// <summary>Site ou service où se trouve le problème.</summary>
     public string Lieu { get; set; } = "";
     public CategorieTicket Categorie { get; set; }
+    /// <summary>Sujet écrit par le demandeur quand le type de problème est « Autre ».</summary>
+    public string? CategorieAutre { get; set; }
     public ImpactTicket Impact { get; set; }
     public PorteeTicket Portee { get; set; }
     public string Titre { get; set; } = "";
@@ -133,6 +135,10 @@ public class Ticket
     /// <summary>Demande informatique à l'origine du ticket.</summary>
     public int? DemandeId { get; set; }
     public Demande? Demande { get; set; }
+
+    /// <summary>Type de problème affiché : « Autre : sujet » quand le demandeur l'a précisé.</summary>
+    public string LibelleCategorie => Categorie == CategorieTicket.Autre && !string.IsNullOrWhiteSpace(CategorieAutre)
+        ? $"{Categorie.Libelle()} : {CategorieAutre}" : Categorie.Libelle();
 
     public bool EstOuvert => Statut is not (StatutTicket.Resolu or StatutTicket.Clos);
 

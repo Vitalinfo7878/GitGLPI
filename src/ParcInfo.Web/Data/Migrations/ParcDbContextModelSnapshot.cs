@@ -990,6 +990,10 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("CategorieAutre")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Cause")
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");

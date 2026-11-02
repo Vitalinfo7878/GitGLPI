@@ -40,7 +40,7 @@ else
             <MudPaper Elevation="0" Class="carte pa-4 mb-3">
                 <MudText Typo="Typo.caption">Ouvert le @_t.CreeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm") (saisi par @_t.SaisiePar)</MudText>
                 <dl class="champ-lecture">
-                    <Champ Libelle="Type de problème" Valeur="@_t.Categorie.Libelle()" />
+                    <Champ Libelle="Type de problème" Valeur="@_t.LibelleCategorie" />
                     <Champ Libelle="Description" Valeur="@_t.Description" />
                     <Champ Libelle="Impact" Valeur="@_t.Impact.Libelle()" />
                     <Champ Libelle="Personnes concernées" Valeur="@_t.Portee.Libelle()" />
@@ -165,6 +165,12 @@ else
                                 @foreach (var c in Enum.GetValues<CategorieTicket>()) { <MudSelectItem Value="c">@c.Libelle()</MudSelectItem> }
                             </MudSelect>
                         </MudItem>
+                        @if (_m.Categorie == CategorieTicket.Autre)
+                        {
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_m.CategorieAutre" MaxLength="100" Label="Sujet (autre)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </MudItem>
+                        }
                         <MudItem xs="12" sm="6">
                             <MudAutocomplete T="string" Value="_m.MaterielReference" ValueChanged="@(v => _m.MaterielReference = v?.Trim().Split(' ', 2)[0])"
                                              SearchFunc="ChercherMateriel" CoerceValue="true" MaxLength="60" Clearable="true" ShowProgressIndicator="false" DebounceInterval="200"
