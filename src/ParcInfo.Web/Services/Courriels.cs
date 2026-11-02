@@ -21,9 +21,11 @@ public sealed class OptionsMessagerie
     public string UrlApplication { get; set; } = "https://localhost:5001";
 }
 
+public sealed record PieceJointe(string Nom, string TypeContenu, byte[] Contenu);
+
 public interface IEnvoiCourriel
 {
-    Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default);
+    Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default, IReadOnlyList<PieceJointe>? pieces = null);
 }
 
 /// <summary>Envoi via Microsoft Graph (permission d'application Mail.Send, à restreindre à la boîte d'envoi).</summary>
@@ -39,7 +41,7 @@ public sealed class EnvoiCourrielGraph(IConfiguration config, OptionsMessagerie 
             : new ClientSecretCredential(az["TenantId"], az["ClientId"], az["ClientSecret"]);
     }
 
-    public async Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default)
+    public async Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default, IReadOnlyList<PieceJointe>? pieces = null)
     {
         var expediteur = options.Expediteur ?? throw new InvalidOperationException("Messagerie:Expediteur n'est pas configuré.");
         await _graph.Users[expediteur].SendMail.PostAsync(new SendMailPostRequestBody
@@ -49,6 +51,10 @@ public sealed class EnvoiCourrielGraph(IConfiguration config, OptionsMessagerie 
                 Subject = sujet,
                 Body = new ItemBody { ContentType = BodyType.Html, Content = corpsHtml },
                 ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = destinataire } }],
+                Attachments = pieces?.Select(p => (Attachment)new FileAttachment
+                {
+                    OdataType = "#microsoft.graph.fileAttachment", Name = p.Nom, ContentType = p.TypeContenu, ContentBytes = p.Contenu,
+                }).ToList(),
             },
             SaveToSentItems = true,
         }, cancellationToken: ct);
@@ -58,9 +64,9 @@ public sealed class EnvoiCourrielGraph(IConfiguration config, OptionsMessagerie 
 /// <summary>Aucun envoi réel : le courriel est seulement enregistré (consultable dans « Courriels »).</summary>
 public sealed class EnvoiCourrielSimule(ILogger<EnvoiCourrielSimule> log) : IEnvoiCourriel
 {
-    public Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default)
+    public Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default, IReadOnlyList<PieceJointe>? pieces = null)
     {
-        log.LogInformation("Courriel simulé à {Destinataire} : {Sujet}", destinataire, sujet);
+        log.LogInformation("Courriel simulé à {Destinataire} : {Sujet} ({Pieces} pièce(s) jointe(s))", destinataire, sujet, pieces?.Count ?? 0);
         return Task.CompletedTask;
     }
 }
@@ -188,9 +194,38 @@ public sealed class ServiceNotifications(
             <p style="margin:0 0 12px">Vous devriez le recevoir d'ici <b>2 à 3 jours ouvrés</b>, soit entre le {du.ToString("dddd d MMMM", fr)} et le {au.ToString("dddd d MMMM", fr)},
             à l'adresse indiquée : {E(d.AdresseLivraison)}{(string.IsNullOrWhiteSpace(d.DestinataireLivraison) ? "" : $" (à l'attention de {E(d.DestinataireLivraison)})")}.</p>
             {(d.EstRemplacement ? $"""<p style="margin:0 0 12px"><b>Merci de nous renvoyer l'ancien matériel</b>{(d.MaterielRemplace is null ? "" : $" ({E(d.MaterielRemplace)})")} dès que vous aurez reçu le nouveau. Pour organiser son retour, contactez le service informatique : informatique@vitalrest.com.</p>""" : "")}
+            <p style="margin:0 0 12px">La fiche d'attribution du matériel sera envoyée dans deux jours ouvrés au site ou à la personne à qui il est attribué, pour signature.</p>
             <p style="margin:0">Le service informatique</p>
             """);
         await EnvoyerEtTracerAsync(d.DemandeurEmail, $"Demande informatique n° {d.Numero} : votre matériel a été envoyé", corps, ct);
+    }
+
+    /// <summary>Fiche(s) d'attribution en pièce jointe, 2 jours ouvrés après l'envoi du matériel, au détenteur (site ou personne) : à renvoyer signée(s).</summary>
+    public async Task FicheAttributionAsync(Demande d, IReadOnlyList<Fiche> fiches, string destinataire, string? nom, CancellationToken ct = default)
+    {
+        var codes = string.Join(", ", fiches.Select(f => f.Code));
+        var materiel = string.Join(", ", fiches.SelectMany(f => f.Mouvements).Select(m => $"{m.Materiel.NumInterne} ({m.Materiel.Type.Libelle()}{(m.Materiel.Modele is null ? "" : $" {m.Materiel.Modele}")})"));
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Bonjour{(string.IsNullOrWhiteSpace(nom) ? "" : $" {E(nom)}")},</p>
+            <p style="margin:0 0 12px">Vous trouverez ci-joint la fiche d'attribution {E(codes)} du matériel envoyé suite à la demande informatique <b>n° {d.Numero}</b> de {E(d.DemandeurNom)} : {E(materiel)}.</p>
+            <p style="margin:0 0 12px"><b>Merci de renvoyer cette fiche signée à informatique@vitalrest.com.</b></p>
+            {(d.EstRemplacement ? """<p style="margin:0 0 12px"><b>Merci de renvoyer l'ancien matériel au plus vite.</b></p>""" : "")}
+            <p style="margin:0">Le service informatique</p>
+            """);
+        var pieces = fiches.Where(f => f.Pdf is not null).Select(f => new PieceJointe($"{f.Code}.pdf", "application/pdf", f.Pdf!)).ToList();
+        await EnvoyerEtTracerAsync(destinataire, $"Fiche d'attribution {codes} à signer (demande informatique n° {d.Numero})", corps, ct, pieces);
+    }
+
+    /// <summary>La fiche d'attribution devait partir mais aucune n'existe pour le matériel de la demande : le service informatique est prévenu.</summary>
+    public async Task FicheAttributionManquanteAsync(Demande d, IEnumerable<string> destinataires, CancellationToken ct = default)
+    {
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">La fiche d'attribution de la demande <b>n° {d.Numero}</b> ({E(d.DemandeurNom)} – {E(d.Objets)}) devait être envoyée au demandeur aujourd'hui,
+            mais {(d.Materiels.Count == 0 ? "aucun matériel n'est rattaché à la demande" : "aucune fiche d'attribution (mouvement « Sortie (attribution) ») n'existe pour le matériel rattaché")}.</p>
+            <p style="margin:0 0 12px">Faites l'attribution (et rattachez le matériel à la demande) : la fiche partira automatiquement le jour ouvré suivant, ou tout de suite avec « Envoyer la fiche maintenant » sur la demande.</p>
+            <p style="margin:0 0 8px">{Bouton(Url($"demandes/{d.IdPublic}"), "Ouvrir la demande", "#233d8e")}</p>
+            """);
+        await EnvoyerATousAsync(destinataires, $"Demande n° {d.Numero} : fiche d'attribution non envoyée", corps, ct);
     }
 
     public async Task DemandeRealiseeAsync(Demande d, CancellationToken ct = default)
@@ -302,16 +337,17 @@ public sealed class ServiceNotifications(
         if (erreurs.Count > 0) throw new InvalidOperationException(string.Join(" ", erreurs));
     }
 
-    private async Task EnvoyerEtTracerAsync(string destinataire, string sujet, string corps, CancellationToken ct)
+    private async Task EnvoyerEtTracerAsync(string destinataire, string sujet, string corps, CancellationToken ct, IReadOnlyList<PieceJointe>? pieces = null)
     {
         var trace = new Courriel
         {
             Destinataire = destinataire, Sujet = sujet, CorpsHtml = corps, EnvoyeLe = DateTime.UtcNow,
             Simule = envoi is EnvoiCourrielSimule,
+            PiecesJointes = pieces is { Count: > 0 } ? string.Join(", ", pieces.Select(p => p.Nom)) : null,
         };
         try
         {
-            await envoi.EnvoyerAsync(destinataire, sujet, corps, ct);
+            await envoi.EnvoyerAsync(destinataire, sujet, corps, ct, pieces);
         }
         catch (Exception ex)
         {

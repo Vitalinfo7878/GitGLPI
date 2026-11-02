@@ -198,6 +198,10 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<string>("PiecesJointes")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
                     b.Property<bool>("Simule")
                         .HasColumnType("boolean");
 
@@ -282,6 +286,15 @@ namespace ParcInfo.Web.Data.Migrations
 
                     b.Property<DateTime?>("EnvoiNotifieLe")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FicheAttributionAlerteLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FicheAttributionEnvoyeeLe")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly?>("FicheAttributionPrevueLe")
+                        .HasColumnType("date");
 
                     b.Property<Guid>("IdPublic")
                         .HasColumnType("uuid");

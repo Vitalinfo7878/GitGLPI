@@ -572,4 +572,67 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Contains(t.Messages, m => m.Texte.Contains("après coup"));
         Assert.Equal("PC0450 – PC portable", (await db2.Demandes.SingleAsync()).MaterielRemplace);
     }
+
+    [Fact]
+    public async Task Fiche_d_attribution_envoyee_au_detenteur_deux_jours_ouvres_apres_l_envoi()
+    {
+        var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique,
+            new OptionsMessagerie { UrlApplication = "https://parc.test" }, NullLogger<ServiceNotifications>.Instance);
+        var service = new ServiceDemandes(_fabrique, notifications, _options, NullLogger<ServiceDemandes>.Instance, new GenerateurFiche());
+        int pc, personne;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var p = new Personne { NomComplet = "Dominique RESPONSABLE", Email = "dominique.responsable@vitalrest.com" };
+            var m = new Materiel { NumInterne = "PO0100", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.EnStock };
+            db.AddRange(p, m);
+            await db.SaveChangesAsync();
+            (pc, personne) = (m.Id, p.Id);
+        }
+        // Remplacement demandé par Camille ; le PC est attribué à Dominique (fiche FIA à son nom)
+        var d = (await service.CreerAsync(Complet(), Salarie)).Demande;
+        await service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        var mouvements = new ServiceMouvements(_fabrique, new GenerateurFiche(), NullLogger<ServiceMouvements>.Instance);
+        var fia = (await mouvements.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique)).Fiche!;
+        await service.MettreAJourTraitementAsync(d.Id, Priorite.Normale, StatutRealisation.EnCours, null, Informatique, materiels: ["PO0100"]);
+
+        var envoi = (await service.NotifierEnvoiAsync(d.Id, Informatique)).Demande;
+        var prevue = JoursOuvres.Ajouter(DateOnly.FromDateTime(DateTime.Today), 2);
+        Assert.Equal(prevue, envoi.FicheAttributionPrevueLe);
+
+        Assert.Equal(0, await service.EnvoyerFichesAttributionAsync(prevue.AddDays(-1)));
+        Assert.Equal(1, await service.EnvoyerFichesAttributionAsync(prevue));
+        Assert.Equal(0, await service.EnvoyerFichesAttributionAsync(prevue.AddDays(1))); // une seule fois
+
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var mail = await db.Courriels.SingleAsync(c => c.Sujet.Contains("à signer"));
+            Assert.Equal("dominique.responsable@vitalrest.com", mail.Destinataire);
+            Assert.Equal($"{fia.Code}.pdf", mail.PiecesJointes);
+            Assert.Contains("Bonjour Dominique RESPONSABLE", mail.CorpsHtml);
+            Assert.Contains("Merci de renvoyer cette fiche signée à informatique@vitalrest.com.", mail.CorpsHtml);
+            Assert.Contains("Merci de renvoyer l'ancien matériel au plus vite.", mail.CorpsHtml);
+            Assert.NotNull((await db.Demandes.SingleAsync(x => x.Id == d.Id)).FicheAttributionEnvoyeeLe);
+            Assert.True(await db.Journal.AnyAsync(j => j.Action == "Fiche d'attribution envoyée"));
+            Assert.True(await db.Courriels.AnyAsync(c => c.Destinataire == "camille.test@vitalrest.com" && c.CorpsHtml.Contains("fiche d'attribution du matériel sera envoyée")));
+        }
+    }
+
+    [Fact]
+    public async Task Fiche_d_attribution_manquante_signalee_une_fois()
+    {
+        var f = Complet();
+        f.Concerne = "Une ouverture de poste";
+        var d = (await _service.CreerAsync(f, Salarie)).Demande;
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        var prevue = (await _service.NotifierEnvoiAsync(d.Id, Informatique)).Demande.FicheAttributionPrevueLe!.Value;
+
+        Assert.Equal(0, await _service.EnvoyerFichesAttributionAsync(prevue));
+        Assert.Equal(0, await _service.EnvoyerFichesAttributionAsync(prevue.AddDays(1)));
+        var manuel = await Assert.ThrowsAsync<ErreurMetier>(() => _service.EnvoyerFicheAttributionMaintenantAsync(d.Id, Informatique));
+        Assert.Contains("Aucun matériel", manuel.Message);
+        await using var db = _fabrique.CreateDbContext();
+        var alertes = await db.Courriels.Where(c => c.Sujet.Contains("fiche d'attribution non envoyée")).ToListAsync();
+        Assert.Equal(_options.Destinataires.Order(), alertes.Select(a => a.Destinataire).Order()); // une alerte par destinataire, une seule fois
+        Assert.Null((await db.Demandes.SingleAsync()).FicheAttributionEnvoyeeLe);
+    }
 }

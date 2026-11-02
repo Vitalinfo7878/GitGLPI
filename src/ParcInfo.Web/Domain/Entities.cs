@@ -195,6 +195,8 @@ public class Courriel
     public DateTime EnvoyeLe { get; set; }
     public bool Simule { get; set; }
     public string? Erreur { get; set; }
+    /// <summary>Noms des pièces jointes (ex. « FIA-2026-0123.pdf »).</summary>
+    public string? PiecesJointes { get; set; }
 }
 
 /// <summary>Journal des actions sensibles (affichage d'un mot de passe, modification, import…).</summary>

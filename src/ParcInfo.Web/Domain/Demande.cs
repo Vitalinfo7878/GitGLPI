@@ -90,6 +90,11 @@ public class Demande
     public DateTime? RealiseeLe { get; set; }
     /// <summary>Le demandeur a été prévenu que le matériel est envoyé (bouton « Envoyer »).</summary>
     public DateTime? EnvoiNotifieLe { get; set; }
+    /// <summary>Jour d'envoi automatique de la fiche d'attribution au demandeur (2 jours ouvrés après « Envoyer »).</summary>
+    public DateOnly? FicheAttributionPrevueLe { get; set; }
+    public DateTime? FicheAttributionEnvoyeeLe { get; set; }
+    /// <summary>Le service informatique a été prévenu qu'aucune fiche d'attribution n'existait au jour prévu.</summary>
+    public DateTime? FicheAttributionAlerteLe { get; set; }
     public DateTime ModifieLe { get; set; }
 
     /// <summary>Matériel attribué pour réaliser la demande : obligatoire pour la terminer, visible sur la fiche matériel.</summary>

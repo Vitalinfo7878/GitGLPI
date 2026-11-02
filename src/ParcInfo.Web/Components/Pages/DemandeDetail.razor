@@ -186,9 +186,36 @@ else
                                         }
                                         else
                                         {
-                                            <span>Prévient le demandeur par mail que le matériel a été envoyé (réception sous 2 à 3 jours ouvrés) et passe la demande « En cours d'envoi ».</span>
+                                            <span>Prévient le demandeur par mail que le matériel a été envoyé (réception sous 2 à 3 jours ouvrés) et passe la demande « En cours d'envoi ».
+                                                Deux jours ouvrés plus tard, la fiche d'attribution est envoyée à signer au détenteur du matériel (site ou personne).</span>
                                         }
                                     </MudText>
+                                </MudItem>
+                            }
+                            @if (_d.FicheAttributionPrevueLe is { } prevue)
+                            {
+                                <MudItem xs="12">
+                                    <div class="d-flex flex-wrap align-center gap-2">
+                                        <MudIcon Icon="@Icons.Material.Outlined.Draw" Size="Size.Small" Color="@(_d.FicheAttributionEnvoyeeLe is null ? Color.Default : Color.Success)" />
+                                        <MudText Typo="Typo.body2" Style="flex:1">
+                                            @if (_d.FicheAttributionEnvoyeeLe is { } envoyee)
+                                            {
+                                                <span>Fiche d'attribution envoyée à signer le @envoyee.ToLocalTime().ToString("dd/MM/yyyy à HH:mm").</span>
+                                            }
+                                            else if (_d.FicheAttributionAlerteLe is not null)
+                                            {
+                                                <span style="color:var(--mud-palette-warning)">Fiche d'attribution non envoyée le @prevue.ToString("dd/MM") : aucune fiche d'attribution pour le matériel rattaché. Nouvel essai chaque jour ouvré à 8 h 30.</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Fiche d'attribution envoyée automatiquement à signer le @prevue.ToString("dddd d MMMM", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) à 8 h 30.</span>
+                                            }
+                                        </MudText>
+                                        @if (_d.FicheAttributionEnvoyeeLe is null)
+                                        {
+                                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="EnvoyerFiche" Disabled="_envoi">Envoyer la fiche maintenant</MudButton>
+                                        }
+                                    </div>
                                 </MudItem>
                             }
                         </MudGrid>
@@ -413,6 +440,20 @@ else
             await Charger();
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _envoi = false; }
+    }
+
+    private async Task EnvoyerFiche()
+    {
+        _envoi = true;
+        try
+        {
+            var r = await Service.EnvoyerFicheAttributionMaintenantAsync(_d!.Id, _u!);
+            Snackbar.Add(r.AvertissementCourriel is null ? "Fiche d'attribution envoyée au détenteur du matériel." : $"La fiche n'a pas pu partir : {r.AvertissementCourriel}",
+                r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
         finally { _envoi = false; }
     }
 

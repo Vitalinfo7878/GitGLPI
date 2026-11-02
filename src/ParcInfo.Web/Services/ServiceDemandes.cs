@@ -95,7 +95,8 @@ public sealed class ErreurFormulaire(Dictionary<string, string> erreurs) : Excep
 public sealed record ResultatDemande(Demande Demande, string? AvertissementCourriel);
 
 public sealed class ServiceDemandes(
-    IDbContextFactory<ParcDbContext> dbFactory, ServiceNotifications notifications, OptionsDemandes options, ILogger<ServiceDemandes> log)
+    IDbContextFactory<ParcDbContext> dbFactory, ServiceNotifications notifications, OptionsDemandes options, ILogger<ServiceDemandes> log,
+    GenerateurFiche? generateur = null)
 {
     public async Task<ResultatDemande> CreerAsync(FormulaireDemande f, Utilisateur auteur, CancellationToken ct = default)
     {
@@ -267,6 +268,8 @@ public sealed class ServiceDemandes(
         d.StatutRealisation = StatutRealisation.EnCoursEnvoi;
         d.EnvoiNotifieLe = maintenant;
         d.ModifieLe = maintenant;
+        // Fiche d'attribution à signer : envoyée automatiquement 2 jours ouvrés plus tard
+        if (d.FicheAttributionEnvoyeeLe is null) d.FicheAttributionPrevueLe = JoursOuvres.Ajouter(DateOnly.FromDateTime(DateTime.Today), 2);
         db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Demande envoyée", Details = $"n° {d.Numero} : demandeur prévenu" });
         await ServiceTickets.NoterSurTicketsDeLaDemandeAsync(db, d.Id, u, maintenant,
             $"Nouveau matériel envoyé au demandeur (demande n° {d.Numero}) : l'ancien est à récupérer.", fermer: false, ct);
@@ -276,6 +279,89 @@ public sealed class ServiceDemandes(
         try { await notifications.MaterielEnvoyeAsync(d, DateOnly.FromDateTime(DateTime.Today), ct); }
         catch (Exception ex) { log.LogError(ex, "Courriel d'envoi du matériel"); avertissement = ex.Message; }
         return new ResultatDemande(d, avertissement);
+    }
+
+    /// <summary>Envoie les fiches d'attribution prévues ce jour (ou avant, en cas de retard). Renvoie le nombre de demandes traitées.</summary>
+    public async Task<int> EnvoyerFichesAttributionAsync(DateOnly aujourdhui, CancellationToken ct = default)
+    {
+        List<int> ids;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            ids = await db.Demandes
+                .Where(d => d.FicheAttributionPrevueLe != null && d.FicheAttributionPrevueLe <= aujourdhui && d.FicheAttributionEnvoyeeLe == null
+                    && d.StatutValidation == StatutValidation.Validee && d.StatutRealisation != StatutRealisation.Annulee)
+                .OrderBy(d => d.Numero).Select(d => d.Id).ToListAsync(ct);
+        var envoyees = 0;
+        foreach (var id in ids)
+            if ((await EnvoyerFicheAttributionAsync(id, "Envoi automatique", alerter: true, ct)).Envoyee) envoyees++;
+        return envoyees;
+    }
+
+    /// <summary>Bouton « Envoyer la fiche maintenant » sur la demande.</summary>
+    public async Task<ResultatDemande> EnvoyerFicheAttributionMaintenantAsync(int id, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        var (d, envoyee, avertissement) = await EnvoyerFicheAttributionAsync(id, u.Signature, alerter: false, ct);
+        if (!envoyee && avertissement is null)
+            throw new ErreurMetier(d.Materiels.Count == 0
+                ? "Aucun matériel n'est rattaché à la demande : indiquez d'abord le matériel attribué."
+                : "Aucune fiche d'attribution pour le matériel rattaché : faites d'abord le mouvement « Sortie (attribution) ».");
+        return new ResultatDemande(d, avertissement);
+    }
+
+    /// <summary>
+    /// Fiche(s) d'attribution du matériel rattaché à la demande (la plus récente par matériel), avec les mentions à jour, en pièce jointe
+    /// au détenteur à qui le matériel est attribué (site ou personne : destinataire de la fiche ; à défaut le demandeur).
+    /// Sans fiche : le service informatique est prévenu une fois (envoi automatique).
+    /// </summary>
+    private async Task<(Demande Demande, bool Envoyee, string? Avertissement)> EnvoyerFicheAttributionAsync(int id, string auteur, bool alerter, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var d = await db.Demandes.Include(x => x.Materiels).FirstAsync(x => x.Id == id, ct);
+        var materielIds = d.Materiels.Select(m => m.MaterielId).ToList();
+        var ficheIds = (await db.Mouvements
+                .Where(m => m.Type == TypeMouvement.Attribution && m.FicheId != null && materielIds.Contains(m.MaterielId))
+                .Select(m => new { m.MaterielId, m.Numero, m.FicheId }).ToListAsync(ct))
+            .GroupBy(m => m.MaterielId).Select(g => g.OrderByDescending(x => x.Numero).First().FicheId!.Value).Distinct().ToList();
+        var maintenant = DateTime.UtcNow;
+
+        if (ficheIds.Count == 0)
+        {
+            if (alerter && d.FicheAttributionAlerteLe is null)
+            {
+                try { await notifications.FicheAttributionManquanteAsync(d, options.Destinataires, ct); }
+                catch (InvalidOperationException ex) { log.LogWarning(ex, "Alerte fiche d'attribution manquante (demande {Numero})", d.Numero); }
+                d.FicheAttributionAlerteLe = maintenant;
+                await db.SaveChangesAsync(ct);
+            }
+            return (d, false, null);
+        }
+
+        var fiches = await ServiceMouvements.ChargerFiche(db).Where(f => ficheIds.Contains(f.Id)).OrderBy(f => f.Numero).ToListAsync(ct);
+        // PDF régénéré : mentions « fiche signée à renvoyer » à jour, y compris sur les fiches plus anciennes
+        if (generateur is not null)
+            foreach (var f in fiches)
+            {
+                try { f.Pdf = generateur.Generer(f, ancienMaterielARenvoyer: d.EstRemplacement); f.PdfGenereLe = maintenant; }
+                catch (Exception ex) { log.LogError(ex, "PDF de la fiche {Code}", f.Code); }
+            }
+        var erreurs = new List<string>();
+        var envois = new List<string>();
+        foreach (var g in fiches.GroupBy(f => (string.IsNullOrWhiteSpace(f.DestinataireEmail) ? d.DemandeurEmail : f.DestinataireEmail).Trim().ToLowerInvariant()))
+        {
+            try
+            {
+                await notifications.FicheAttributionAsync(d, g.ToList(), g.Key, g.First().DestinataireNom ?? (g.Key == d.DemandeurEmail.ToLowerInvariant() ? d.DemandeurNom : null), ct);
+                envois.Add($"{string.Join(", ", g.Select(f => f.Code))} à {g.Key}");
+            }
+            catch (InvalidOperationException ex) { erreurs.Add(ex.Message); }
+        }
+        // Échec d'envoi (tracé dans les courriels) : nouvel essai au prochain passage
+        var avertissement = erreurs.Count > 0 ? string.Join(" ", erreurs) : null;
+        if (avertissement is null) d.FicheAttributionEnvoyeeLe = maintenant;
+        if (envois.Count > 0)
+            db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur, Action = "Fiche d'attribution envoyée", Details = $"n° {d.Numero} : {string.Join(" ; ", envois)}" });
+        await db.SaveChangesAsync(ct);
+        return (d, d.FicheAttributionEnvoyeeLe is not null, avertissement);
     }
 
     /// <summary>
@@ -434,8 +520,11 @@ public sealed class RelanceDemandes(IServiceScopeFactory scopes, ILogger<Relance
             try
             {
                 using var scope = scopes.CreateScope();
-                var n = await scope.ServiceProvider.GetRequiredService<ServiceDemandes>().RelancerAsync(DateTime.UtcNow, ct);
+                var service = scope.ServiceProvider.GetRequiredService<ServiceDemandes>();
+                var n = await service.RelancerAsync(DateTime.UtcNow, ct);
                 if (n > 0) log.LogInformation("{Nombre} demande(s) en attente relancée(s)", n);
+                var fiches = await service.EnvoyerFichesAttributionAsync(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Paris).Date), ct);
+                if (fiches > 0) log.LogInformation("{Nombre} fiche(s) d'attribution envoyée(s)", fiches);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

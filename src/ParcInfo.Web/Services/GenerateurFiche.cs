@@ -32,7 +32,8 @@ public sealed class GenerateurFiche
     };
 
     /// <param name="fiche">Fiche avec ses mouvements et leurs matériels chargés.</param>
-    public byte[] Generer(Fiche fiche)
+    /// <param name="ancienMaterielARenvoyer">Fiche d'attribution : mention « renvoyer l'ancien matériel » (faux pour une demande qui n'est pas un remplacement).</param>
+    public byte[] Generer(Fiche fiche, bool ancienMaterielARenvoyer = true)
     {
         var doc = new Document();
         doc.Info.Title = fiche.Code;
@@ -112,7 +113,13 @@ public sealed class GenerateurFiche
         {
             var p = section.AddParagraph();
             p.Format.SpaceBefore = Unit.FromCentimeter(0.6);
-            p.AddFormattedText("Merci de bien vouloir nous renvoyer l'ancien matériel.", TextFormat.Bold);
+            p.AddFormattedText("Merci de renvoyer cette fiche signée à informatique@vitalrest.com", TextFormat.Bold);
+            if (ancienMaterielARenvoyer)
+            {
+                var p2 = section.AddParagraph();
+                p2.Format.SpaceBefore = Unit.FromCentimeter(0.2);
+                p2.AddFormattedText("Merci de renvoyer l'ancien matériel au plus vite", TextFormat.Bold);
+            }
         }
 
         AjouterSignatures(section, fiche);
