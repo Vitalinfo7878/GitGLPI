@@ -34,6 +34,10 @@ public sealed class NouveauMateriel
     public string? NumSerie { get; set; }
     public string? Configuration { get; set; }
     public string? NumFacture { get; set; }
+    /// <summary>PC Enrôlé ou PC Site, choisi pour chaque PC (obligatoire pour un PC).</summary>
+    public CategoriePc? CategoriePc { get; set; }
+
+    public bool EstUnPc => Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable;
 }
 
 public sealed class DemandeAchat
@@ -41,8 +45,6 @@ public sealed class DemandeAchat
     public List<NouveauMateriel> Materiels { get; set; } = [new()];
     public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
     public string? Fournisseur { get; set; }
-    /// <summary>Catégorie appliquée aux PC reçus (facultatif).</summary>
-    public CategoriePc? CategoriePc { get; set; }
     public string? DocumentReference { get; set; }
     public string? Commentaire { get; set; }
 }
@@ -108,7 +110,8 @@ public sealed class ServiceMouvements(
             var lignes = demande.Materiels.Select((n, i) => (n, i)).Where(x => manque(x.n)).Select(x => x.i + 1).ToList();
             if (lignes.Count > 0) manquants.Add($"{libelle} (ligne {string.Join(", ", lignes)})");
         }
-        Lignes("le nom du PC", n => n.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable && string.IsNullOrWhiteSpace(n.NumInterne));
+        Lignes("le nom du PC", n => n.EstUnPc && string.IsNullOrWhiteSpace(n.NumInterne));
+        Lignes("PC Enrôlé ou PC Site", n => n.EstUnPc && n.CategoriePc is null);
         Lignes("le n° de série", n => string.IsNullOrWhiteSpace(n.NumSerie));
         Lignes("le n° de facture", n => string.IsNullOrWhiteSpace(n.NumFacture));
         if (manquants.Count > 0) throw new ErreurMetier($"À renseigner : {string.Join(" ; ", manquants)}.");
@@ -128,7 +131,7 @@ public sealed class ServiceMouvements(
             {
                 NumInterne = num, Type = n.Type, Modele = Vide(n.Modele), NumSerie = Vide(n.NumSerie),
                 Configuration = Vide(n.Configuration), NumFacture = Vide(n.NumFacture), Statut = StatutMateriel.EnStock,
-                CategoriePc = n.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? demande.CategoriePc : null,
+                CategoriePc = n.EstUnPc ? n.CategoriePc : null,
                 AnneeAcquisition = demande.Date.Year, CreeLe = maintenant, ModifieLe = maintenant,
             };
             db.Materiels.Add(m);

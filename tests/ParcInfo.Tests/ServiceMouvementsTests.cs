@@ -126,18 +126,23 @@ public sealed class ServiceMouvementsTests : IDisposable
         {
             Materiels = [new() { Type = TypeMateriel.PcFixe, NumSerie = "S1", NumFacture = "F1" }, new() { Type = TypeMateriel.Ecran }],
         }, Informatique));
-        Assert.Equal("À renseigner : le fournisseur ; le nom du PC (ligne 1) ; le n° de série (ligne 2) ; le n° de facture (ligne 2).", incomplet.Message);
+        Assert.Equal("À renseigner : le fournisseur ; le nom du PC (ligne 1) ; PC Enrôlé ou PC Site (ligne 1) ; le n° de série (ligne 2) ; le n° de facture (ligne 2).", incomplet.Message);
         var r = await _service.ReceptionnerAchatAsync(new DemandeAchat
         {
             Fournisseur = "AMAZON",
-            Materiels = [new() { Type = TypeMateriel.PcFixe, NumInterne = "PC0444", Modele = "Lenovo M75q", NumSerie = "S1", NumFacture = "F1" },
-                new() { Type = TypeMateriel.PcPortable, NumInterne = "po0012", NumSerie = "S2", NumFacture = "F1" },
-                new() { Type = TypeMateriel.Ecran, NumSerie = "S3", NumFacture = "F1" }],
+            Materiels = [new() { Type = TypeMateriel.PcFixe, NumInterne = "PC0444", Modele = "Lenovo M75q", NumSerie = "S1", NumFacture = "F1", CategoriePc = CategoriePc.Site },
+                new() { Type = TypeMateriel.PcPortable, NumInterne = "po0012", NumSerie = "S2", NumFacture = "F1", CategoriePc = CategoriePc.Enrole },
+                new() { Type = TypeMateriel.Ecran, NumSerie = "S3", NumFacture = "F1", CategoriePc = CategoriePc.Enrole }],
         }, Informatique);
         Assert.Equal(TypeFiche.Achat, r.Fiche!.Type);
         await using var db = _fabrique.CreateDbContext();
         var nums = await db.Materiels.Where(m => m.Statut == StatutMateriel.EnStock).Select(m => m.NumInterne).OrderBy(n => n).ToListAsync();
         Assert.Equal(["E0001", "E0002", "PC0001", "PC0444", "PO0012"], nums);
+        // Catégorie choisie PC par PC (jamais sur un écran)
+        var categories = await db.Materiels.Where(m => m.NumSerie != null).ToDictionaryAsync(m => m.NumInterne, m => m.CategoriePc);
+        Assert.Equal((CategoriePc?)CategoriePc.Site, categories["PC0444"]);
+        Assert.Equal((CategoriePc?)CategoriePc.Enrole, categories["PO0012"]);
+        Assert.Null(categories["E0002"]);
     }
 
     [Fact]

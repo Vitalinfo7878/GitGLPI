@@ -91,3 +91,8 @@
 }
 .groupe-notifications { background: color-mix(in srgb, var(--mud-palette-secondary) 7%, transparent); }
 .membres-groupe { max-height: 220px; overflow-y: auto; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--mud-palette-lines-default); }
+/* Réception d'achat : une ligne par matériel (type, nom, catégorie PC, modèle, série, facture, actions) */
+.ligne-achat { display: grid; grid-template-columns: 1.1fr 1.1fr 1fr 1.6fr 1.1fr 1.1fr auto; gap: 8px; align-items: start; }
+@media (max-width: 959.98px) {
+    .ligne-achat { grid-template-columns: 1fr 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+}

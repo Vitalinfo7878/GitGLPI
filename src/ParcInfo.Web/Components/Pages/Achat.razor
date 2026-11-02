@@ -41,28 +41,36 @@ else
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Fournisseur" Label="Fournisseur *" Placeholder="AMAZON, CELERIS…" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.DocumentReference" Label="Devis / bon de commande" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
             <MudItem xs="12" sm="3"><MudTextField MaxLength="400" @bind-Value="_d.Commentaire" Label="Commentaire" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-            <MudItem xs="12" sm="3">
-                <MudSelect T="CategoriePc?" @bind-Value="_d.CategoriePc" Label="Catégorie des PC reçus" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
-                    @foreach (var c in Enum.GetValues<CategoriePc>()) { <MudSelectItem T="CategoriePc?" Value="c">@c.Libelle()</MudSelectItem> }
-                </MudSelect>
-            </MudItem>
 
             <MudItem xs="12"><MudText Typo="Typo.subtitle2" Class="mt-2">Matériel reçu</MudText></MudItem>
             @foreach (var (m, i) in _d.Materiels.Select((m, i) => (m, i)))
             {
-                <MudItem xs="12" sm="6" md="2">
-                    <MudSelect T="TypeMateriel" Value="m.Type" ValueChanged="t => ChangerType(m, t)" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
-                        @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField T="string" MaxLength="400" Value="m.NumInterne" ValueChanged="v => SaisirNumero(m, v)" Label="@(m.Type is TypeMateriel.PcFixe or TypeMateriel.PcPortable ? "Nom du PC *" : "N° interne")" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                  HelperText="@(_proposes.Contains(m) ? "proposé (suite de la numérotation)" : null)" /></MudItem>
-                <MudItem xs="12" sm="6" md="3"><MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="2"><MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture *" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
-                <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
-                    <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>
-                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => Retirer(i)" aria-label="Supprimer" />
+                <MudItem xs="12">
+                    <div class="ligne-achat">
+                        <MudSelect T="TypeMateriel" Value="m.Type" ValueChanged="t => ChangerType(m, t)" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                            @foreach (var t in Enum.GetValues<TypeMateriel>()) { <MudSelectItem Value="t">@t.Libelle()</MudSelectItem> }
+                        </MudSelect>
+                        <MudTextField T="string" MaxLength="400" Value="m.NumInterne" ValueChanged="v => SaisirNumero(m, v)" Label="@(m.EstUnPc ? "Nom du PC *" : "N° interne")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="@(_proposes.Contains(m) ? "proposé (suite de la numérotation)" : null)" />
+                        @if (m.EstUnPc)
+                        {
+                            <MudSelect T="CategoriePc?" @bind-Value="m.CategoriePc" Label="Catégorie *" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       Error="@(_verifie && m.CategoriePc is null)" ErrorText="Enrôlé ou Site ?">
+                                @foreach (var c in Enum.GetValues<CategoriePc>()) { <MudSelectItem T="CategoriePc?" Value="c">@c.Libelle()</MudSelectItem> }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <div class="mobile-cache"></div>
+                        }
+                        <MudTextField MaxLength="400" @bind-Value="m.Modele" Label="Modèle" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudTextField MaxLength="400" @bind-Value="m.NumSerie" Label="N° de série *" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudTextField MaxLength="400" @bind-Value="m.NumFacture" Label="N° facture *" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <div class="d-flex align-center">
+                            <MudTooltip Text="Dupliquer la ligne"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small" OnClick="() => Dupliquer(m)" aria-label="Dupliquer" /></MudTooltip>
+                            <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Disabled="_d.Materiels.Count == 1" OnClick="() => Retirer(i)" aria-label="Supprimer" />
+                        </div>
+                    </div>
                 </MudItem>
             }
             <MudItem xs="12">
@@ -85,6 +93,8 @@ else
     private ResultatMouvement? _resultat;
     private string? _erreur;
     private bool _envoi;
+    // Après un premier essai d'enregistrement : catégories manquantes signalées sur les lignes
+    private bool _verifie;
 
     // Lignes dont le n° interne a été proposé par l'application (et pas saisi) : recalculées à chaque changement
     private readonly HashSet<NouveauMateriel> _proposes = [];
@@ -94,6 +104,7 @@ else
     private async Task NouvelleReception()
     {
         _resultat = null;
+        _verifie = false;
         _d = new();
         _proposes.Clear();
         _proposes.Add(_d.Materiels[0]);
@@ -115,6 +126,7 @@ else
     private async Task ChangerType(NouveauMateriel m, TypeMateriel t)
     {
         m.Type = t;
+        if (!m.EstUnPc) m.CategoriePc = null;
         if (string.IsNullOrWhiteSpace(m.NumInterne)) _proposes.Add(m);
         await ProposerNumeros();
     }
@@ -135,7 +147,7 @@ else
 
     private async Task Dupliquer(NouveauMateriel m)
     {
-        var copie = new NouveauMateriel { Type = m.Type, Modele = m.Modele, Configuration = m.Configuration, NumFacture = m.NumFacture };
+        var copie = new NouveauMateriel { Type = m.Type, Modele = m.Modele, Configuration = m.Configuration, NumFacture = m.NumFacture, CategoriePc = m.CategoriePc };
         _d.Materiels.Add(copie);
         _proposes.Add(copie);
         await ProposerNumeros();
@@ -145,7 +157,7 @@ else
     private async Task AjouterLigne()
     {
         var precedente = _d.Materiels.LastOrDefault();
-        var ligne = new NouveauMateriel { Type = precedente?.Type ?? TypeMateriel.PcPortable, NumFacture = precedente?.NumFacture };
+        var ligne = new NouveauMateriel { Type = precedente?.Type ?? TypeMateriel.PcPortable, NumFacture = precedente?.NumFacture, CategoriePc = precedente?.CategoriePc };
         _d.Materiels.Add(ligne);
         _proposes.Add(ligne);
         await ProposerNumeros();
@@ -154,6 +166,7 @@ else
     private async Task Valider()
     {
         _erreur = null;
+        _verifie = true;
         _envoi = true;
         try { _resultat = await Service.ReceptionnerAchatAsync(_d, await Courant.ObtenirAsync()); }
         catch (ErreurMetier ex) { _erreur = ex.Message; }
