@@ -691,4 +691,51 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Equal(StatutRealisation.EnCours, (await lecture.Demandes.SingleAsync(x => x.Numero == 595)).StatutRealisation);
         Assert.Empty(await lecture.Courriels.ToListAsync()); // aucun mail
     }
+
+    [Fact]
+    public async Task Ticket_transforme_en_demande_de_remplacement()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var p = new Personne { NomComplet = "Camille TEST", Email = "camille.test@vitalrest.com" };
+            db.Materiels.Add(new Materiel { NumInterne = "PO0450", Type = TypeMateriel.PcPortable, Modele = "Dell Latitude", Statut = StatutMateriel.Attribue, Personne = p });
+            await db.SaveChangesAsync();
+        }
+        var tickets = new ServiceTickets(_fabrique);
+        var t = await tickets.CreerAsync(new FormulaireTicket
+        {
+            DemandeurNom = "Camille TEST", DemandeurTelephone = "06 12 34 56 78", Lieu = "Siège", Categorie = CategorieTicket.Poste,
+            Impact = ImpactTicket.Bloquant, Portee = PorteeTicket.Personne, Titre = "Le PC ne démarre plus", Description = "Écran noir, voyant orange", MaterielReference = "PO0450",
+        }, Salarie);
+
+        Ticket charge;
+        await using (var db = _fabrique.CreateDbContext())
+            charge = await db.Tickets.Include(x => x.Materiel).SingleAsync(x => x.Id == t.Id);
+        var f = ServiceDemandes.DepuisTicket(charge);
+        Assert.Equal(["PC portable"], f.Objets);
+        Assert.Equal(Demande.Remplacement, f.Concerne);
+        Assert.Equal(("Camille TEST", "camille.test@vitalrest.com", "Siège"), (f.DemandeurNom, f.DemandeurEmail, f.AdresseLivraison));
+        Assert.StartsWith($"Ticket n° {t.Numero} : Le PC ne démarre plus", f.Raison);
+        f.AdresseLivraison = "Siège – 10 rue du Commerce, 92100 Boulogne-Billancourt";
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerDepuisTicketAsync(t.Id, f, Valideur)); // réservé à l'informatique
+        var d = (await _service.CreerDepuisTicketAsync(t.Id, f, Informatique)).Demande;
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.CreerDepuisTicketAsync(t.Id, ServiceDemandes.DepuisTicket(charge), Informatique)); // déjà fait
+
+        await using var lecture = _fabrique.CreateDbContext();
+        Assert.Equal(("camille.test@vitalrest.com", "informatique@vitalrest.com", t.Id), (d.DemandeurEmail, d.SaisiePar, d.TicketOrigineId));
+        Assert.Equal(StatutValidation.EnAttente, d.StatutValidation);
+        Assert.StartsWith("PO0450", d.MaterielRemplace);
+        // Ticket d'origine clos avec le lien ; rapatriement de l'ancien PC suivi par un ticket interne
+        var origine = await lecture.Tickets.Include(x => x.Messages).SingleAsync(x => x.Id == t.Id);
+        Assert.Equal(StatutTicket.Clos, origine.Statut);
+        Assert.Contains($"demande informatique n° {d.Numero}", origine.Solution);
+        Assert.Contains(origine.Messages, m => m.Systeme && !m.Interne && m.Texte.Contains($"n° {d.Numero}"));
+        var rapatriement = await lecture.Tickets.SingleAsync(x => x.Interne);
+        Assert.Equal((d.Id, origine.MaterielId), (rapatriement.DemandeId, rapatriement.MaterielId));
+        // Mails : validation pour Thomas, accusé de réception au demandeur du ticket
+        var mails = await lecture.Courriels.ToListAsync();
+        Assert.Contains(mails, c => c.Destinataire == "thomas.verchere@groupe-vitalrest.com" && c.Sujet.StartsWith("Nouvelle demande"));
+        Assert.Contains(mails, c => c.Destinataire == "camille.test@vitalrest.com" && c.Sujet.Contains("bien été reçue"));
+    }
 }

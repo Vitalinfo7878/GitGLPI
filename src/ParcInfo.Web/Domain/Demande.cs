@@ -73,6 +73,9 @@ public class Demande
 
     public bool EstRemplacement => Concerne == Remplacement;
 
+    /// <summary>Ticket transformé en cette demande par le service informatique (le ticket est alors clos).</summary>
+    public int? TicketOrigineId { get; set; }
+
     // Validation
     public StatutValidation StatutValidation { get; set; }
     public DateTime? DecisionLe { get; set; }

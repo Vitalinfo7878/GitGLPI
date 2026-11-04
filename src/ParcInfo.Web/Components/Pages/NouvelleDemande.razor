@@ -3,45 +3,75 @@
 @inject ServiceDemandes Service
 @inject UtilisateurCourant Courant
 @inject IJSRuntime JS
+@inject IDbContextFactory<ParcDbContext> DbFactory
 
 <PageTitle>Demande informatique</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="px-0">
-    <MudText Typo="Typo.h4" Class="mb-3">Demande informatique</MudText>
+    <MudText Typo="Typo.h4" Class="mb-3">@(_ticket is null ? "Demande informatique" : $"Demande informatique depuis le ticket n° {_ticket.Numero}")</MudText>
 
     @if (_resultat is not null)
     {
         <MudPaper Elevation="0" Class="carte pa-6">
             <MudText Typo="Typo.h6" Class="mb-2">
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="vertical-align:middle" />
-                Demande n° @_resultat.Demande.Numero envoyée
+                Demande n° @_resultat.Demande.Numero @(_ticket is null ? "envoyée" : "créée")
             </MudText>
-            <MudText Class="mb-2">Votre demande a été transmise pour validation. Vous recevrez un mail de confirmation, puis un mail dès qu'une décision sera prise.</MudText>
+            @if (_ticket is null)
+            {
+                <MudText Class="mb-2">Votre demande a été transmise pour validation. Vous recevrez un mail de confirmation, puis un mail dès qu'une décision sera prise.</MudText>
+            }
+            else
+            {
+                <MudText Class="mb-2">Le ticket n° @_ticket.Numero est clos avec le lien vers la demande. La demande part en validation ; @_ticket.DemandeurNom reçoit le mail de confirmation.</MudText>
+            }
             @if (_resultat.AvertissementCourriel is { } a)
             {
                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">La demande est enregistrée, mais un courriel n'a pas pu partir : @a</MudAlert>
             }
             <div class="d-flex flex-wrap gap-2 mt-4">
-                <MudButton Href="@($"/demandes/{_resultat.Demande.IdPublic}")" Variant="Variant.Filled" Color="Color.Primary">Voir ma demande</MudButton>
-                <MudButton Variant="Variant.Text" OnClick="Nouvelle">Faire une autre demande</MudButton>
+                <MudButton Href="@($"/demandes/{_resultat.Demande.IdPublic}")" Variant="Variant.Filled" Color="Color.Primary">@(_ticket is null ? "Voir ma demande" : "Voir la demande")</MudButton>
+                @if (_ticket is null)
+                {
+                    <MudButton Variant="Variant.Text" OnClick="Nouvelle">Faire une autre demande</MudButton>
+                }
+                else
+                {
+                    <MudButton Href="@($"/tickets/{_ticket.Id}")" Variant="Variant.Text">Revenir au ticket</MudButton>
+                }
             </div>
         </MudPaper>
     }
     else
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4" Icon="@Icons.Material.Outlined.Info">
-            <b>Attention :</b>
-            <ul class="mt-1 mb-0 pl-4">
-                <li>Formulaire destiné uniquement aux demandes de matériel et de création de compte de messagerie.</li>
-                @if (_valideurs.Count > 0)
+        @if (_ticket is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4" Icon="@Icons.Material.Outlined.Transform">
+                <b>Transformation du ticket n° @_ticket.Numero</b> – @_ticket.Titre (@_ticket.DemandeurNom).<br />
+                Les réponses sont reprises du ticket : complétez l'objet, l'adresse de livraison complète et vérifiez le reste.
+                La demande est faite au nom du demandeur du ticket et part en validation comme les autres ; le ticket sera clos avec le lien vers la demande.
+                @if (_ticket.MaterielReference is { } ancien)
                 {
-                    <li>La validation de vos demandes est effectuée par @string.Join(", ", _valideurs).</li>
+                    <br /><span>Ancien matériel (remplacement) : <b>@ancien</b>@(_ticket.Materiel is { } m ? $" – {m.Type.Libelle()} {m.Modele}" : "") ; son rapatriement est suivi par un ticket interne.</span>
                 }
-                <li>Pour toute autre demande, envoyez un mail à <a href="mailto:informatique@vitalrest.com">informatique@vitalrest.com</a>.</li>
-                <li>Pour la création de comptes ADORIA : veuillez contacter le Service Achat qui en a la charge.</li>
-                <li>Les demandes incomplètes ne pourront pas être prises en compte de manière prioritaire.</li>
-            </ul>
-        </MudAlert>
+            </MudAlert>
+        }
+        @if (_ticket is null)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4" Icon="@Icons.Material.Outlined.Info">
+                <b>Attention :</b>
+                <ul class="mt-1 mb-0 pl-4">
+                    <li>Formulaire destiné uniquement aux demandes de matériel et de création de compte de messagerie.</li>
+                    @if (_valideurs.Count > 0)
+                    {
+                        <li>La validation de vos demandes est effectuée par @string.Join(", ", _valideurs).</li>
+                    }
+                    <li>Pour toute autre demande, envoyez un mail à <a href="mailto:informatique@vitalrest.com">informatique@vitalrest.com</a>.</li>
+                    <li>Pour la création de comptes ADORIA : veuillez contacter le Service Achat qui en a la charge.</li>
+                    <li>Les demandes incomplètes ne pourront pas être prises en compte de manière prioritaire.</li>
+                </ul>
+            </MudAlert>
+        }
 
         <MudText Typo="Typo.body2" Class="mb-3" Style="color:var(--mud-palette-error)">* Obligatoire</MudText>
 
@@ -99,8 +129,8 @@
                 </Question>
 
                 <Question Numero="8" Libelle="Mail du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurEmail))">
-                    <MudTextField Value="_u?.Email" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                  HelperText="Adresse de votre compte Microsoft : les réponses à votre demande y seront envoyées." />
+                    <MudTextField Value="@(_ticket?.DemandeurEmail ?? _u?.Email)" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="@(_ticket is null ? "Adresse de votre compte Microsoft : les réponses à votre demande y seront envoyées." : "Demandeur du ticket : les réponses à la demande y seront envoyées.")" />
                 </Question>
 
                 <Question Numero="9" Libelle="Téléphone du demandeur" Obligatoire="true" Erreur="@Err(nameof(FormulaireDemande.DemandeurTelephone))">
@@ -114,6 +144,10 @@
                     </div>
                 </Question>
 
+                @if (_erreurMetier is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_erreurMetier</MudAlert>
+                }
                 @if (_erreurs.Count > 0)
                 {
                     <MudAlert Severity="Severity.Error" Dense="true">Certaines réponses obligatoires sont manquantes ou incorrectes : vérifiez les questions signalées en rouge.</MudAlert>
@@ -132,20 +166,30 @@
     private bool _envoi;
     private bool _allerErreur;
     private ResultatDemande? _resultat;
+    private string? _erreurMetier;
     private Utilisateur? _u;
 
     private List<string> _valideurs = [];
+
+    /// <summary>Transformation d'un ticket en demande (service informatique) : formulaire pré-rempli depuis le ticket.</summary>
+    [SupplyParameterFromQuery(Name = "ticket")] public int? TicketId { get; set; }
+    private Ticket? _ticket;
 
     protected override async Task OnInitializedAsync()
     {
         _u = await Courant.ObtenirAsync();
         _valideurs = await Service.ValideursAsync();
+        if (TicketId is { } id && _u.EstGestionnaire)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _ticket = await db.Tickets.AsNoTracking().Include(t => t.Materiel).FirstOrDefaultAsync(t => t.Id == id && !t.Interne);
+        }
         Prerenseigner();
     }
 
     private void Prerenseigner()
     {
-        _f = new FormulaireDemande { DemandeurEmail = _u?.Email };
+        _f = _ticket is null ? new FormulaireDemande { DemandeurEmail = _u?.Email } : ServiceDemandes.DepuisTicket(_ticket);
         _erreurs = [];
     }
 
@@ -162,8 +206,9 @@
         _allerErreur = _erreurs.Count > 0;
         if (_allerErreur) return;
         _envoi = true;
-        try { _resultat = await Service.CreerAsync(_f, _u!); }
+        try { _resultat = _ticket is null ? await Service.CreerAsync(_f, _u!) : await Service.CreerDepuisTicketAsync(_ticket.Id, _f, _u!); }
         catch (ErreurFormulaire ex) { _erreurs = ex.Erreurs; _allerErreur = true; }
+        catch (ErreurMetier ex) { _erreurs = []; _erreurMetier = ex.Message; }
         finally { _envoi = false; }
     }
 

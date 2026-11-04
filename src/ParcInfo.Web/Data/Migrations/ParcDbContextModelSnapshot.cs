@@ -348,6 +348,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<int?>("TicketOrigineId")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DemandeurEmail");
@@ -361,6 +364,8 @@ namespace ParcInfo.Web.Data.Migrations
                     b.HasIndex("SaisiePar");
 
                     b.HasIndex("StatutValidation");
+
+                    b.HasIndex("TicketOrigineId");
 
                     b.ToTable("Demandes");
                 });
@@ -1201,6 +1206,14 @@ namespace ParcInfo.Web.Data.Migrations
                     b.HasIndex("TicketId");
 
                     b.ToTable("MessagesTickets");
+                });
+
+            modelBuilder.Entity("ParcInfo.Web.Domain.Demande", b =>
+                {
+                    b.HasOne("ParcInfo.Web.Domain.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketOrigineId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("ParcInfo.Web.Domain.DemandeMateriel", b =>

@@ -103,6 +103,53 @@ public sealed class ServiceDemandes(
         if (auteur.EstSite) throw new ErreurMetier("Les comptes de site ne peuvent pas faire de demande informatique : créez un ticket.");
         // Le mail du demandeur est toujours celui du compte connecté (non modifiable dans le formulaire)
         f.DemandeurEmail = auteur.Email;
+        return await EnregistrerAsync(f, auteur, auteur.ToutesAdresses, null, ct);
+    }
+
+    /// <summary>Réponses du formulaire pré-remplies depuis un ticket (demandeur, lieu, problème, matériel concerné).</summary>
+    public static FormulaireDemande DepuisTicket(Ticket t)
+    {
+        var raison = $"Ticket n° {t.Numero} : {t.Titre}\n{t.Description}" + (string.IsNullOrWhiteSpace(t.Diagnostic) ? "" : $"\nDiagnostic : {t.Diagnostic}");
+        var f = new FormulaireDemande
+        {
+            DemandeurNom = t.DemandeurNom, DemandeurEmail = t.DemandeurEmail, DemandeurTelephone = t.DemandeurTelephone, AdresseLivraison = t.Lieu,
+            Raison = raison.Length > FormulaireDemande.LongueurRaison ? raison[..FormulaireDemande.LongueurRaison] : raison,
+        };
+        var objet = t.Materiel?.Type switch
+        {
+            TypeMateriel.PcPortable => "PC portable",
+            TypeMateriel.PcFixe => t.Materiel.SiteId is null ? "PC fixe (Siège / DR)" : "PC fixe (site)",
+            TypeMateriel.Ecran => "Ecran",
+            TypeMateriel.Imprimante => "Imprimante",
+            _ => t.Categorie switch { CategorieTicket.Ecran => "Ecran", CategorieTicket.Imprimante => "Imprimante", _ => null },
+        };
+        if (objet is not null) f.Objets.Add(objet);
+        // Matériel de l'inventaire en panne : c'est un remplacement
+        if (t.MaterielId is not null) f.Concerne = Demande.Remplacement;
+        return f;
+    }
+
+    /// <summary>
+    /// Le service informatique transforme un ticket en demande informatique : même circuit qu'une demande (validation, mails,
+    /// rapatriement de l'ancien matériel pour un remplacement), au nom du demandeur du ticket, qui est clos avec le lien vers la demande.
+    /// </summary>
+    public async Task<ResultatDemande> CreerDepuisTicketAsync(int ticketId, FormulaireDemande f, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            var t = await db.Tickets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == ticketId, ct) ?? throw new ErreurMetier("Ticket introuvable.");
+            if (t.Interne) throw new ErreurMetier("Un ticket interne (rapatriement) ne peut pas devenir une demande.");
+            if (!t.EstOuvert) throw new ErreurMetier("Ce ticket est déjà résolu ou clos.");
+            if (await db.Demandes.AnyAsync(d => d.TicketOrigineId == ticketId, ct)) throw new ErreurMetier("Ce ticket a déjà été transformé en demande.");
+            f.DemandeurEmail = t.DemandeurEmail;
+        }
+        return await EnregistrerAsync(f, u, [f.DemandeurEmail!], ticketId, ct);
+    }
+
+    private async Task<ResultatDemande> EnregistrerAsync(FormulaireDemande f, Utilisateur auteur, IReadOnlyCollection<string> adressesDemandeur, int? ticketId,
+        CancellationToken ct)
+    {
         var erreurs = f.Valider();
         if (erreurs.Count > 0) throw new ErreurFormulaire(erreurs);
 
@@ -124,9 +171,14 @@ public sealed class ServiceDemandes(
             DemandeurTelephone = f.DemandeurTelephone!.Trim(),
             Echeance = f.Echeance is { } e ? DateOnly.FromDateTime(e) : null,
             StatutValidation = StatutValidation.EnAttente,
+            TicketOrigineId = ticketId,
         };
-        // Remplacement : ancien matériel retrouvé dans l'inventaire (du demandeur ou du site de livraison, du type demandé)
-        var anciens = d.EstRemplacement ? await ServiceTickets.AnciensMaterielsAsync(db, d, auteur.ToutesAdresses, ct) : [];
+        var ticket = ticketId is { } tid ? await db.Tickets.Include(x => x.Messages).Include(x => x.Materiel).FirstAsync(x => x.Id == tid, ct) : null;
+        // Remplacement : ancien matériel retrouvé dans l'inventaire (du demandeur ou du site de livraison, du type demandé) ;
+        // depuis un ticket, le matériel du ticket est l'ancien matériel de son type
+        var anciens = d.EstRemplacement ? await ServiceTickets.AnciensMaterielsAsync(db, d, adressesDemandeur, ct) : [];
+        if (ticket?.Materiel is { } enPanne)
+            anciens = anciens.Select(a => a.Type == enPanne.Type ? a with { Materiel = enPanne, Possibles = [] } : a).ToList();
         NoterAnciens(d, anciens);
 
         // Numérotation à la suite (avec une nouvelle tentative si deux demandes arrivent en même temps)
@@ -146,7 +198,9 @@ public sealed class ServiceDemandes(
             }
         }
 
-        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouvelle demande", Details = $"n° {d.Numero} – {d.Objets}" });
+        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = auteur.Signature, Action = "Nouvelle demande",
+            Details = $"n° {d.Numero} – {d.Objets}{(ticket is null ? "" : $" (ticket n° {ticket.Numero} transformé)")}" });
+        if (ticket is not null) ServiceTickets.FermerPourDemande(ticket, d, auteur, maintenant);
         await db.SaveChangesAsync(ct);
         // Remplacement : un ticket interne par ancien matériel (par type demandé), pour suivre son rapatriement jusqu'à son devenir
         foreach (var ancien in anciens)

@@ -42,6 +42,10 @@ else
         <MudItem xs="12" lg="7">
             <MudPaper Elevation="0" Class="carte pa-4">
                 <MudText Typo="Typo.caption">Reçue le @_d.CreeLe.ToLocalTime().ToString("dd/MM/yyyy à HH:mm") (saisie par @_d.SaisiePar)</MudText>
+                @if (_d.TicketOrigineId is { } ticketOrigine && _u!.EstAdminTickets)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block"><MudLink Href="@($"/tickets/{ticketOrigine}")" Typo="Typo.caption">Issue du ticket transformé en demande</MudLink></MudText>
+                }
                 <dl class="champ-lecture">
                     <Champ Libelle="Nom / Prénom du demandeur" Valeur="@_d.DemandeurNom" />
                     <Champ Libelle="Objet de la demande">

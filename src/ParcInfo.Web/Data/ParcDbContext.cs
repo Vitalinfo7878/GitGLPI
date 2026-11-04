@@ -148,6 +148,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
             e.HasOne(x => x.Materiel).WithMany().HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Demande).WithMany().HasForeignKey(x => x.DemandeId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Classement).WithMany().HasForeignKey(x => x.ClassementId).OnDelete(DeleteBehavior.SetNull);
+            e.HasMany<Demande>().WithOne().HasForeignKey(d => d.TicketOrigineId).OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.CategorieAutre).HasMaxLength(100);
             e.Ignore(x => x.EstOuvert);
             e.Ignore(x => x.LibelleCategorie);

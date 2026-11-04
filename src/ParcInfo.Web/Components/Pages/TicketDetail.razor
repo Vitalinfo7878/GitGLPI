@@ -146,6 +146,20 @@ else
 
             @if (_u.EstAdminTickets)
             {
+                @if (_demandeIssue is { } demande)
+                {
+                    <MudAlert Severity="Severity.Info" Class="mb-3" Icon="@Icons.Material.Outlined.Transform">
+                        Ticket transformé en <MudLink Href="@($"/demandes/{demande.IdPublic}")">demande informatique n° @demande.Numero</MudLink>.
+                    </MudAlert>
+                }
+                else if (_u.EstGestionnaire && _t.EstOuvert && !_t.Interne)
+                {
+                    <div class="d-flex justify-end mb-2">
+                        <MudButton Href="@($"/demandes/nouvelle?ticket={_t.Id}")" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Transform">
+                            Transformer en demande informatique
+                        </MudButton>
+                    </div>
+                }
                 <MudPaper Elevation="0" Class="carte pa-4 mb-3">
                     <MudText Typo="Typo.h6" Class="mb-2">Traitement</MudText>
                     <MudGrid Spacing="2">
@@ -323,11 +337,13 @@ else
         _u ??= await Courant.ObtenirAsync();
         _photos = await Service.ListerPhotosAsync(_t.Id, _u);
         _m = MiseAJourTicket.Depuis(_t);
+        _demandeIssue = await db.Demandes.AsNoTracking().FirstOrDefaultAsync(d => d.TicketOrigineId == _t.Id);
         if (_u.EstAdminTickets) _classements = (await Service.ListerClassementsAsync()).Select(c => c.Nom).ToList();
         _erreurs = [];
     }
 
     private List<string> _classements = [];
+    private Demande? _demandeIssue;
 
     private Task<IEnumerable<string>> ChercherClassement(string? texte, CancellationToken ct) =>
         Task.FromResult(_classements.Where(c => ServiceTickets.MotsCles(texte).All(m => c.Contains(m, StringComparison.CurrentCultureIgnoreCase))));
