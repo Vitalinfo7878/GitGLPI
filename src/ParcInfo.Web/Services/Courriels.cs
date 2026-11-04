@@ -44,20 +44,24 @@ public sealed class EnvoiCourrielGraph(IConfiguration config, OptionsMessagerie 
     public async Task EnvoyerAsync(string destinataire, string sujet, string corpsHtml, CancellationToken ct = default, IReadOnlyList<PieceJointe>? pieces = null)
     {
         var expediteur = options.Expediteur ?? throw new InvalidOperationException("Messagerie:Expediteur n'est pas configuré.");
-        await _graph.Users[expediteur].SendMail.PostAsync(new SendMailPostRequestBody
+        await _graph.Users[expediteur].SendMail.PostAsync(Requete(destinataire, sujet, corpsHtml, pieces), cancellationToken: ct);
+    }
+
+    public static SendMailPostRequestBody Requete(string destinataire, string sujet, string corpsHtml, IReadOnlyList<PieceJointe>? pieces = null)
+    {
+        var message = new Message
         {
-            Message = new Message
+            Subject = sujet,
+            Body = new ItemBody { ContentType = BodyType.Html, Content = corpsHtml },
+            ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = destinataire } }],
+        };
+        // Pièces jointes seulement s'il y en a : Graph refuse « attachments: null », envoyé dès que la propriété est affectée
+        if (pieces is { Count: > 0 })
+            message.Attachments = pieces.Select(p => (Attachment)new FileAttachment
             {
-                Subject = sujet,
-                Body = new ItemBody { ContentType = BodyType.Html, Content = corpsHtml },
-                ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = destinataire } }],
-                Attachments = pieces?.Select(p => (Attachment)new FileAttachment
-                {
-                    OdataType = "#microsoft.graph.fileAttachment", Name = p.Nom, ContentType = p.TypeContenu, ContentBytes = p.Contenu,
-                }).ToList(),
-            },
-            SaveToSentItems = true,
-        }, cancellationToken: ct);
+                OdataType = "#microsoft.graph.fileAttachment", Name = p.Nom, ContentType = p.TypeContenu, ContentBytes = p.Contenu,
+            }).ToList();
+        return new SendMailPostRequestBody { Message = message, SaveToSentItems = true };
     }
 }
 
