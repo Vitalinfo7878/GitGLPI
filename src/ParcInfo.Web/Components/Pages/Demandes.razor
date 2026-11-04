@@ -21,6 +21,7 @@ else
             <MudToggleGroup T="string" @bind-Value="_vue" Color="Color.Primary" Size="Size.Small">
                 <MudToggleItem Value="@("valider")" Text="@($"À valider ({AValider.Count()})")" />
                 <MudToggleItem Value="@("traiter")" Text="@($"À traiter ({ATraiter.Count()})")" />
+                <MudToggleItem Value="@("terminees")" Text="@($"Terminées ({Terminees.Count()})")" />
                 <MudToggleItem Value="@("toutes")" Text="@($"Toutes ({_demandes.Count})")" />
             </MudToggleGroup>
             <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="N°, demandeur, objet, adresse…"
@@ -59,8 +60,12 @@ else
     private IEnumerable<Demande> ATraiter => (_demandes ?? []).Where(d => d.StatutValidation == StatutValidation.Validee
         && d.StatutRealisation is not (StatutRealisation.Realisee or StatutRealisation.Annulee));
 
+    /// <summary>Demandes réalisées (matériel envoyé ou demande terminée), les plus récentes d'abord.</summary>
+    private IEnumerable<Demande> Terminees => (_demandes ?? []).Where(d => d.StatutValidation == StatutValidation.Validee && d.StatutRealisation == StatutRealisation.Realisee);
+
     private IEnumerable<Demande> Filtrees => (_vue switch
         {
+            "terminees" => Terminees.OrderByDescending(d => d.RealiseeLe ?? d.ModifieLe),
             "valider" => AValider,
             "traiter" => ATraiter.OrderByDescending(d => d.Priorite).ThenBy(d => d.Echeance ?? DateOnly.MaxValue),
             _ => _demandes ?? [],

@@ -671,4 +671,24 @@ public sealed class ServiceDemandesTests : IDisposable
         (site, personne) = await ServiceDemandes.DestinationParDefautAsync(db, new Demande { AdresseLivraison = "Siège", DemandeurEmail = "inconnu@vitalrest.com" });
         Assert.Equal((null, null), (site?.Code, personne?.NomComplet));
     }
+
+    [Fact]
+    public async Task Demandes_restees_en_cours_d_envoi_passees_realisees()
+    {
+        var envoyeeLe = new DateTime(2026, 11, 4, 10, 22, 0, DateTimeKind.Utc);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.Demandes.AddRange(
+                new Demande { Numero = 594, DemandeurNom = "Loïc BOUDAUD", Objets = "Imprimante", StatutValidation = StatutValidation.Validee, StatutRealisation = StatutRealisation.EnCoursEnvoi, EnvoiNotifieLe = envoyeeLe },
+                new Demande { Numero = 595, DemandeurNom = "Camille TEST", Objets = "Ecran", StatutValidation = StatutValidation.Validee, StatutRealisation = StatutRealisation.EnCours });
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(1, await _service.TerminerDemandesEnvoyeesAsync());
+        Assert.Equal(0, await _service.TerminerDemandesEnvoyeesAsync());
+        await using var lecture = _fabrique.CreateDbContext();
+        var d = await lecture.Demandes.SingleAsync(x => x.Numero == 594);
+        Assert.Equal((StatutRealisation.Realisee, envoyeeLe), (d.StatutRealisation, d.RealiseeLe));
+        Assert.Equal(StatutRealisation.EnCours, (await lecture.Demandes.SingleAsync(x => x.Numero == 595)).StatutRealisation);
+        Assert.Empty(await lecture.Courriels.ToListAsync()); // aucun mail
+    }
 }

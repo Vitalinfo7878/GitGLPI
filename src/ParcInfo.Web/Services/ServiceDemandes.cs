@@ -290,6 +290,27 @@ public sealed class ServiceDemandes(
     }
 
     /// <summary>
+    /// Reprise des demandes restées « En cours d'envoi » (ancien fonctionnement, avant que « Envoyer » ne termine la demande) :
+    /// passées « Réalisée » à la date de l'envoi. Renvoie le nombre de demandes reprises.
+    /// </summary>
+    public async Task<int> TerminerDemandesEnvoyeesAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var demandes = await db.Demandes.Where(d => d.StatutRealisation == StatutRealisation.EnCoursEnvoi && d.EnvoiNotifieLe != null).ToListAsync(ct);
+        if (demandes.Count == 0) return 0;
+        foreach (var d in demandes)
+        {
+            d.StatutRealisation = StatutRealisation.Realisee;
+            d.RealiseeLe ??= d.EnvoiNotifieLe;
+            d.ModifieLe = DateTime.UtcNow;
+        }
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = "Application", Action = "Demandes envoyées terminées",
+            Details = $"{string.Join(", ", demandes.OrderBy(d => d.Numero).Select(d => $"n° {d.Numero}"))} : « En cours d'envoi » → « Réalisée »" });
+        await db.SaveChangesAsync(ct);
+        return demandes.Count;
+    }
+
+    /// <summary>
     /// Détenteur proposé pour attribuer le matériel d'une demande : le site trouvé dans l'adresse de livraison (s'il n'y en a qu'un),
     /// sinon le demandeur (s'il est déjà connu de l'inventaire).
     /// </summary>

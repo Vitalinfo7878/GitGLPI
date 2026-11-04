@@ -153,6 +153,12 @@ using (var scope = app.Services.CreateScope())
         await scope.ServiceProvider.GetRequiredService<ServiceDroits>().InitialiserGroupesAsync();
     }
     catch (Exception ex) { app.Logger.LogError(ex, "Initialisation des droits impossible"); }
+    try
+    {
+        var terminees = await scope.ServiceProvider.GetRequiredService<ServiceDemandes>().TerminerDemandesEnvoyeesAsync();
+        if (terminees > 0) app.Logger.LogInformation("{Nombre} demande(s) envoyée(s) passée(s) « Réalisée »", terminees);
+    }
+    catch (Exception ex) { app.Logger.LogError(ex, "Reprise des demandes envoyées impossible"); }
 }
 
 app.UseForwardedHeaders();
