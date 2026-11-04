@@ -202,6 +202,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<DateTime?>("RenvoyeLe")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("Simule")
                         .HasColumnType("boolean");
 

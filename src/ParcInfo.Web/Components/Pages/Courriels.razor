@@ -2,6 +2,9 @@
 @attribute [Authorize(Policy = Roles.PolitiqueGestion)]
 @inject IDbContextFactory<ParcDbContext> DbFactory
 @inject OptionsMessagerie Options
+@inject ServiceNotifications Notifications
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
 
 <PageTitle>Courriels envoyés</PageTitle>
 <MudText Typo="Typo.h4" Class="mb-1">Courriels envoyés</MudText>
@@ -26,6 +29,17 @@ else if (_courriels.Count == 0)
 }
 else
 {
+    @if (_courriels.Count(ServiceNotifications.PeutEtreRenvoye) is > 0 and var echecs)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            <div class="d-flex flex-wrap align-center gap-3">
+                <span>@echecs courriel@(echecs > 1 ? "s" : "") en échec, pas encore renvoyé@(echecs > 1 ? "s" : "") (parmi les 200 derniers).</span>
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Send" OnClick="RenvoyerTout" Disabled="_envoi">
+                    Renvoyer les courriels en échec
+                </MudButton>
+            </div>
+        </MudAlert>
+    }
     <MudExpansionPanels Elevation="0" Class="carte">
         @foreach (var c in _courriels)
         {
@@ -36,10 +50,23 @@ else
                         <b>@c.Sujet</b>
                         <span style="color:var(--mud-palette-text-secondary)">→ @c.Destinataire · @c.EnvoyeLe.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
                         @if (c.Simule) { <MudChip T="string" Size="Size.Small">simulé</MudChip> }
+                        @if (c.RenvoyeLe is { } r) { <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">renvoyé le @r.ToLocalTime().ToString("dd/MM HH:mm")</MudChip> }
+                        @if (c.PiecesJointes is not null) { <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Outlined.AttachFile">@c.PiecesJointes</MudChip> }
                     </div>
                 </TitleContent>
                 <ChildContent>
-                    @if (c.Erreur is not null) { <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@c.Erreur</MudAlert> }
+                    @if (c.Erreur is not null)
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@c.Erreur</MudAlert>
+                        @if (ServiceNotifications.PeutEtreRenvoye(c))
+                        {
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Send" Class="mb-2" OnClick="() => Renvoyer([c.Id])" Disabled="_envoi">Renvoyer ce courriel</MudButton>
+                        }
+                        else if (c.RenvoyeLe is null && c.PiecesJointes is not null)
+                        {
+                            <MudText Typo="Typo.caption" Class="d-block mb-2">Fiche d'attribution : elle repart d'elle-même au prochain envoi automatique (8 h 30), ou avec « Envoyer la fiche maintenant » sur la demande.</MudText>
+                        }
+                    }
                     <div style="border:1px solid var(--mud-palette-lines-default);border-radius:6px;padding:12px;background:#fff">@((MarkupString)c.CorpsHtml)</div>
                 </ChildContent>
             </MudExpansionPanel>
@@ -49,10 +76,34 @@ else
 
 @code {
     private List<Courriel>? _courriels;
+    private bool _envoi;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => Charger();
+
+    private async Task Charger()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         _courriels = await db.Courriels.AsNoTracking().OrderByDescending(c => c.EnvoyeLe).Take(200).ToListAsync();
+    }
+
+    private async Task RenvoyerTout()
+    {
+        var ids = _courriels!.Where(ServiceNotifications.PeutEtreRenvoye).Select(c => c.Id).ToList();
+        var ok = await Dialogues.ShowMessageBoxAsync("Renvoyer les courriels en échec ?",
+            $"{ids.Count} courriel(s) vont être renvoyés tels quels à leurs destinataires (même sujet, même contenu).", yesText: "Renvoyer", cancelText: "Annuler");
+        if (ok == true) await Renvoyer(ids);
+    }
+
+    private async Task Renvoyer(List<int> ids)
+    {
+        _envoi = true;
+        try
+        {
+            var partis = await Notifications.RenvoyerAsync(ids);
+            Snackbar.Add(partis == ids.Count ? $"{partis} courriel(s) renvoyé(s)." : $"{partis} courriel(s) renvoyé(s) sur {ids.Count} : les autres sont encore en échec.",
+                partis == ids.Count ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        finally { _envoi = false; }
     }
 }

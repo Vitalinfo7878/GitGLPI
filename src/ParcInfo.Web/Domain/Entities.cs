@@ -197,6 +197,8 @@ public class Courriel
     public string? Erreur { get; set; }
     /// <summary>Noms des pièces jointes (ex. « FIA-2026-0123.pdf »).</summary>
     public string? PiecesJointes { get; set; }
+    /// <summary>Courriel en échec renvoyé depuis la page « Courriels » (le nouvel envoi a sa propre trace).</summary>
+    public DateTime? RenvoyeLe { get; set; }
 }
 
 /// <summary>Journal des actions sensibles (affichage d'un mot de passe, modification, import…).</summary>

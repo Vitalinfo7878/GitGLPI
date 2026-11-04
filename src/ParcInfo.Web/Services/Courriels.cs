@@ -329,6 +329,34 @@ public sealed class ServiceNotifications(
     private static string Bouton(string url, string texte, string couleur) =>
         $"""<a href="{E(url)}" style="display:inline-block;background:{couleur};color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:600">{E(texte)}</a>""";
 
+    // --- Courriels en échec ---
+
+    /// <summary>
+    /// Courriel en échec que l'on peut renvoyer tel quel : pas déjà renvoyé, sans pièce jointe
+    /// (une fiche d'attribution en échec repart d'elle-même au passage suivant).
+    /// </summary>
+    public static bool PeutEtreRenvoye(Courriel c) => c.Erreur is not null && c.RenvoyeLe is null && c.PiecesJointes is null && !c.Simule;
+
+    /// <summary>Renvoie des courriels en échec (même destinataire, sujet et contenu). Renvoie le nombre de courriels partis.</summary>
+    public async Task<int> RenvoyerAsync(IReadOnlyCollection<int> ids, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var courriels = (await db.Courriels.Where(c => ids.Contains(c.Id)).OrderBy(c => c.EnvoyeLe).ToListAsync(ct)).Where(PeutEtreRenvoye).ToList();
+        var partis = 0;
+        foreach (var c in courriels)
+        {
+            try
+            {
+                await EnvoyerEtTracerAsync(c.Destinataire, c.Sujet, c.CorpsHtml, ct);
+                c.RenvoyeLe = DateTime.UtcNow;
+                partis++;
+            }
+            catch (InvalidOperationException) { } // nouvel échec : tracé, le courriel reste à renvoyer
+        }
+        await db.SaveChangesAsync(ct);
+        return partis;
+    }
+
     /// <summary>Envoie à chaque destinataire ; un échec n'empêche pas les envois suivants.</summary>
     private async Task EnvoyerATousAsync(IEnumerable<string> destinataires, string sujet, string corps, CancellationToken ct)
     {
