@@ -326,8 +326,8 @@ public sealed class ServiceDemandes(
         d.RealiseeLe ??= maintenant;
         d.EnvoiNotifieLe = maintenant;
         d.ModifieLe = maintenant;
-        // Fiche d'attribution à signer : envoyée automatiquement 2 jours ouvrés plus tard
-        if (d.FicheAttributionEnvoyeeLe is null)
+        // Fiche d'attribution à signer : envoyée automatiquement 2 jours ouvrés plus tard (s'il y a du matériel attribué)
+        if (d.FicheAttributionEnvoyeeLe is null && d.Materiels.Count > 0)
         {
             d.FicheAttributionPrevueLe = JoursOuvres.Ajouter(DateOnly.FromDateTime(DateTime.Today), 2);
             d.FicheAttributionAlerteLe = null;
@@ -483,6 +483,22 @@ public sealed class ServiceDemandes(
         });
         await db.SaveChangesAsync(ct);
         return demandes.Count;
+    }
+
+    /// <summary>
+    /// Bouton « Terminer » d'une demande sans matériel de l'inventaire (« Autre », adresse email…) : passée « Réalisée »,
+    /// le demandeur reçoit le mail habituel (avec le commentaire du service informatique).
+    /// </summary>
+    public async Task<ResultatDemande> TerminerSansMaterielAsync(int id, Utilisateur u, string? commentaire = null, CancellationToken ct = default)
+    {
+        Priorite priorite;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            var d = await db.Demandes.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new ErreurMetier("Demande introuvable.");
+            priorite = d.Priorite;
+            commentaire ??= d.CommentaireInformatique;
+        }
+        return await MettreAJourTraitementAsync(id, priorite, StatutRealisation.Realisee, commentaire, u, ct);
     }
 
     /// <summary>Suivi du traitement par le service informatique (priorité, avancement, commentaire).</summary>

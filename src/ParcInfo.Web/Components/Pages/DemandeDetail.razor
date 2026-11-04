@@ -154,7 +154,7 @@ else
                                                  Label="@(EstDemandeDeMateriel ? "Matériel attribué *" : "Matériel attribué")" Placeholder="N° interne, n° de série ou modèle"
                                                  Variant="Variant.Outlined" Margin="Margin.Dense" MinCharacters="2" DebounceInterval="200" MaxItems="15" ShowProgressIndicator="false"
                                                  ResetValueOnEmptyText="true" AdornmentIcon="@Icons.Material.Outlined.Search"
-                                                 HelperText="@(EstDemandeDeMateriel ? "Obligatoire pour passer la demande à « Réalisée » ; plusieurs possibles. Rattaché à la fiche matériel." : "Plusieurs possibles. Rattaché à la fiche matériel.")">
+                                                 HelperText="@(EstDemandeDeMateriel ? "Obligatoire pour passer la demande à « Réalisée » ; plusieurs possibles. Rattaché à la fiche matériel." : "Facultatif : cette demande ne porte pas sur du matériel de l'inventaire (« Terminer » ci-dessous).")">
                                     <ItemTemplate>
                                         <div>
                                             <b>@context.NumInterne</b> · @context.Type.Libelle() @context.Modele
@@ -223,6 +223,12 @@ else
                                     <MudButton Variant="Variant.Outlined" Color="Color.Success" StartIcon="@Icons.Material.Outlined.LocalShipping" OnClick="Envoyer" Disabled="_envoi">
                                         Envoyer
                                     </MudButton>
+                                    @if (!EstDemandeDeMateriel)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.TaskAlt" Class="ml-2" OnClick="Terminer" Disabled="_envoi">
+                                            Terminer
+                                        </MudButton>
+                                    }
                                     @if (_texteUps is not null)
                                     {
                                         <div class="texte-ups mt-3">
@@ -595,6 +601,26 @@ else
             Snackbar.Add("Texte copié : collez-le dans votre mail.", Severity.Success);
         }
         catch (JSException) { Snackbar.Add("Copie automatique impossible : sélectionnez le texte et faites Ctrl+C.", Severity.Warning); }
+    }
+
+    /// <summary>Demande sans matériel de l'inventaire : terminée sans attribution (mail « réalisée » au demandeur).</summary>
+    private async Task Terminer()
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync("Terminer la demande ?",
+            $"La demande passe « Réalisée » sans matériel attribué ; {_d!.DemandeurNom} reçoit le mail « demande réalisée »"
+            + (string.IsNullOrWhiteSpace(_commentaireInfo) ? "." : " avec le commentaire du service informatique."),
+            yesText: "Terminer", cancelText: "Annuler");
+        if (ok != true) return;
+        _envoi = true;
+        try
+        {
+            var r = await Service.TerminerSansMaterielAsync(_d.Id, _u!, _commentaireInfo);
+            Snackbar.Add(r.AvertissementCourriel is null ? "Demande terminée." : $"Demande terminée, mais le mail n'a pas pu partir : {r.AvertissementCourriel}",
+                r.AvertissementCourriel is null ? Severity.Success : Severity.Warning);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _envoi = false; }
     }
 
     private async Task EnvoyerFiche()

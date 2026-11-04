@@ -738,4 +738,26 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Contains(mails, c => c.Destinataire == "thomas.verchere@groupe-vitalrest.com" && c.Sujet.StartsWith("Nouvelle demande"));
         Assert.Contains(mails, c => c.Destinataire == "camille.test@vitalrest.com" && c.Sujet.Contains("bien été reçue"));
     }
+
+    [Fact]
+    public async Task Demande_autre_traitee_sans_materiel()
+    {
+        var f = Complet();
+        f.Objets = [FormulaireDemande.Autre];
+        f.ObjetAutre = "Chargeur pc";
+        var d = (await _service.CreerAsync(f, Salarie)).Demande;
+        await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        // « Envoyer » sans matériel attribué : demande réalisée, pas de fiche d'attribution à envoyer
+        var r = await _service.NotifierEnvoiAsync(d.Id, Informatique);
+        Assert.Equal(StatutRealisation.Realisee, r.Demande.StatutRealisation);
+        Assert.Null(r.Demande.FicheAttributionPrevueLe);
+
+        // Ou directement « Réalisée » depuis le Traitement
+        var g = Complet();
+        g.Objets = [FormulaireDemande.Autre];
+        g.ObjetAutre = "Souris";
+        var e = (await _service.CreerAsync(g, Salarie)).Demande;
+        await _service.DeciderAsync(e.IdPublic, true, null, Valideur);
+        Assert.Equal(StatutRealisation.Realisee, (await _service.TerminerSansMaterielAsync(e.Id, Informatique)).Demande.StatutRealisation);
+    }
 }
