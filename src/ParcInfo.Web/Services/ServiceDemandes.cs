@@ -259,18 +259,26 @@ public sealed class ServiceDemandes(
     {
         if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var d = await db.Demandes.FirstAsync(x => x.Id == id, ct);
+        var d = await db.Demandes.Include(x => x.Materiels).FirstAsync(x => x.Id == id, ct);
         if (d.StatutValidation != StatutValidation.Validee) throw new ErreurMetier("Seule une demande validée peut être envoyée.");
         if (d.StatutRealisation is StatutRealisation.Realisee or StatutRealisation.Annulee)
             throw new ErreurMetier($"La demande est déjà « {d.StatutRealisation.Libelle()} ».");
+        // L'envoi termine la demande : comme pour « Réalisée », le matériel attribué doit être rattaché
+        if (d.Materiels.Count == 0 && ServiceTickets.TypesDemandes(d).Count > 0)
+            throw new ErreurMetier("Indiquez d'abord le matériel attribué puis « Enregistrer » : la demande passe « Réalisée » à l'envoi.");
 
         var maintenant = DateTime.UtcNow;
-        d.StatutRealisation = StatutRealisation.EnCoursEnvoi;
+        d.StatutRealisation = StatutRealisation.Realisee;
+        d.RealiseeLe ??= maintenant;
         d.EnvoiNotifieLe = maintenant;
         d.ModifieLe = maintenant;
         // Fiche d'attribution à signer : envoyée automatiquement 2 jours ouvrés plus tard
-        if (d.FicheAttributionEnvoyeeLe is null) d.FicheAttributionPrevueLe = JoursOuvres.Ajouter(DateOnly.FromDateTime(DateTime.Today), 2);
-        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Demande envoyée", Details = $"n° {d.Numero} : demandeur prévenu" });
+        if (d.FicheAttributionEnvoyeeLe is null)
+        {
+            d.FicheAttributionPrevueLe = JoursOuvres.Ajouter(DateOnly.FromDateTime(DateTime.Today), 2);
+            d.FicheAttributionAlerteLe = null;
+        }
+        db.Journal.Add(new Journal { Date = maintenant, Utilisateur = u.Signature, Action = "Demande envoyée", Details = $"n° {d.Numero} : demandeur prévenu, demande réalisée" });
         await ServiceTickets.NoterSurTicketsDeLaDemandeAsync(db, d.Id, u, maintenant,
             $"Nouveau matériel envoyé au demandeur (demande n° {d.Numero}) : l'ancien est à récupérer.", fermer: false, ct);
         await db.SaveChangesAsync(ct);
@@ -456,7 +464,8 @@ public sealed class ServiceDemandes(
         await db.SaveChangesAsync(ct);
 
         string? avertissement = null;
-        if (devientRealisee)
+        // Pas de mail « réalisée » si le demandeur a déjà été prévenu de l'envoi du matériel
+        if (devientRealisee && d.EnvoiNotifieLe is null)
         {
             try { await notifications.DemandeRealiseeAsync(d, ct); }
             catch (Exception ex) { avertissement = ex.Message; }

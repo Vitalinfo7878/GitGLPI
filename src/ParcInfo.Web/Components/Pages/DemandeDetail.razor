@@ -238,9 +238,18 @@ else
                                         }
                                         else
                                         {
-                                            <span>Prévient le demandeur par mail que le matériel a été envoyé (réception sous 2 à 3 jours ouvrés) et passe la demande « En cours d'envoi ».
+                                            <span>Prévient le demandeur par mail que le matériel a été envoyé (réception sous 2 à 3 jours ouvrés) et passe la demande « Réalisée ».
                                                 Deux jours ouvrés plus tard, la fiche d'attribution est envoyée à signer au détenteur du matériel (site ou personne).</span>
                                         }
+                                    </MudText>
+                                </MudItem>
+                            }
+                            @if (_d.StatutRealisation == StatutRealisation.Realisee && _d.EnvoiNotifieLe is { } envoiFait)
+                            {
+                                <MudItem xs="12" Class="pt-3" Style="border-top:1px solid var(--mud-palette-lines-default)">
+                                    <MudText Typo="Typo.body2">
+                                        <MudIcon Icon="@Icons.Material.Outlined.LocalShipping" Size="Size.Small" Color="Color.Success" Style="vertical-align:middle" />
+                                        Matériel envoyé, demandeur prévenu le @envoiFait.ToLocalTime().ToString("dd/MM/yyyy à HH:mm").
                                     </MudText>
                                 </MudItem>
                             }
@@ -254,9 +263,9 @@ else
                                             {
                                                 <span>Fiche d'attribution envoyée à signer le @envoyee.ToLocalTime().ToString("dd/MM/yyyy à HH:mm").</span>
                                             }
-                                            else if (_d.FicheAttributionAlerteLe is not null)
+                                            else if (_d.FicheAttributionAlerteLe is { } alerte && DateOnly.FromDateTime(alerte.ToLocalTime()) >= prevue)
                                             {
-                                                <span style="color:var(--mud-palette-warning)">Fiche d'attribution non envoyée le @prevue.ToString("dd/MM") : aucune fiche d'attribution pour le matériel rattaché. Nouvel essai chaque jour ouvré à 8 h 30.</span>
+                                                <span style="color:var(--mud-palette-warning)">Fiche d'attribution non envoyée le @alerte.ToLocalTime().ToString("dd/MM") : aucune fiche d'attribution pour le matériel rattaché. Nouvel essai chaque jour ouvré à 8 h 30.</span>
                                             }
                                             else
                                             {
@@ -542,8 +551,14 @@ else
 
     private async Task Envoyer()
     {
+        // Le matériel ajouté doit d'abord être enregistré (et attribué) : l'envoi termine la demande
+        if (!_attribues.Select(m => m.Id).Order().SequenceEqual(_d!.Materiels.Select(x => x.MaterielId).Order()))
+        {
+            Snackbar.Add("Cliquez d'abord sur « Enregistrer » pour enregistrer le matériel attribué, puis sur « Envoyer ».", Severity.Warning);
+            return;
+        }
         var ok = await Dialogues.ShowMessageBoxAsync("Matériel envoyé ?",
-            $"{_d!.DemandeurNom} ({_d.DemandeurEmail}) va recevoir un mail indiquant que le matériel a été envoyé et qu'il devrait le recevoir sous 2 à 3 jours ouvrés."
+            $"{_d!.DemandeurNom} ({_d.DemandeurEmail}) va recevoir un mail indiquant que le matériel a été envoyé et qu'il devrait le recevoir sous 2 à 3 jours ouvrés. La demande passe « Réalisée »."
             + (_d.EnvoiNotifieLe is null ? "" : " Attention : il a déjà été prévenu une fois."),
             yesText: "Prévenir le demandeur", cancelText: "Annuler");
         if (ok != true) return;

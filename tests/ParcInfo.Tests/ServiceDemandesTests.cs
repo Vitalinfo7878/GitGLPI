@@ -216,14 +216,27 @@ public sealed class ServiceDemandesTests : IDisposable
         await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
         await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Valideur));      // réservé à l'informatique
 
+        // L'envoi termine la demande : le matériel attribué doit être rattaché
+        var sansMateriel = await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Informatique));
+        Assert.Contains("matériel attribué", sansMateriel.Message);
+        await using (var ajout = _fabrique.CreateDbContext())
+        {
+            ajout.Materiels.Add(new Materiel { NumInterne = "PO0100", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.Attribue });
+            await ajout.SaveChangesAsync();
+        }
+        await _service.MettreAJourTraitementAsync(d.Id, Priorite.Normale, StatutRealisation.EnCours, null, Informatique, materiels: ["PO0100"]);
+
         var r = await _service.NotifierEnvoiAsync(d.Id, Informatique);
-        Assert.Equal(StatutRealisation.EnCoursEnvoi, r.Demande.StatutRealisation);
+        Assert.Equal(StatutRealisation.Realisee, r.Demande.StatutRealisation);
+        Assert.NotNull(r.Demande.RealiseeLe);
         Assert.NotNull(r.Demande.EnvoiNotifieLe);
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.NotifierEnvoiAsync(d.Id, Informatique)); // déjà réalisée
         await using var db = _fabrique.CreateDbContext();
         var mail = await db.Courriels.SingleAsync(c => c.Sujet.Contains("envoyé"));
         Assert.Equal("camille.test@vitalrest.com", mail.Destinataire);
         Assert.Contains("2 à 3 jours ouvrés", mail.CorpsHtml);
         Assert.Contains("Merci de nous renvoyer l'ancien matériel", System.Net.WebUtility.HtmlDecode(mail.CorpsHtml)); // remplacement
+        Assert.False(await db.Courriels.AnyAsync(c => c.Sujet.Contains("réalisée"))); // pas de second mail au demandeur
     }
 
     [Theory]
@@ -624,12 +637,19 @@ public sealed class ServiceDemandesTests : IDisposable
         f.Concerne = "Une ouverture de poste";
         var d = (await _service.CreerAsync(f, Salarie)).Demande;
         await _service.DeciderAsync(d.IdPublic, true, null, Valideur);
+        // Matériel rattaché, mais sans mouvement d'attribution (donc sans fiche)
+        await using (var ajout = _fabrique.CreateDbContext())
+        {
+            ajout.Materiels.Add(new Materiel { NumInterne = "PO0100", Type = TypeMateriel.PcPortable, Statut = StatutMateriel.EnStock });
+            await ajout.SaveChangesAsync();
+        }
+        await _service.MettreAJourTraitementAsync(d.Id, Priorite.Normale, StatutRealisation.EnCours, null, Informatique, materiels: ["PO0100"]);
         var prevue = (await _service.NotifierEnvoiAsync(d.Id, Informatique)).Demande.FicheAttributionPrevueLe!.Value;
 
         Assert.Equal(0, await _service.EnvoyerFichesAttributionAsync(prevue));
         Assert.Equal(0, await _service.EnvoyerFichesAttributionAsync(prevue.AddDays(1)));
         var manuel = await Assert.ThrowsAsync<ErreurMetier>(() => _service.EnvoyerFicheAttributionMaintenantAsync(d.Id, Informatique));
-        Assert.Contains("Aucun matériel", manuel.Message);
+        Assert.Contains("Aucune fiche d'attribution", manuel.Message);
         await using var db = _fabrique.CreateDbContext();
         var alertes = await db.Courriels.Where(c => c.Sujet.Contains("fiche d'attribution non envoyée")).ToListAsync();
         Assert.Equal(_options.Destinataires.Order(), alertes.Select(a => a.Destinataire).Order()); // une alerte par destinataire, une seule fois
