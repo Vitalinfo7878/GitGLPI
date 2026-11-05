@@ -236,6 +236,7 @@ public sealed class ServiceDemandesTests : IDisposable
         Assert.Equal("camille.test@vitalrest.com", mail.Destinataire);
         Assert.Contains("2 à 3 jours ouvrés", mail.CorpsHtml);
         Assert.Contains("Merci de nous renvoyer l'ancien matériel", System.Net.WebUtility.HtmlDecode(mail.CorpsHtml)); // remplacement
+        Assert.Contains("rapprochez-vous de votre secrétaire de région", System.Net.WebUtility.HtmlDecode(mail.CorpsHtml));
         Assert.False(await db.Courriels.AnyAsync(c => c.Sujet.Contains("réalisée"))); // pas de second mail au demandeur
     }
 
