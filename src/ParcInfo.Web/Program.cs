@@ -119,9 +119,15 @@ builder.Services.AddScoped<ServiceTickets>();
 if (entraConfigure)
 {
     builder.Services.AddSingleton<IAnnuaireMicrosoft, AnnuaireGraph>();
+    builder.Services.AddSingleton<IEcritureAnnuaire, EcritureAnnuaireGraph>();
     builder.Services.AddHostedService<SynchronisationAnnuaireNocturne>();
 }
-else builder.Services.AddSingleton<IAnnuaireMicrosoft, AnnuaireDemo>();
+else
+{
+    builder.Services.AddSingleton<IAnnuaireMicrosoft, AnnuaireDemo>();
+    builder.Services.AddSingleton<IEcritureAnnuaire, EcritureAnnuaireSimulee>();
+}
+builder.Services.AddScoped<ServiceSynchronisationOrganisation>();
 builder.Services.AddScoped<ServiceComptesMicrosoft>();
 builder.Services.AddScoped<ControleDoublons>();
 builder.Services.AddScoped<ServiceDroits>();

@@ -24,6 +24,9 @@ public interface IAnnuaireMicrosoft
 
     /// <summary>Rôles d'application de « Parc informatique Vitalrest » attribués dans Entra ID (reprise des droits).</summary>
     Task<IReadOnlyList<RoleApplication>> LireRolesApplicationAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<RoleApplication>>([]);
+
+    /// <summary>Groupes dont le nom commence par le préfixe, avec leurs membres et s'ils sont modifiables par l'application.</summary>
+    Task<IReadOnlyList<GroupeRegion>> LireGroupesAsync(string prefixe, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<GroupeRegion>>([]);
 }
 
 public static class ClientGraph
@@ -126,6 +129,30 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
         return resultat;
     }
 
+    public async Task<IReadOnlyList<GroupeRegion>> LireGroupesAsync(string prefixe, CancellationToken ct = default)
+    {
+        var groupes = await ToutLire<Group, GroupCollectionResponse>(await _graph.Groups.GetAsync(r =>
+        {
+            r.QueryParameters.Filter = $"startswith(displayName,'{prefixe.Replace("'", "''")}')";
+            r.QueryParameters.Select = ["id", "displayName", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
+            r.QueryParameters.Top = 999;
+        }, ct), ct);
+        var resultat = new List<GroupeRegion>();
+        foreach (var g in groupes.Where(g => g.Id is not null && g.DisplayName is not null).OrderBy(g => g.DisplayName))
+        {
+            var membres = await ToutLire<DirectoryObject, DirectoryObjectCollectionResponse>(
+                await _graph.Groups[g.Id].Members.GetAsync(r => { r.QueryParameters.Select = ["id"]; r.QueryParameters.Top = 999; }, ct), ct);
+            // Graph ne modifie que les groupes de sécurité et les groupes Microsoft 365 créés dans le cloud
+            var (modifiable, raison) =
+                g.OnPremisesSyncEnabled == true ? (false, "groupe synchronisé depuis l'Active Directory local : à modifier dans l'AD")
+                : g.GroupTypes?.Contains("Unified") == true ? (true, null)
+                : g.MailEnabled == true ? (false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange")
+                : (true, (string?)null);
+            resultat.Add(new GroupeRegion(g.Id!, g.DisplayName!.Trim(), modifiable, raison, membres.Select(m => m.Id).OfType<string>().ToHashSet()));
+        }
+        return resultat;
+    }
+
     private async Task<List<T>> ToutLire<T, TPage>(TPage? premiere, CancellationToken ct) where TPage : BaseCollectionPaginationCountResponse, new()
     {
         var tout = new List<T>();
@@ -150,6 +177,13 @@ public sealed class AnnuaireDemo : IAnnuaireMicrosoft
         Compte("d3", "Dominique Martinez", "Dominique", "Martinez", "dominique.martinez@vitalrest.com", "Cuisinier", "Exploitation", "Camille Test", false),
         Compte("d4", "Site 087 - EHPAD Les Tilleuls", null, null, "site087@vitalrest.com", null, "Sites", null, true),
         Compte("d5", "Thomas Verchère", "Thomas", "Verchère", "thomas.verchere@groupe-vitalrest.com", "Directeur des opérations", "Direction", null, true),
+    ]);
+
+    public Task<IReadOnlyList<GroupeRegion>> LireGroupesAsync(string prefixe, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<GroupeRegion>>(
+    [
+        new("g-idf", "REGION_SITE_IDF", true, null, new HashSet<string> { "d4" }),
+        new("g-co", "REGION_SITE_CENTRE_OUEST", true, null, new HashSet<string>()),
+        new("g-se", "REGION_SITE_SUD_EST", false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange", new HashSet<string>()),
     ]);
 
     private static CompteAnnuaire Compte(string id, string nom, string? prenom, string? famille, string mail, string? poste, string? service, string? responsable, bool actif) =>

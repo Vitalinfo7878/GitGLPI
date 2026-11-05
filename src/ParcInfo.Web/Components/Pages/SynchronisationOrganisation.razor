@@ -1,0 +1,196 @@
+@page "/synchronisation-organisation"
+@attribute [Authorize(Policy = Roles.PolitiqueAdministration)]
+@inject ServiceSynchronisationOrganisation Service
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
+
+<PageTitle>Synchronisation organisation</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-1">Synchronisation organisation</MudText>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    À partir du fichier Organisation (Excel), met à jour pour chaque site : le <b>responsable</b> de son compte Microsoft et de sa fiche
+    (le responsable de secteur, colonne « Email RS ») et son groupe <b>REGION_SITE_&lt;région&gt;</b>. Un site ouvert n'est que dans le groupe
+    de sa région ; un site fermé sort de tous les groupes REGION_SITE_. Rien n'est modifié avant « Appliquer » ; le fichier n'est pas conservé.
+</MudText>
+
+<MudPaper Elevation="0" Class="carte pa-4 mb-3">
+    <MudText Typo="Typo.body2" Class="mb-3">
+        Responsables actuels des comptes : dernière synchronisation de l'annuaire le @(_synchroLe?.ToLocalTime().ToString("dd/MM/yyyy à HH:mm") ?? "—").
+        Pour partir de données à jour, <MudLink Href="/comptes-microsoft" Typo="Typo.body2">synchronisez l'annuaire</MudLink> avant de charger le fichier.
+    </MudText>
+    <MudFileUpload T="IBrowserFile" FilesChanged="Charger" Accept=".xlsx" MaximumFileCount="1">
+        <CustomContent>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.UploadFile" OnClick="@context.OpenFilePickerAsync" Disabled="_traitement">
+                Charger le fichier Organisation
+            </MudButton>
+        </CustomContent>
+    </MudFileUpload>
+    @if (_traitement)
+    {
+        <div class="d-flex align-center gap-3 mt-3"><MudProgressCircular Indeterminate="true" Size="Size.Small" /> <span>@_etape</span></div>
+    }
+    @if (_erreur is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">@_erreur</MudAlert> }
+</MudPaper>
+
+@if (_plan is { } plan)
+{
+    var applicables = plan.Changements.Count(c => c.Blocage is null);
+    <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+        <div class="d-flex flex-wrap align-center gap-2">
+            <MudText Typo="Typo.h6">@_nomFichier</MudText>
+            <MudChip T="string" Size="Size.Small">@plan.Lignes sites</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">@plan.Ouverts ouverts</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@plan.Fermes fermés</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@plan.ComptesConcernes comptes Microsoft de site</MudChip>
+            <MudSpacer />
+            @if (_resultats is null)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Outlined.Sync" OnClick="Appliquer" Disabled="@(_traitement || applicables == 0)">
+                    Appliquer @applicables changement@(applicables > 1 ? "s" : "")
+                </MudButton>
+            }
+        </div>
+
+        @if (_resultats is { } res)
+        {
+            var echecs = res.Where(r => r.Erreur is not null).ToList();
+            <MudAlert Severity="@(echecs.Count == 0 ? Severity.Success : Severity.Warning)" Class="mt-3">
+                @(res.Count - echecs.Count) changement(s) fait(s)@(echecs.Count > 0 ? $", {echecs.Count} en échec (ci-dessous)" : "").
+                Chaque changement est noté dans le Journal. Les groupes et responsables apparaîtront sur la page Comptes Microsoft après la prochaine synchronisation de l'annuaire.
+            </MudAlert>
+            @if (echecs.Count > 0)
+            {
+                <MudSimpleTable Dense="true" Elevation="0" Class="mt-2">
+                    <thead><tr><th>Changement</th><th>Erreur</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in echecs) { <tr><td>@ServiceSynchronisationOrganisation.Texte(e.Changement)</td><td style="color:var(--mud-palette-error)">@e.Erreur</td></tr> }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Régions du fichier → groupes de l'annuaire</MudText>
+        <div class="d-flex flex-wrap gap-2">
+            @foreach (var (region, groupe) in plan.Correspondances)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(groupe is null ? Color.Error : Color.Default)" Variant="Variant.Outlined">@region → @(groupe ?? "aucun groupe")</MudChip>
+            }
+        </div>
+
+        @if (plan.Problemes.Count > 0)
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-4" Dense="true">
+                <b>À savoir (non traité automatiquement)</b>
+                <ul class="mb-0">@foreach (var p in plan.Problemes) { <li>@p</li> }</ul>
+            </MudAlert>
+        }
+    </MudPaper>
+
+    <MudPaper Elevation="0" Class="carte pa-2">
+        <MudTabs Elevation="0" Rounded="true" PanelClass="pt-2">
+            @foreach (var type in Enum.GetValues<TypeChangementOrganisation>())
+            {
+                var liste = plan.Changements.Where(c => c.Type == type).ToList();
+                <MudTabPanel Text="@($"{Libelle(type)} ({liste.Count})")">
+                    @if (liste.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="pa-3">Rien à changer.</MudText>
+                    }
+                    else
+                    {
+                        <div style="overflow-x:auto">
+                            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                                <thead><tr><th>Site(s)</th><th>@(type == TypeChangementOrganisation.ResponsableInventaire ? "Fiche" : "Compte Microsoft")</th><th>Avant</th><th>Après</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var c in liste)
+                                    {
+                                        var resultat = _resultats?.FirstOrDefault(r => r.Changement == c);
+                                        <tr>
+                                            <td>@c.Sites</td>
+                                            <td>@c.CompteNom</td>
+                                            <td>@(c.Avant ?? "—")</td>
+                                            <td>@(c.Apres ?? "—")</td>
+                                            <td>
+                                                @if (c.Blocage is not null) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">non modifiable : @c.Blocage</MudChip> }
+                                                else if (resultat is { Erreur: null }) { <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Small" /> }
+                                                else if (resultat is { Erreur: { } err }) { <MudTooltip Text="@err"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Color="Color.Error" Size="Size.Small" /></MudTooltip> }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </div>
+                    }
+                </MudTabPanel>
+            }
+        </MudTabs>
+    </MudPaper>
+}
+
+@code {
+    private PlanOrganisation? _plan;
+    private List<ResultatChangement>? _resultats;
+    private string? _nomFichier;
+    private string? _erreur;
+    private string? _etape;
+    private bool _traitement;
+    private DateTime? _synchroLe;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _synchroLe = await db.ComptesMicrosoft.MaxAsync(c => (DateTime?)c.SynchroniseLe);
+    }
+
+    private static string Libelle(TypeChangementOrganisation t) => t switch
+    {
+        TypeChangementOrganisation.Responsable => "Responsables des comptes",
+        TypeChangementOrganisation.AjoutGroupe => "Ajouts aux groupes",
+        TypeChangementOrganisation.RetraitGroupe => "Retraits des groupes",
+        _ => "Responsables des fiches de site",
+    };
+
+    private async Task Charger(IBrowserFile? fichier)
+    {
+        if (fichier is null) return;
+        (_plan, _resultats, _erreur, _nomFichier, _traitement) = (null, null, null, fichier.Name, true);
+        try
+        {
+            _etape = "Lecture du fichier…";
+            StateHasChanged();
+            using var ms = new MemoryStream();
+            await using (var flux = fichier.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024)) await flux.CopyToAsync(ms);
+            ms.Position = 0;
+            var lignes = await Task.Run(() => ServiceSynchronisationOrganisation.Lire(ms));
+            _etape = "Lecture des groupes REGION_SITE_ dans l'annuaire Microsoft et calcul des changements…";
+            StateHasChanged();
+            _plan = await Service.AnalyserAsync(lignes);
+        }
+        catch (ErreurMetier ex) { _erreur = ex.Message; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _erreur = $"Analyse impossible : {ex.Message}"; }
+        finally { _traitement = false; }
+    }
+
+    private async Task Appliquer()
+    {
+        var applicables = _plan!.Changements.Where(c => c.Blocage is null).ToList();
+        string Nombre(TypeChangementOrganisation t) => applicables.Count(c => c.Type == t).ToString();
+        var ok = await Dialogues.ShowMessageBoxAsync("Appliquer dans Microsoft 365 et l'inventaire ?",
+            $"{Nombre(TypeChangementOrganisation.Responsable)} responsable(s) de compte, {Nombre(TypeChangementOrganisation.AjoutGroupe)} ajout(s) et "
+            + $"{Nombre(TypeChangementOrganisation.RetraitGroupe)} retrait(s) de groupes REGION_SITE_ dans Microsoft 365, "
+            + $"{Nombre(TypeChangementOrganisation.ResponsableInventaire)} fiche(s) de site dans l'inventaire.",
+            yesText: "Appliquer", cancelText: "Annuler");
+        if (ok != true) return;
+        _traitement = true;
+        _etape = "Application des changements…";
+        try
+        {
+            _resultats = await Service.AppliquerAsync(_plan, await Courant.ObtenirAsync());
+            var echecs = _resultats.Count(r => r.Erreur is not null);
+            Snackbar.Add(echecs == 0 ? "Synchronisation appliquée." : $"Synchronisation appliquée avec {echecs} échec(s).", echecs == 0 ? Severity.Success : Severity.Warning);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _traitement = false; }
+    }
+}
