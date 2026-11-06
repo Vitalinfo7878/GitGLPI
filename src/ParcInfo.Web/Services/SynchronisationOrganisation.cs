@@ -11,8 +11,41 @@ namespace ParcInfo.Web.Services;
 /// <summary>Ligne utile du fichier « Organisation » : un site, son état, sa région et son responsable de secteur.</summary>
 public sealed record LigneOrganisation(string Code, string? NomCommercial, bool Ouvert, string? Region, string? EmailResponsable);
 
-/// <summary>Groupe REGION_SITES_… de l'annuaire, avec ses membres (identifiants Entra) au moment de l'analyse.</summary>
-public sealed record GroupeRegion(string Id, string Nom, bool Modifiable, string? Raison, IReadOnlySet<string> Membres, string? Alias = null);
+/// <summary>Groupe de sites d'une région dans l'annuaire, avec ses membres (identifiants Entra) au moment de l'analyse.</summary>
+/// <param name="Exchange">Liste de diffusion (ou groupe à extension messagerie) : membres modifiés via Exchange Online.</param>
+public sealed record GroupeRegion(string Id, string Nom, bool Modifiable, string? Raison, IReadOnlySet<string> Membres,
+    string? Alias = null, string? Adresse = null, bool Exchange = false);
+
+/// <summary>Région du fichier Organisation → groupe de sites de l'annuaire ; groupes à vider des sites.</summary>
+public sealed class CorrespondanceGroupes
+{
+    public Dictionary<string, string> Regions { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Anciens groupes de sites : les comptes de sites qui y sont en sont retirés.</summary>
+    public List<string> AVider { get; init; } = [];
+
+    public static CorrespondanceGroupes ParDefaut() => new()
+    {
+        Regions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CENTRE EST"] = "REGION_CE_SITES",
+            ["CENTRE OUEST"] = "REGION_CENTRE_OUEST_SITES",
+            ["IDF"] = "REGION_IDF_SITES",
+            ["IDF AL"] = "REGION_IDF_SITES",
+            ["NORD EST"] = "REGION_NE_SITES",
+            ["SUD EST"] = "REGION_SUD_SITES",
+            ["SUD OUEST"] = "REGION_SUD_OUEST_SITES",
+        },
+        AVider = ["REGION_OUEST_SITES"],
+    };
+
+    public string? GroupeDe(string? region) => region is null ? null : Regions.GetValueOrDefault(region.Trim());
+
+    /// <summary>Seuls ces groupes sont touchés ; les autres (REGION_SITES_AGENCES_…) jamais.</summary>
+    public bool Concerne(GroupeRegion g) => Regions.Values.Concat(AVider).Any(n => Est(g, n));
+
+    public static bool Est(GroupeRegion g, string nom) =>
+        string.Equals(g.Nom, nom, StringComparison.OrdinalIgnoreCase) || string.Equals(g.Alias, nom, StringComparison.OrdinalIgnoreCase);
+}
 
 public enum TypeChangementOrganisation
 {
@@ -26,7 +59,8 @@ public enum TypeChangementOrganisation
 
 public sealed record ChangementOrganisation(
     TypeChangementOrganisation Type, string Sites, string? CompteId, string? CompteNom, string? Avant, string? Apres,
-    string? GroupeId = null, string? ResponsableId = null, int? SiteId = null, string? Blocage = null);
+    string? GroupeId = null, string? ResponsableId = null, int? SiteId = null, string? Blocage = null,
+    string? GroupeAdresse = null, bool ParExchange = false, string? CompteAdresse = null);
 
 public sealed record PlanOrganisation(
     int Lignes, int Ouverts, int Fermes, int ComptesConcernes, List<ChangementOrganisation> Changements,
@@ -34,28 +68,82 @@ public sealed record PlanOrganisation(
 
 public sealed record ResultatChangement(ChangementOrganisation Changement, string? Erreur);
 
-/// <summary>Écriture dans l'annuaire Microsoft (droits User.ReadWrite.All et GroupMember.ReadWrite.All).</summary>
+/// <summary>
+/// Écriture dans l'annuaire Microsoft : responsable via Graph (User.ReadWrite.All) ; membres des groupes via Graph
+/// (GroupMember.ReadWrite.All) ou, pour les listes de diffusion, via Exchange Online (Exchange.ManageAsApp + rôle Exchange).
+/// </summary>
 public interface IEcritureAnnuaire
 {
     Task DefinirResponsableAsync(string compteId, string responsableId, CancellationToken ct = default);
-    Task AjouterMembreAsync(string groupeId, string compteId, CancellationToken ct = default);
-    Task RetirerMembreAsync(string groupeId, string compteId, CancellationToken ct = default);
+    Task AjouterMembreAsync(ChangementOrganisation c, CancellationToken ct = default);
+    Task RetirerMembreAsync(ChangementOrganisation c, CancellationToken ct = default);
+    /// <summary>Lecture sans modification d'une liste de diffusion via Exchange Online : vérifie les droits de l'application.</summary>
+    Task<string> TesterExchangeAsync(string groupe, CancellationToken ct = default);
 }
 
-public sealed class EcritureAnnuaireGraph(IConfiguration config) : IEcritureAnnuaire
+public sealed class EcritureAnnuaireGraph(IConfiguration config, OptionsMessagerie messagerie) : IEcritureAnnuaire
 {
     private readonly Microsoft.Graph.GraphServiceClient _graph = ClientGraph.Creer(config);
+    private readonly Azure.Core.TokenCredential _identifiant = ClientGraph.Identifiant(config);
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
 
     public Task DefinirResponsableAsync(string compteId, string responsableId, CancellationToken ct = default) =>
         _graph.Users[compteId].Manager.Ref.PutAsync(
             new Microsoft.Graph.Models.ReferenceUpdate { OdataId = $"https://graph.microsoft.com/v1.0/users/{responsableId}" }, cancellationToken: ct);
 
-    public Task AjouterMembreAsync(string groupeId, string compteId, CancellationToken ct = default) =>
-        _graph.Groups[groupeId].Members.Ref.PostAsync(
-            new Microsoft.Graph.Models.ReferenceCreate { OdataId = $"https://graph.microsoft.com/v1.0/directoryObjects/{compteId}" }, cancellationToken: ct);
+    public Task AjouterMembreAsync(ChangementOrganisation c, CancellationToken ct = default) => c.ParExchange
+        ? ExchangeAsync("Add-DistributionGroupMember", new() { ["Identity"] = c.GroupeAdresse ?? c.GroupeId, ["Member"] = c.CompteAdresse ?? c.CompteId, ["BypassSecurityGroupManagerCheck"] = true }, ct)
+        : _graph.Groups[c.GroupeId].Members.Ref.PostAsync(
+            new Microsoft.Graph.Models.ReferenceCreate { OdataId = $"https://graph.microsoft.com/v1.0/directoryObjects/{c.CompteId}" }, cancellationToken: ct);
 
-    public Task RetirerMembreAsync(string groupeId, string compteId, CancellationToken ct = default) =>
-        _graph.Groups[groupeId].Members[compteId].Ref.DeleteAsync(cancellationToken: ct);
+    public Task RetirerMembreAsync(ChangementOrganisation c, CancellationToken ct = default) => c.ParExchange
+        ? ExchangeAsync("Remove-DistributionGroupMember", new() { ["Identity"] = c.GroupeAdresse ?? c.GroupeId, ["Member"] = c.CompteAdresse ?? c.CompteId, ["BypassSecurityGroupManagerCheck"] = true, ["Confirm"] = false }, ct)
+        : _graph.Groups[c.GroupeId].Members[c.CompteId].Ref.DeleteAsync(cancellationToken: ct);
+
+    public async Task<string> TesterExchangeAsync(string groupe, CancellationToken ct = default)
+    {
+        var reponse = await ExchangeAsync("Get-DistributionGroupMember", new() { ["Identity"] = groupe, ["ResultSize"] = 5 }, ct);
+        return $"Accès Exchange Online correct : lecture de la liste {groupe} réussie.{(reponse.Length > 0 ? "" : "")}";
+    }
+
+    /// <summary>
+    /// Commande Exchange Online par son API d'administration (celle du module PowerShell ExchangeOnlineManagement v3),
+    /// avec le jeton de l'application.
+    /// </summary>
+    private async Task<string> ExchangeAsync(string commande, Dictionary<string, object?> parametres, CancellationToken ct)
+    {
+        var tenant = config["AzureAd:TenantId"];
+        var jeton = await _identifiant.GetTokenAsync(new Azure.Core.TokenRequestContext(["https://outlook.office365.com/.default"]), ct);
+        using var requete = new HttpRequestMessage(HttpMethod.Post, $"https://outlook.office365.com/adminapi/beta/{tenant}/InvokeCommand")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new { CmdletInput = new { CmdletName = commande, Parameters = parametres } }),
+        };
+        requete.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jeton.Token);
+        var domaine = messagerie.Expediteur?.Split('@').LastOrDefault() ?? "vitalrest.com";
+        requete.Headers.TryAddWithoutValidation("X-AnchorMailbox", $"UPN:SystemMailbox{{bb558c35-97f1-4cb9-8ff7-d53741dc928c}}@{domaine}");
+        using var reponse = await Http.SendAsync(requete, ct);
+        var corps = await reponse.Content.ReadAsStringAsync(ct);
+        if (reponse.IsSuccessStatusCode) return corps;
+        throw new InvalidOperationException(reponse.StatusCode switch
+        {
+            System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden =>
+                $"Exchange Online refuse l'accès ({(int)reponse.StatusCode}) : droit Exchange.ManageAsApp ou rôle « Exchange Recipient Administrator » manquant (ou pas encore pris en compte, jusqu'à 1 h).",
+            _ => $"Exchange Online ({(int)reponse.StatusCode}) : {MessageExchange(corps)}",
+        });
+    }
+
+    private static string MessageExchange(string corps)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(corps);
+            var erreur = doc.RootElement.GetProperty("error");
+            if (erreur.TryGetProperty("details", out var details) && details.ValueKind == System.Text.Json.JsonValueKind.Array && details.GetArrayLength() > 0
+                && details[0].TryGetProperty("message", out var m)) return m.GetString() ?? corps;
+            return erreur.GetProperty("message").GetString() ?? corps;
+        }
+        catch (Exception) { return corps.Length > 300 ? corps[..300] : corps; }
+    }
 }
 
 /// <summary>Mode démonstration : aucune écriture réelle.</summary>
@@ -67,34 +155,31 @@ public sealed class EcritureAnnuaireSimulee(ILogger<EcritureAnnuaireSimulee> log
         return Task.CompletedTask;
     }
 
-    public Task AjouterMembreAsync(string groupeId, string compteId, CancellationToken ct = default)
+    public Task AjouterMembreAsync(ChangementOrganisation c, CancellationToken ct = default)
     {
-        log.LogInformation("Simulation : {Compte} ajouté au groupe {Groupe}", compteId, groupeId);
+        log.LogInformation("Simulation : {Compte} ajouté au groupe {Groupe}{Exchange}", c.CompteAdresse ?? c.CompteId, c.Apres, c.ParExchange ? " (Exchange)" : "");
         return Task.CompletedTask;
     }
 
-    public Task RetirerMembreAsync(string groupeId, string compteId, CancellationToken ct = default)
+    public Task RetirerMembreAsync(ChangementOrganisation c, CancellationToken ct = default)
     {
-        log.LogInformation("Simulation : {Compte} retiré du groupe {Groupe}", compteId, groupeId);
+        log.LogInformation("Simulation : {Compte} retiré du groupe {Groupe}{Exchange}", c.CompteAdresse ?? c.CompteId, c.Avant, c.ParExchange ? " (Exchange)" : "");
         return Task.CompletedTask;
     }
+
+    public Task<string> TesterExchangeAsync(string groupe, CancellationToken ct = default) => Task.FromResult($"Mode démonstration : pas d'accès réel à Exchange Online ({groupe}).");
 }
 
 /// <summary>
 /// Page « Synchronisation organisation » : à partir du fichier Organisation, met à jour pour chaque site
-/// le responsable (responsable de secteur, « Email RS ») de son compte Microsoft et de sa fiche, et son groupe REGION_SITES_&lt;région&gt;
-/// (un site ouvert n'est que dans le groupe de sa région ; un site fermé sort de tous les groupes REGION_SITES_).
+/// le responsable (responsable de secteur, « Email RS ») de son compte Microsoft et de sa fiche, et son groupe de sites de région
+/// (REGION_IDF_SITES… : un site ouvert n'est que dans le groupe de sa région ; un site fermé sort de tous ces groupes).
 /// </summary>
 public sealed class ServiceSynchronisationOrganisation(
     IDbContextFactory<ParcDbContext> dbFactory, IAnnuaireMicrosoft annuaire, IEcritureAnnuaire ecriture, ILogger<ServiceSynchronisationOrganisation> log)
 {
-    public const string PrefixeGroupes = "REGION_SITES_";
-
-    /// <summary>Régions du fichier sans groupe à elles : rattachées au groupe d'une autre région.</summary>
-    public static readonly IReadOnlyDictionary<string, string> RegionsRegroupees = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["IDF AL"] = "IDF",
-    };
+    /// <summary>Début du nom des groupes lus dans l'annuaire (REGION_IDF_SITES…) ; seuls ceux de la correspondance sont touchés.</summary>
+    public const string PrefixeGroupes = "REGION_";
 
     // --- Lecture du fichier ---
 
@@ -129,24 +214,6 @@ public sealed class ServiceSynchronisationOrganisation(
         c.DataType == XLDataType.DateTime ? DateOnly.FromDateTime(c.GetDateTime())
         : DateOnly.TryParseExact(c.GetString().Trim(), "dd/MM/yyyy", out var d) ? d : null;
 
-    /// <summary>
-    /// Groupe de la région : REGION_SITES_ (ou REGION_SITE_) suivi du nom de la région, espaces et tirets en « _ », sans accents ni casse
-    /// (IDF AL : groupe de l'IDF).
-    /// </summary>
-    public static GroupeRegion? GroupeDe(string? region, IReadOnlyList<GroupeRegion> groupes)
-    {
-        if (string.IsNullOrWhiteSpace(region)) return null;
-        region = RegionsRegroupees.GetValueOrDefault(region.Trim(), region);
-        string[] cles = [Cle("REGION_SITES_" + region), Cle("REGION_SITE_" + region)];
-        // Nom affiché du groupe, ou à défaut son alias de messagerie (region_sites_idf@…)
-        return groupes.FirstOrDefault(g => cles.Contains(Cle(g.Nom))) ?? groupes.FirstOrDefault(g => g.Alias is { } a && cles.Contains(Cle(a)));
-    }
-
-    private static string Cle(string s) => new(Normalisation.SansAccents(s).ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
-
-    /// <summary>Groupe de région de sites : nom ou alias qui commence par REGION_SITE (quelle que soit la ponctuation) ; les autres ne sont jamais touchés.</summary>
-    public static bool EstGroupeRegion(GroupeRegion g) => Cle(g.Nom).StartsWith("REGIONSITE") || (g.Alias is { } a && Cle(a).StartsWith("REGIONSITE"));
-
     /// <summary>Code en tête du nom d'affichage d'un compte de site : « 455 - FOYER HORIZON » → 455, « A010-40 - … » → A010-40.</summary>
     public static string? CodeDuNom(string nom) =>
         Regex.Match(nom, @"^\s*([A-Za-z]?\d+(?:-\d+)?)\s+-\s") is { Success: true } m ? m.Groups[1].Value : null;
@@ -158,11 +225,13 @@ public sealed class ServiceSynchronisationOrganisation(
 
     /// <summary>Changements à faire, sans rien modifier (comptes : copie de la dernière synchronisation ; groupes : lus à l'instant).</summary>
     public static PlanOrganisation Calculer(IReadOnlyList<LigneOrganisation> lignes, IReadOnlyList<Site> sites, IReadOnlyList<CompteMicrosoft> comptes,
-        IReadOnlyList<GroupeRegion> groupes)
+        IReadOnlyList<GroupeRegion> groupes, CorrespondanceGroupes? correspondance = null)
     {
+        var cfg = correspondance ?? CorrespondanceGroupes.ParDefaut();
         var changements = new List<ChangementOrganisation>();
         var problemes = new List<string>();
-        groupes = groupes.Where(EstGroupeRegion).ToList();
+        groupes = groupes.Where(cfg.Concerne).ToList();
+        GroupeRegion? GroupeDe(string? region) => cfg.GroupeDe(region) is { } nom ? groupes.FirstOrDefault(g => CorrespondanceGroupes.Est(g, nom)) : null;
         var parId = comptes.Where(c => !c.Supprime).ToDictionary(c => c.Id);
         var parAdresse = new Dictionary<string, CompteMicrosoft>(StringComparer.OrdinalIgnoreCase);
         foreach (var c in comptes.Where(c => !c.Supprime))
@@ -232,20 +301,23 @@ public sealed class ServiceSynchronisationOrganisation(
             var ouverts = rattaches.Where(x => x.Ligne.Ouvert).ToList();
             // Sous-sites qui partagent le compte du site : la ligne du site principal (code sans tiret) fait foi
             var principal = ouverts.OrderBy(x => x.Ligne.Code.Contains('-')).ThenBy(x => x.Ligne.Code).Select(x => x.Ligne).FirstOrDefault();
-            if (ouverts.Select(x => x.Ligne.Region is { } reg ? RegionsRegroupees.GetValueOrDefault(reg.Trim(), reg.Trim()) : null).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            if (ouverts.Select(x => cfg.GroupeDe(x.Ligne.Region) ?? x.Ligne.Region).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
                 problemes.Add($"Compte {compte.NomAffichage} ({codes}) : régions différentes dans le fichier, celle du site {principal!.Code} ({principal.Region}) est retenue.");
 
-            var cible = principal is null ? null : GroupeDe(principal.Region, groupes);
+            var cible = principal is null ? null : GroupeDe(principal.Region);
             if (principal is not null && cible is null && principal.Region is { } r) regionsSansGroupe.Add(r);
             foreach (var g in groupes)
             {
                 var membre = g.Membres.Contains(compteId);
                 var blocage = g.Modifiable ? null : g.Raison;
+                var aVider = cfg.AVider.Any(n => CorrespondanceGroupes.Est(g, n));
                 if (g == cible && !membre)
-                    changements.Add(new ChangementOrganisation(TypeChangementOrganisation.AjoutGroupe, codes, compteId, compte.NomAffichage, null, g.Nom, g.Id, Blocage: blocage));
-                // Site fermé : retiré de tous les groupes REGION_SITES_ ; site ouvert : seulement du groupe de sa région
-                else if (g != cible && membre && (principal is null || cible is not null))
-                    changements.Add(new ChangementOrganisation(TypeChangementOrganisation.RetraitGroupe, codes, compteId, compte.NomAffichage, g.Nom, null, g.Id, Blocage: blocage));
+                    changements.Add(new ChangementOrganisation(TypeChangementOrganisation.AjoutGroupe, codes, compteId, compte.NomAffichage, null, g.Nom, g.Id,
+                        Blocage: blocage, GroupeAdresse: g.Adresse, ParExchange: g.Exchange, CompteAdresse: compte.AdressePrincipale));
+                // Site fermé : retiré de tous les groupes de sites ; site ouvert : seulement du groupe de sa région ; anciens groupes vidés
+                else if (g != cible && membre && (principal is null || cible is not null || aVider))
+                    changements.Add(new ChangementOrganisation(TypeChangementOrganisation.RetraitGroupe, codes, compteId, compte.NomAffichage, g.Nom, null, g.Id,
+                        Blocage: blocage, GroupeAdresse: g.Adresse, ParExchange: g.Exchange, CompteAdresse: compte.AdressePrincipale));
             }
 
             if (principal?.EmailResponsable is not { } email) continue;
@@ -254,11 +326,11 @@ public sealed class ServiceSynchronisationOrganisation(
                 changements.Add(new ChangementOrganisation(TypeChangementOrganisation.Responsable, codes, compteId, compte.NomAffichage,
                     compte.ResponsableNom, responsable.NomAffichage, ResponsableId: responsable.Id));
         }
-        if (regionsSansGroupe.Count > 0) problemes.Add($"Aucun groupe {PrefixeGroupes}… pour la région : {string.Join(", ", regionsSansGroupe)} (sites laissés dans leurs groupes actuels).");
+        if (regionsSansGroupe.Count > 0) problemes.Add($"Groupe introuvable dans l'annuaire pour la région : {string.Join(", ", regionsSansGroupe.Select(r => $"{r} ({cfg.GroupeDe(r) ?? "pas de correspondance"})"))} (sites laissés dans leurs groupes actuels).");
         if (rsInconnus.Count > 0) problemes.Add($"{rsInconnus.Count} responsable(s) de secteur introuvable(s) dans l'annuaire Microsoft : {string.Join(", ", rsInconnus)}.");
 
         var correspondances = lignes.Where(l => l.Ouvert && l.Region is not null).Select(l => l.Region!).Distinct(StringComparer.OrdinalIgnoreCase).Order()
-            .Select(r => (r, GroupeDe(r, groupes)?.Nom)).ToList();
+            .Select(r => (r, GroupeDe(r)?.Nom)).ToList();
         return new PlanOrganisation(lignes.Count, lignes.Count(l => l.Ouvert), lignes.Count(l => !l.Ouvert), parCompte.Count,
             changements.OrderBy(c => c.Type).ThenBy(c => c.Sites, StringComparer.OrdinalIgnoreCase).ToList(), correspondances, problemes,
             parNom.Order(StringComparer.OrdinalIgnoreCase).ToList());
@@ -269,14 +341,17 @@ public sealed class ServiceSynchronisationOrganisation(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var sites = await db.Sites.AsNoTracking().ToListAsync(ct);
         var comptes = await db.ComptesMicrosoft.AsNoTracking().ToListAsync(ct);
-        // REGION_SITES_… (et l'éventuelle forme REGION_SITE_…)
-        var groupes = await annuaire.LireGroupesAsync("REGION_SITE", ct);
-        return Calculer(lignes, sites, comptes, groupes) with
+        var groupes = await annuaire.LireGroupesAsync(PrefixeGroupes, ct);
+        var cfg = CorrespondanceGroupes.ParDefaut();
+        return Calculer(lignes, sites, comptes, groupes, cfg) with
         {
-            GroupesLus = groupes.OrderBy(g => !EstGroupeRegion(g)).ThenBy(g => g.Nom).Take(40)
-                .Select(g => (g.Alias is { } a && !string.Equals(a, g.Nom, StringComparison.OrdinalIgnoreCase) ? $"{g.Nom} ({a})" : g.Nom) + (EstGroupeRegion(g) ? "" : " [ignoré]")).ToList(),
+            GroupesLus = groupes.Where(cfg.Concerne).OrderBy(g => g.Nom)
+                .Select(g => g.Nom + (g.Exchange ? " (liste de diffusion)" : "") + (cfg.AVider.Any(n => CorrespondanceGroupes.Est(g, n)) ? " — à vider" : "")).ToList(),
         };
     }
+
+    /// <summary>Vérifie, sans rien modifier, que l'application peut lire les listes de diffusion via Exchange Online.</summary>
+    public Task<string> TesterExchangeAsync(CancellationToken ct = default) => ecriture.TesterExchangeAsync("REGION_IDF_SITES", ct);
 
     // --- Application ---
 
@@ -299,10 +374,10 @@ public sealed class ServiceSynchronisationOrganisation(
                             (compte.ResponsableId, compte.ResponsableNom) = (c.ResponsableId, c.Apres);
                         break;
                     case TypeChangementOrganisation.AjoutGroupe:
-                        await ecriture.AjouterMembreAsync(c.GroupeId!, c.CompteId!, ct);
+                        await ecriture.AjouterMembreAsync(c, ct);
                         break;
                     case TypeChangementOrganisation.RetraitGroupe:
-                        await ecriture.RetirerMembreAsync(c.GroupeId!, c.CompteId!, ct);
+                        await ecriture.RetirerMembreAsync(c, ct);
                         break;
                     case TypeChangementOrganisation.ResponsableInventaire:
                         if (await db.Sites.FindAsync([c.SiteId!.Value], ct) is { } site) site.Responsable = c.Apres;

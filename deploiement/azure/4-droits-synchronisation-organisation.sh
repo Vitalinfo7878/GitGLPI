@@ -2,9 +2,11 @@
 # Étape 4 (facultative) : droits d'écriture dans l'annuaire pour la page « Synchronisation organisation ».
 # À lancer dans Azure Cloud Shell (Bash) avec un compte Administrateur général (consentement administrateur).
 #
-# Ce que fait le script (rejouable) : accorde à l'application deux autorisations d'application Microsoft Graph
-#   - User.ReadWrite.All        : définir le responsable (manager) des comptes des sites
-#   - GroupMember.ReadWrite.All : ajouter / retirer les comptes des sites des groupes REGION_SITES_…
+# Ce que fait le script (rejouable) : accorde à l'application
+#   - User.ReadWrite.All        (Microsoft Graph) : définir le responsable (manager) des comptes des sites
+#   - GroupMember.ReadWrite.All (Microsoft Graph) : membres des groupes de sécurité / Microsoft 365
+#   - Exchange.ManageAsApp (Office 365 Exchange Online) + rôle Entra « Exchange Recipient Administrator » :
+#     membres des listes de diffusion REGION_…_SITES (Add/Remove-DistributionGroupMember)
 # L'application ne fait ces modifications que depuis la page « Synchronisation organisation », réservée aux
 # administrateurs principaux, après affichage des changements et confirmation. Chaque modification est notée dans le Journal.
 # Pour retirer ces droits : Entra ID > Applications d'entreprise > « Parc informatique Vitalrest » > Autorisations.
@@ -36,6 +38,28 @@ for DROIT in User.ReadWrite.All GroupMember.ReadWrite.All; do
     fi
     info "$DROIT accordé"
 done
+
+etape "Listes de diffusion : Exchange Online"
+EXO="00000002-0000-0ff1-ce00-000000000000"
+ID_SP_EXO=$(az ad sp show --id "$EXO" --query id -o tsv)
+ROLE_EXO=$(az ad sp show --id "$EXO" --query "appRoles[?value=='Exchange.ManageAsApp'].id" -o tsv)
+az ad app permission add --id "$ID_APPLI" --api "$EXO" --api-permissions "$ROLE_EXO=Role" --only-show-errors 2>/dev/null || true
+if [[ -z "$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$ID_SP/appRoleAssignments" \
+        --query "value[?appRoleId=='$ROLE_EXO'].id" -o tsv)" ]]; then
+    reessayer az rest --method POST --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$ID_SP/appRoleAssignments" \
+        --headers "Content-Type=application/json" -o none \
+        --body "{\"principalId\": \"$ID_SP\", \"resourceId\": \"$ID_SP_EXO\", \"appRoleId\": \"$ROLE_EXO\"}"
+fi
+info "Exchange.ManageAsApp accordé"
+ROLE_DESTINATAIRES=$(az rest --method GET -o tsv --query "value[0].id" \
+    --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions?\$filter=displayName eq 'Exchange Recipient Administrator'")
+if [[ -z "$(az rest --method GET -o tsv --query "value[0].id" \
+        --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?\$filter=principalId eq '$ID_SP' and roleDefinitionId eq '$ROLE_DESTINATAIRES'")" ]]; then
+    reessayer az rest --method POST --uri "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments" \
+        --headers "Content-Type=application/json" -o none \
+        --body "{\"principalId\": \"$ID_SP\", \"roleDefinitionId\": \"$ROLE_DESTINATAIRES\", \"directoryScopeId\": \"/\"}"
+fi
+info "rôle « Exchange Recipient Administrator » attribué à l'application"
 
 etape "Terminé"
 info "Les droits sont pris en compte par l'application d'ici une heure au plus (renouvellement de son jeton)."

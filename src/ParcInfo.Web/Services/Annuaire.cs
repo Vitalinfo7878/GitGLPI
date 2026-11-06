@@ -32,13 +32,15 @@ public interface IAnnuaireMicrosoft
 public static class ClientGraph
 {
     /// <summary>Connexion à Microsoft Graph avec le secret de l'application (ou son identité managée).</summary>
-    public static GraphServiceClient Creer(IConfiguration config)
+    public static GraphServiceClient Creer(IConfiguration config) => new(Identifiant(config), ["https://graph.microsoft.com/.default"]);
+
+    /// <summary>Identité de l'application : son secret, ou à défaut son identité managée.</summary>
+    public static TokenCredential Identifiant(IConfiguration config)
     {
         var az = config.GetSection("AzureAd");
-        TokenCredential identifiant = string.IsNullOrEmpty(az["ClientSecret"])
+        return string.IsNullOrEmpty(az["ClientSecret"])
             ? new DefaultAzureCredential()
             : new ClientSecretCredential(az["TenantId"], az["ClientId"], az["ClientSecret"]);
-        return new GraphServiceClient(identifiant, ["https://graph.microsoft.com/.default"]);
     }
 }
 
@@ -138,7 +140,7 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
             groupes.AddRange(await ToutLire<Group, GroupCollectionResponse>(await _graph.Groups.GetAsync(r =>
             {
                 r.QueryParameters.Filter = $"startswith({champ},'{p}')";
-                r.QueryParameters.Select = ["id", "displayName", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
+                r.QueryParameters.Select = ["id", "displayName", "mail", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
                 r.QueryParameters.Top = 999;
             }, ct), ct));
         // Rien avec ce début de nom : recherche plus large des groupes dont le nom ou l'adresse contient « region »
@@ -148,7 +150,7 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
             {
                 r.QueryParameters.Search = "\"displayName:region\" OR \"mail:region\"";
                 r.QueryParameters.Count = true;
-                r.QueryParameters.Select = ["id", "displayName", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
+                r.QueryParameters.Select = ["id", "displayName", "mail", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
                 r.QueryParameters.Top = 999;
                 r.Headers.Add("ConsistencyLevel", "eventual");
             }, ct), ct));
@@ -158,13 +160,13 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
         {
             var membres = await ToutLire<DirectoryObject, DirectoryObjectCollectionResponse>(
                 await _graph.Groups[g.Id].Members.GetAsync(r => { r.QueryParameters.Select = ["id"]; r.QueryParameters.Top = 999; }, ct), ct);
-            // Graph ne modifie que les groupes de sécurité et les groupes Microsoft 365 créés dans le cloud
-            var (modifiable, raison) =
-                g.OnPremisesSyncEnabled == true ? (false, "groupe synchronisé depuis l'Active Directory local : à modifier dans l'AD")
-                : g.GroupTypes?.Contains("Unified") == true ? (true, null)
-                : g.MailEnabled == true ? (false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange")
-                : (true, (string?)null);
-            resultat.Add(new GroupeRegion(g.Id!, g.DisplayName!.Trim(), modifiable, raison, membres.Select(m => m.Id).OfType<string>().ToHashSet(), g.MailNickname));
+            // Listes de diffusion (et groupes de sécurité à extension messagerie) : modifiées via Exchange Online ;
+            // groupes de sécurité et Microsoft 365 : via Graph ; groupes synchronisés de l'AD local : pas modifiables ici
+            var exchange = g.GroupTypes?.Contains("Unified") != true && g.MailEnabled == true;
+            var (modifiable, raison) = g.OnPremisesSyncEnabled == true
+                ? (false, "groupe synchronisé depuis l'Active Directory local : à modifier dans l'AD") : (true, (string?)null);
+            resultat.Add(new GroupeRegion(g.Id!, g.DisplayName!.Trim(), modifiable, raison, membres.Select(m => m.Id).OfType<string>().ToHashSet(),
+                g.MailNickname, g.Mail, exchange));
         }
         return resultat;
     }
@@ -197,9 +199,10 @@ public sealed class AnnuaireDemo : IAnnuaireMicrosoft
 
     public Task<IReadOnlyList<GroupeRegion>> LireGroupesAsync(string prefixe, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<GroupeRegion>>(
     [
-        new("g-idf", "REGION_SITES_IDF", true, null, new HashSet<string> { "d4" }),
-        new("g-co", "REGION_SITES_CENTRE_OUEST", true, null, new HashSet<string>()),
-        new("g-se", "REGION_SITES_SUD_EST", false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange", new HashSet<string>()),
+        new("g-idf", "REGION_IDF_SITES", true, null, new HashSet<string> { "d4" }, "REGION_IDF_SITES", "REGION_IDF_SITES@vitalrest.com", true),
+        new("g-co", "REGION_CENTRE_OUEST_SITES", true, null, new HashSet<string>(), "REGION_CENTRE_OUEST_SITES", "REGION_CENTRE_OUEST_SITES@vitalrest.com", true),
+        new("g-ouest", "REGION_OUEST_SITES", true, null, new HashSet<string>(), "REGION_OUEST_SITES", "REGION_OUEST_SITES@vitalrest.com", true),
+        new("g-agences", "REGION_SITES_AGENCES_IDF", true, null, new HashSet<string> { "d4" }, "REGION_SITES_AGENCES_IDF", "REGION_SITES_AGENCES_IDF@vitalrest.com", true),
     ]);
 
     private static CompteAnnuaire Compte(string id, string nom, string? prenom, string? famille, string mail, string? poste, string? service, string? responsable, bool actif) =>
