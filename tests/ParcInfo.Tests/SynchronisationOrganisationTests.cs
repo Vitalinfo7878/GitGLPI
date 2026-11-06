@@ -193,4 +193,13 @@ public sealed class SynchronisationOrganisationTests
         Assert.Equal(("619-1", "env", "Région IDF – sites"), (ajout.Sites, ajout.CompteId, ajout.Apres));
         Assert.DoesNotContain(plan.Problemes, p => p.Contains("plusieurs comptes"));
     }
+
+    [Fact]
+    public void Droits_lus_dans_le_jeton()
+    {
+        static string B64(string s) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var jeton = $"{B64("{\"alg\":\"none\"}")}.{B64("{\"roles\":[\"Exchange.ManageAsApp\"],\"tid\":\"t\"}")}.sig";
+        Assert.Equal(["Exchange.ManageAsApp"], EcritureAnnuaireGraph.RolesDuJeton(jeton));
+        Assert.Empty(EcritureAnnuaireGraph.RolesDuJeton("pas-un-jeton"));
+    }
 }

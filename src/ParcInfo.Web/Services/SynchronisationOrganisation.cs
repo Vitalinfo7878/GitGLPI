@@ -84,8 +84,8 @@ public interface IEcritureAnnuaire
 public sealed class EcritureAnnuaireGraph(IConfiguration config, OptionsMessagerie messagerie) : IEcritureAnnuaire
 {
     private readonly Microsoft.Graph.GraphServiceClient _graph = ClientGraph.Creer(config);
-    private readonly Azure.Core.TokenCredential _identifiant = ClientGraph.Identifiant(config);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
+    private string? _domaineInitial;
 
     public Task DefinirResponsableAsync(string compteId, string responsableId, CancellationToken ct = default) =>
         _graph.Users[compteId].Manager.Ref.PutAsync(
@@ -113,23 +113,56 @@ public sealed class EcritureAnnuaireGraph(IConfiguration config, OptionsMessager
     private async Task<string> ExchangeAsync(string commande, Dictionary<string, object?> parametres, CancellationToken ct)
     {
         var tenant = config["AzureAd:TenantId"];
-        var jeton = await _identifiant.GetTokenAsync(new Azure.Core.TokenRequestContext(["https://outlook.office365.com/.default"]), ct);
+        // Jeton neuf (identité recréée) : des droits accordés depuis le dernier jeton sont pris en compte
+        var jeton = await ClientGraph.Identifiant(config).GetTokenAsync(new Azure.Core.TokenRequestContext(["https://outlook.office365.com/.default"]), ct);
         using var requete = new HttpRequestMessage(HttpMethod.Post, $"https://outlook.office365.com/adminapi/beta/{tenant}/InvokeCommand")
         {
             Content = System.Net.Http.Json.JsonContent.Create(new { CmdletInput = new { CmdletName = commande, Parameters = parametres } }),
         };
         requete.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jeton.Token);
-        var domaine = messagerie.Expediteur?.Split('@').LastOrDefault() ?? "vitalrest.com";
-        requete.Headers.TryAddWithoutValidation("X-AnchorMailbox", $"UPN:SystemMailbox{{bb558c35-97f1-4cb9-8ff7-d53741dc928c}}@{domaine}");
+        // Comme le module ExchangeOnlineManagement en connexion d'application : boîte système de l'organisation (domaine initial)
+        _domaineInitial ??= await DomaineInitialAsync(ct);
+        requete.Headers.TryAddWithoutValidation("X-AnchorMailbox", $"APP:SystemMailbox{{bb558c35-97f1-4cb9-8ff7-d53741dc928c}}@{_domaineInitial}");
         using var reponse = await Http.SendAsync(requete, ct);
         var corps = await reponse.Content.ReadAsStringAsync(ct);
         if (reponse.IsSuccessStatusCode) return corps;
-        throw new InvalidOperationException(reponse.StatusCode switch
+        if (reponse.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
         {
-            System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden =>
-                $"Exchange Online refuse l'accès ({(int)reponse.StatusCode}) : droit Exchange.ManageAsApp ou rôle « Exchange Recipient Administrator » manquant (ou pas encore pris en compte, jusqu'à 1 h).",
-            _ => $"Exchange Online ({(int)reponse.StatusCode}) : {MessageExchange(corps)}",
-        });
+            var roles = RolesDuJeton(jeton.Token);
+            var raison = string.Join(" ", reponse.Headers.WwwAuthenticate.Select(h => h.ToString())) is { Length: > 0 } w ? w : MessageExchange(corps);
+            throw new InvalidOperationException($"Exchange Online refuse l'accès ({(int)reponse.StatusCode}). "
+                + (roles.Contains("Exchange.ManageAsApp")
+                    ? "Le jeton contient bien le droit Exchange.ManageAsApp : il manque sans doute le rôle « Exchange Recipient Administrator » (ou il n'est pas encore pris en compte, jusqu'à 1 h)."
+                    : $"Le jeton ne contient pas le droit Exchange.ManageAsApp (droits présents : {(roles.Count == 0 ? "aucun" : string.Join(", ", roles))}) : consentement non accordé ou pas encore pris en compte.")
+                + $" Détail : {raison}");
+        }
+        throw new InvalidOperationException($"Exchange Online ({(int)reponse.StatusCode}) : {MessageExchange(corps)}");
+    }
+
+    /// <summary>Domaine initial du tenant (xxx.onmicrosoft.com).</summary>
+    private async Task<string> DomaineInitialAsync(CancellationToken ct)
+    {
+        try
+        {
+            var orgs = await _graph.Organization.GetAsync(r => r.QueryParameters.Select = ["verifiedDomains"], ct);
+            return orgs?.Value?.SelectMany(o => o.VerifiedDomains ?? []).FirstOrDefault(d => d.IsInitial == true)?.Name
+                ?? messagerie.Expediteur?.Split('@').LastOrDefault() ?? "vitalrest.com";
+        }
+        catch (Exception) { return messagerie.Expediteur?.Split('@').LastOrDefault() ?? "vitalrest.com"; }
+    }
+
+    /// <summary>Droits d'application (revendication « roles ») contenus dans un jeton JWT.</summary>
+    public static List<string> RolesDuJeton(string jeton)
+    {
+        try
+        {
+            var charge = jeton.Split('.')[1].Replace('-', '+').Replace('_', '/');
+            charge = charge.PadRight(charge.Length + (4 - charge.Length % 4) % 4, '=');
+            using var doc = System.Text.Json.JsonDocument.Parse(Convert.FromBase64String(charge));
+            return doc.RootElement.TryGetProperty("roles", out var r) && r.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? r.EnumerateArray().Select(x => x.GetString()).OfType<string>().ToList() : [];
+        }
+        catch (Exception) { return []; }
     }
 
     private static string MessageExchange(string corps)
