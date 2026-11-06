@@ -90,17 +90,21 @@ public sealed class SynchronisationOrganisationTests
     {
         using var wb = new XLWorkbook();
         var ws = wb.AddWorksheet("Organisation");
-        string[] entetes = ["Nom", "Nom Commercial", "Date Ouverture", "Etat", "DO", "Région", "Email CG", "Email RS"];
+        string[] entetes = ["Nom", "Nom Commercial", "Date Ouverture", "Etat", "DO", "Région", "Email CG", "Email RS", "Date Fermeture"];
         for (var i = 0; i < entetes.Length; i++) ws.Cell(1, i + 1).Value = entetes[i];
         object[][] lignes = [["455", "FOYER HORIZON", "01/07/2023", "Open", "FRANCE SUD", "CENTRE OUEST", "cg@vitalrest.com", "Bruno.Secteur@vitalrest.com"],
-            ["501-3", "ESCALE", "01/06/2024", "Close", "FRANCE SUD", "CENTRE OUEST", "", "None"]];
+            ["501-3", "ESCALE", "01/06/2024", "Close", "FRANCE SUD", "CENTRE OUEST", "", "None"],
+            ["330", "FERME EN FAIT", "01/01/2020", "Open", "FRANCE NORD", "IDF", "", "rs@vitalrest.com"]];
         for (var l = 0; l < lignes.Length; l++)
             for (var c = 0; c < lignes[l].Length; c++) ws.Cell(l + 2, c + 1).Value = lignes[l][c].ToString();
+        ws.Cell(4, 9).Value = new DateTime(2026, 10, 31); // « Open » mais fermé depuis : compté fermé
+        ws.Cell(2, 9).Value = "31/12/2027";             // fermeture à venir : reste ouvert
         using var flux = new MemoryStream();
         wb.SaveAs(flux);
         flux.Position = 0;
-        Assert.Equal([new LigneOrganisation("455", "FOYER HORIZON", true, "CENTRE OUEST", "bruno.secteur@vitalrest.com"), new LigneOrganisation("501-3", "ESCALE", false, "CENTRE OUEST", null)],
-            ServiceSynchronisationOrganisation.Lire(flux));
+        Assert.Equal([new LigneOrganisation("455", "FOYER HORIZON", true, "CENTRE OUEST", "bruno.secteur@vitalrest.com"), new LigneOrganisation("501-3", "ESCALE", false, "CENTRE OUEST", null),
+                new LigneOrganisation("330", "FERME EN FAIT", false, "IDF", "rs@vitalrest.com")],
+            ServiceSynchronisationOrganisation.Lire(flux, new DateOnly(2026, 11, 6)));
     }
 
     private sealed class AnnuaireDeTest : IAnnuaireMicrosoft

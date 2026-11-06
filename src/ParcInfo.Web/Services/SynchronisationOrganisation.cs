@@ -91,8 +91,10 @@ public sealed class ServiceSynchronisationOrganisation(
 
     // --- Lecture du fichier ---
 
-    public static List<LigneOrganisation> Lire(Stream fichier)
+    /// <summary>Lignes du fichier ; un site « Open » dont la date de fermeture est passée est compté fermé.</summary>
+    public static List<LigneOrganisation> Lire(Stream fichier, DateOnly? aujourdhui = null)
     {
+        var jour = aujourdhui ?? DateOnly.FromDateTime(DateTime.Today);
         using var wb = new XLWorkbook(fichier);
         var ws = wb.Worksheets.FirstOrDefault(w => w.Name.Equals("Organisation", StringComparison.OrdinalIgnoreCase)) ?? wb.Worksheets.First();
         var entete = ws.FirstRowUsed() ?? throw new ErreurMetier("Le fichier est vide.");
@@ -100,18 +102,25 @@ public sealed class ServiceSynchronisationOrganisation(
         int Colonne(string nom) => colonnes.TryGetValue(nom, out var n) ? n
             : throw new ErreurMetier($"Colonne « {nom} » introuvable : est-ce bien l'export Organisation (colonnes Nom, Etat, Région, Email RS) ?");
         var (cCode, cNom, cEtat, cRegion, cRs) = (Colonne("NOM"), colonnes.GetValueOrDefault("NOM COMMERCIAL"), Colonne("ETAT"), Colonne("REGION"), Colonne("EMAIL RS"));
+        var cFermeture = colonnes.GetValueOrDefault("DATE FERMETURE");
 
         string? Valeur(IXLRow r, int c) => c == 0 ? null : r.Cell(c).GetString().Trim() is { Length: > 0 } v && v != "None" ? v : null;
         var lignes = new List<LigneOrganisation>();
         foreach (var r in ws.RowsUsed().Where(r => r.RowNumber() > entete.RowNumber()))
         {
             if (Valeur(r, cCode) is not { } code) continue;
-            lignes.Add(new LigneOrganisation(code, Valeur(r, cNom), string.Equals(Valeur(r, cEtat), "Open", StringComparison.OrdinalIgnoreCase),
+            var ferme = cFermeture > 0 && DateDe(r.Cell(cFermeture)) is { } fermeture && fermeture < jour;
+            lignes.Add(new LigneOrganisation(code, Valeur(r, cNom), !ferme && string.Equals(Valeur(r, cEtat), "Open", StringComparison.OrdinalIgnoreCase),
                 Valeur(r, cRegion), Valeur(r, cRs)?.ToLowerInvariant()));
         }
         if (lignes.Count == 0) throw new ErreurMetier("Aucun site dans le fichier.");
         return lignes;
     }
+
+    /// <summary>Date d'une cellule : vraie date Excel ou texte « jj/mm/aaaa ».</summary>
+    private static DateOnly? DateDe(IXLCell c) =>
+        c.DataType == XLDataType.DateTime ? DateOnly.FromDateTime(c.GetDateTime())
+        : DateOnly.TryParseExact(c.GetString().Trim(), "dd/MM/yyyy", out var d) ? d : null;
 
     /// <summary>Groupe de la région : REGION_SITE_ suivi du nom de la région, espaces et tirets en « _ », sans accents ni casse.</summary>
     public static GroupeRegion? GroupeDe(string? region, IReadOnlyList<GroupeRegion> groupes)
