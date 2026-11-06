@@ -70,6 +70,13 @@
             }
         }
 
+        @if (plan.GroupesLus is { } lus)
+        {
+            <MudText Typo="Typo.body2" Class="mt-4">
+                <b>Groupes REGION_SITE… trouvés dans l'annuaire (nom ou adresse mail) :</b>
+                @(lus.Count == 0 ? "aucun" : string.Join(", ", lus))
+            </MudText>
+        }
         <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Régions du fichier → groupes de l'annuaire</MudText>
         <div class="d-flex flex-wrap gap-2">
             @foreach (var (region, groupe) in plan.Correspondances)

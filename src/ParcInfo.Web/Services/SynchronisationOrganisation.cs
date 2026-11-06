@@ -12,7 +12,7 @@ namespace ParcInfo.Web.Services;
 public sealed record LigneOrganisation(string Code, string? NomCommercial, bool Ouvert, string? Region, string? EmailResponsable);
 
 /// <summary>Groupe REGION_SITES_… de l'annuaire, avec ses membres (identifiants Entra) au moment de l'analyse.</summary>
-public sealed record GroupeRegion(string Id, string Nom, bool Modifiable, string? Raison, IReadOnlySet<string> Membres);
+public sealed record GroupeRegion(string Id, string Nom, bool Modifiable, string? Raison, IReadOnlySet<string> Membres, string? Alias = null);
 
 public enum TypeChangementOrganisation
 {
@@ -30,7 +30,7 @@ public sealed record ChangementOrganisation(
 
 public sealed record PlanOrganisation(
     int Lignes, int Ouverts, int Fermes, int ComptesConcernes, List<ChangementOrganisation> Changements,
-    List<(string Region, string? Groupe)> Correspondances, List<string> Problemes, List<string> RapprochementsParNom);
+    List<(string Region, string? Groupe)> Correspondances, List<string> Problemes, List<string> RapprochementsParNom, List<string>? GroupesLus = null);
 
 public sealed record ResultatChangement(ChangementOrganisation Changement, string? Erreur);
 
@@ -139,7 +139,8 @@ public sealed class ServiceSynchronisationOrganisation(
         region = RegionsRegroupees.GetValueOrDefault(region.Trim(), region);
         static string Cle(string s) => new(Normalisation.SansAccents(s).ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
         string[] cles = [Cle("REGION_SITES_" + region), Cle("REGION_SITE_" + region)];
-        return groupes.FirstOrDefault(g => cles.Contains(Cle(g.Nom)));
+        // Nom affiché du groupe, ou à défaut son alias de messagerie (region_sites_idf@…)
+        return groupes.FirstOrDefault(g => cles.Contains(Cle(g.Nom))) ?? groupes.FirstOrDefault(g => g.Alias is { } a && cles.Contains(Cle(a)));
     }
 
     /// <summary>Code en tête du nom d'affichage d'un compte de site : « 455 - FOYER HORIZON » → 455, « A010-40 - … » → A010-40.</summary>
@@ -189,7 +190,12 @@ public sealed class ServiceSynchronisationOrganisation(
             if (compteId is null)
             {
                 var candidats = ParNom(l.Code);
-                if (candidats.Count == 0 && l.Code.Contains('-')) candidats = ParNom(l.Code[..l.Code.IndexOf('-')]);
+                if (candidats.Count == 0 && l.Code.Contains('-'))
+                {
+                    var codePrincipal = l.Code[..l.Code.IndexOf('-')];
+                    candidats = sites.FirstOrDefault(s => MemeCode(s.Code, codePrincipal))?.EntraObjectId is { } principal && parId.TryGetValue(principal, out var comptePrincipal)
+                        ? [comptePrincipal] : ParNom(codePrincipal);
+                }
                 if (candidats.Count > 1)
                 {
                     if (l.Ouvert) ambigus.Add($"{l.Code} ({string.Join(" / ", candidats.Select(c => c.NomAffichage))})");
@@ -260,7 +266,10 @@ public sealed class ServiceSynchronisationOrganisation(
         var comptes = await db.ComptesMicrosoft.AsNoTracking().ToListAsync(ct);
         // REGION_SITES_… (et l'éventuelle forme REGION_SITE_…)
         var groupes = await annuaire.LireGroupesAsync("REGION_SITE", ct);
-        return Calculer(lignes, sites, comptes, groupes);
+        return Calculer(lignes, sites, comptes, groupes) with
+        {
+            GroupesLus = groupes.Select(g => g.Alias is { } a && !string.Equals(a, g.Nom, StringComparison.OrdinalIgnoreCase) ? $"{g.Nom} ({a})" : g.Nom).ToList(),
+        };
     }
 
     // --- Application ---

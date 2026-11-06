@@ -165,4 +165,19 @@ public sealed class SynchronisationOrganisationTests
         Assert.Contains("455 - FOYER HORIZON (455) : responsable Alice ANCIEN → Bruno SECTEUR", journal);
         Assert.Contains(journal, d => d!.StartsWith("Fichier Organisation appliqué : 3 changement(s) fait(s), 1 en échec, 1 non modifiable(s)"));
     }
+
+    [Fact]
+    public void Groupe_trouve_par_son_alias_et_sous_site_par_le_compte_du_site_principal()
+    {
+        // Nom affiché différent, alias de messagerie REGION_SITES_IDF
+        List<GroupeRegion> groupes = [new("g-idf", "Région sites IDF", true, null, new HashSet<string>(), "region_sites_idf")];
+        Assert.Equal("g-idf", ServiceSynchronisationOrganisation.GroupeDe("IDF AL", groupes)?.Id);
+
+        // Deux comptes au code 619 : le sous-site prend celui relié au site 619 dans l'inventaire
+        List<CompteMicrosoft> comptes = [new() { Id = "env", NomAffichage = "619 - Envol Garrigue Ari" }, new() { Id = "diet", NomAffichage = "619 - Diet envol Garrigue ari" }];
+        List<Site> sites = [new() { Id = 1, Code = "619", EntraObjectId = "env" }];
+        var plan = ServiceSynchronisationOrganisation.Calculer([new("619-1", null, true, "IDF", null)], sites, comptes, groupes);
+        Assert.Equal(("619-1", "env"), (plan.Changements.Single().Sites, plan.Changements.Single().CompteId));
+        Assert.DoesNotContain(plan.Problemes, p => p.Contains("plusieurs comptes"));
+    }
 }

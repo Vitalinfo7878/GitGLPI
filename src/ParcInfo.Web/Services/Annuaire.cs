@@ -131,12 +131,17 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
 
     public async Task<IReadOnlyList<GroupeRegion>> LireGroupesAsync(string prefixe, CancellationToken ct = default)
     {
-        var groupes = await ToutLire<Group, GroupCollectionResponse>(await _graph.Groups.GetAsync(r =>
-        {
-            r.QueryParameters.Filter = $"startswith(displayName,'{prefixe.Replace("'", "''")}')";
-            r.QueryParameters.Select = ["id", "displayName", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
-            r.QueryParameters.Top = 999;
-        }, ct), ct);
+        // Par nom affiché, puis par alias de messagerie (region_sites_idf@…)
+        var p = prefixe.Replace("'", "''");
+        var groupes = new List<Group>();
+        foreach (var champ in new[] { "displayName", "mailNickname" })
+            groupes.AddRange(await ToutLire<Group, GroupCollectionResponse>(await _graph.Groups.GetAsync(r =>
+            {
+                r.QueryParameters.Filter = $"startswith({champ},'{p}')";
+                r.QueryParameters.Select = ["id", "displayName", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
+                r.QueryParameters.Top = 999;
+            }, ct), ct));
+        groupes = groupes.DistinctBy(g => g.Id).ToList();
         var resultat = new List<GroupeRegion>();
         foreach (var g in groupes.Where(g => g.Id is not null && g.DisplayName is not null).OrderBy(g => g.DisplayName))
         {
@@ -148,7 +153,7 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
                 : g.GroupTypes?.Contains("Unified") == true ? (true, null)
                 : g.MailEnabled == true ? (false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange")
                 : (true, (string?)null);
-            resultat.Add(new GroupeRegion(g.Id!, g.DisplayName!.Trim(), modifiable, raison, membres.Select(m => m.Id).OfType<string>().ToHashSet()));
+            resultat.Add(new GroupeRegion(g.Id!, g.DisplayName!.Trim(), modifiable, raison, membres.Select(m => m.Id).OfType<string>().ToHashSet(), g.MailNickname));
         }
         return resultat;
     }
