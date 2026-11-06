@@ -104,6 +104,13 @@ else
                             {
                                 <MudAutocomplete T="Site" Value="_site" ValueChanged="ChoisirSite" SearchFunc="ChercherSite" ToStringFunc="@(s => s?.Libelle ?? "")"
                                                  Label="Site (code ou nom)" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
+                                @if (_annuaireDisponible)
+                                {
+                                    <MudAutocomplete T="CompteMicrosoft" SearchFunc="ChercherCompte" ValueChanged="ChoisirCompteSite"
+                                                     ToStringFunc="@(c => c is null ? "" : $"{c.NomAffichage} · {c.AdressePrincipale}")"
+                                                     Label="Ou depuis l'annuaire Microsoft" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                                                     DebounceInterval="250" MinCharacters="2" ResetValueOnEmptyText="true" />
+                                }
                                 <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.AddBusiness" OnClick="() => _nouveauSite = !_nouveauSite">Nouveau site</MudButton>
                                 @if (_nouveauSite)
                                 {
@@ -365,7 +372,23 @@ else
     private async Task ChoisirCompte(CompteMicrosoft? c)
     {
         if (c is null) return;
+        // Compte d'un site (« 621 - CUISINE … ») choisi en mode Personne : on passe en mode Site
+        if (ServiceSynchronisationOrganisation.CodeDuNom(c.NomAffichage) is not null)
+        {
+            ChangerTypeDest(TypeDetenteur.Site);
+            Snackbar.Add($"{c.NomAffichage} est le compte d'un site : destinataire passé en « Site ».", Severity.Info);
+            await ChoisirCompteSite(c);
+            return;
+        }
         try { ChoisirPersonne(await ComptesMicrosoft.PersonnePourCompteAsync(c.Id)); }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    /// <summary>Site choisi dans l'annuaire : le site relié à ce compte, ou retrouvé par son code, ou créé.</summary>
+    private async Task ChoisirCompteSite(CompteMicrosoft? c)
+    {
+        if (c is null) return;
+        try { ChoisirSite(await ComptesMicrosoft.SitePourCompteAsync(c.Id)); }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
     }
 

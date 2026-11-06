@@ -175,7 +175,7 @@ public sealed class AnnuaireDemo : IAnnuaireMicrosoft
         Compte("d1", "Camille Test", "Camille", "Test", "camille.test@vitalrest.com", "Chef gérant", "Exploitation", "Thomas Verchère", true),
         Compte("d2", "Dominique Martin", "Dominique", "Martin", "dominique.martin@vitalrest.com", "Comptable", "Comptabilité", "Thomas Verchère", true),
         Compte("d3", "Dominique Martinez", "Dominique", "Martinez", "dominique.martinez@vitalrest.com", "Cuisinier", "Exploitation", "Camille Test", false),
-        Compte("d4", "Site 087 - EHPAD Les Tilleuls", null, null, "site087@vitalrest.com", null, "Sites", null, true),
+        Compte("d4", "087 - EHPAD Les Tilleuls", null, null, "site087@vitalrest.com", null, "Sites", null, true),
         Compte("d5", "Thomas Verchère", "Thomas", "Verchère", "thomas.verchere@groupe-vitalrest.com", "Directeur des opérations", "Direction", null, true),
     ]);
 

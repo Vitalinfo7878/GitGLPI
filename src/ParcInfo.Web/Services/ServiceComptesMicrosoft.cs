@@ -261,6 +261,46 @@ public sealed class ServiceComptesMicrosoft(
         return p;
     }
 
+    /// <summary>
+    /// Site correspondant à un compte de site de l'annuaire (« 621 - CUISINE SARRAZINIERE ») : le site relié à ce compte, sinon celui
+    /// du code en tête du nom (relié au passage), sinon créé avec ce code, ce nom et cette adresse. Une personne créée par erreur
+    /// pour ce compte (sans matériel ni mouvement) est supprimée.
+    /// </summary>
+    public async Task<Site> SitePourCompteAsync(string compteId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var c = await db.ComptesMicrosoft.FirstAsync(x => x.Id == compteId, ct);
+        var code = ServiceSynchronisationOrganisation.CodeDuNom(c.NomAffichage);
+        static bool MemeCode(string a, string b) => string.Equals(a.TrimStart('0'), b.TrimStart('0'), StringComparison.OrdinalIgnoreCase);
+        // Sous-sites (440, 440-1…) qui partagent la boîte : celui dont le code est en tête du nom
+        var relies = await db.Sites.Where(s => s.EntraObjectId == compteId).OrderBy(s => s.Code).ToListAsync(ct);
+        if (relies.Count > 0) return relies.FirstOrDefault(s => code is not null && MemeCode(s.Code, code)) ?? relies[0];
+        if (code is null) throw new ErreurMetier($"« {c.NomAffichage} » ne commence pas par un code de site (« 455 - … ») : choisissez le site dans la liste ou créez-le.");
+
+        if (await db.Personnes.FirstOrDefaultAsync(p => p.EntraObjectId == compteId, ct) is { } personne)
+        {
+            if (await db.Materiels.AnyAsync(m => m.PersonneId == personne.Id, ct) || await db.Mouvements.AnyAsync(m => m.DestinationPersonneId == personne.Id, ct))
+                throw new ErreurMetier($"{c.NomAffichage} est enregistré comme une personne, avec du matériel : corrigez-le d'abord (page Comptes Microsoft).");
+            db.Personnes.Remove(personne);
+        }
+        var site = (await db.Sites.ToListAsync(ct)).FirstOrDefault(s => MemeCode(s.Code, code));
+        if (site is null)
+        {
+            var nom = c.NomAffichage[(c.NomAffichage.IndexOf(" - ", StringComparison.Ordinal) + 3)..].Trim();
+            site = new Site { Code = code.ToUpperInvariant(), Nom = nom.Length > 0 ? nom : null, Email = c.AdressePrincipale, EntraObjectId = c.Id };
+            db.Sites.Add(site);
+            db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = "Annuaire Microsoft", Action = "Site créé", Details = $"Site {site.Code} créé depuis le compte {c.NomAffichage}" });
+        }
+        else if (site.EntraObjectId is null)
+        {
+            site.EntraObjectId = c.Id;
+            site.Email ??= c.AdressePrincipale;
+            db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = "Annuaire Microsoft", Action = "Compte Microsoft relié", Details = $"Site {site.Code} relié à {c.NomAffichage}" });
+        }
+        await db.SaveChangesAsync(ct);
+        return site;
+    }
+
     // --- Listes ---
 
     public async Task<List<ATrancher>> ListerATrancherAsync(CancellationToken ct = default)

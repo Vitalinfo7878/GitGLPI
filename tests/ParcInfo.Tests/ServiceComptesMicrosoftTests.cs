@@ -193,4 +193,29 @@ public sealed class ServiceComptesMicrosoftTests : IDisposable
     [InlineData("Hélène  O'Brien", "obrien helene")]
     public void Cle_de_nom_insensible_a_l_ordre_et_aux_accents(string a, string b) =>
         Assert.Equal(ServiceComptesMicrosoft.CleNom(a), ServiceComptesMicrosoft.CleNom(b.Replace("obrien", "o brien")));
+
+    [Fact]
+    public async Task Site_choisi_depuis_l_annuaire()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.ComptesMicrosoft.AddRange(
+                new CompteMicrosoft { Id = "c621", NomAffichage = "621 - CUISINE SARRAZINIERE", Email = "cuisine.sarraziniere@vitalrest.com", Actif = true },
+                new CompteMicrosoft { Id = "c087", NomAffichage = "087 - EHPAD LES LILAS", Email = "site087@vitalrest.com", Actif = true },
+                new CompteMicrosoft { Id = "cdom", NomAffichage = "Dominique MARTIN", Email = "dominique.martin@vitalrest.com", Actif = true });
+            db.Sites.Add(new Site { Code = "87", Nom = "Les Lilas" });
+            // Créée par erreur en choisissant le compte du site en mode « Personne »
+            db.Personnes.Add(new Personne { NomComplet = "621 - CUISINE SARRAZINIERE", Email = "cuisine.sarraziniere@vitalrest.com", EntraObjectId = "c621" });
+            await db.SaveChangesAsync();
+        }
+        var cree = await _service.SitePourCompteAsync("c621");
+        Assert.Equal(("621", "CUISINE SARRAZINIERE", "cuisine.sarraziniere@vitalrest.com", "c621"), (cree.Code, cree.Nom, cree.Email, cree.EntraObjectId));
+        Assert.Equal(cree.Id, (await _service.SitePourCompteAsync("c621")).Id); // pas de doublon
+        var relie = await _service.SitePourCompteAsync("c087");                // site existant (code sans zéro) relié
+        Assert.Equal(("87", "c087", "site087@vitalrest.com"), (relie.Code, relie.EntraObjectId, relie.Email));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.SitePourCompteAsync("cdom"));    // pas un compte de site
+        await using var lecture = _fabrique.CreateDbContext();
+        Assert.False(await lecture.Personnes.AnyAsync(p => p.EntraObjectId == "c621"));
+        Assert.Equal(2, await lecture.Sites.CountAsync());
+    }
 }
