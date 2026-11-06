@@ -17,6 +17,11 @@ public sealed class SynchronisationOrganisationTests
         new() { Id = "s501", NomAffichage = "501 - POLE GERIATRIQUE", Email = "site501@vitalrest.com" },
         new() { Id = "rs-a", NomAffichage = "Alice ANCIEN", Email = "alice.ancien@vitalrest.com" },
         new() { Id = "rs-b", NomAffichage = "Bruno SECTEUR", Email = "bruno.secteur@vitalrest.com", AutresAdresses = "b.secteur@vitalrest.com" },
+        // Comptes de sites absents de l'inventaire ou non reliés : retrouvés par le code en tête de leur nom
+        new() { Id = "s087", NomAffichage = "087 - EHPAD LES LILAS", Email = "site087@vitalrest.com" },
+        new() { Id = "s999", NomAffichage = "999 - NOUVEAU SITE", Email = "site999@vitalrest.com" },
+        new() { Id = "s777a", NomAffichage = "777 - CUISINE", Email = "site777@vitalrest.com" },
+        new() { Id = "s777b", NomAffichage = "777 - SELF", Email = "self777@vitalrest.com" },
     ];
 
     private static readonly List<Site> Sites =
@@ -30,9 +35,9 @@ public sealed class SynchronisationOrganisationTests
 
     private static List<GroupeRegion> Groupes() =>
     [
-        new("g-co", "REGION_SITE_CENTRE_OUEST", true, null, new HashSet<string> { "s501" }),
-        new("g-idf", "REGION_SITE_IDF", true, null, new HashSet<string> { "s455", "s440" }),
-        new("g-idfal", "REGION_SITE_IDF_AL", false, "liste de diffusion Exchange", new HashSet<string>()),
+        new("g-co", "REGION_SITES_CENTRE_OUEST", true, null, new HashSet<string> { "s501" }),
+        new("g-idf", "REGION_SITES_IDF", true, null, new HashSet<string> { "s455", "s440" }),
+        new("g-se", "REGION_SITES_SUD_EST", false, "liste de diffusion Exchange", new HashSet<string>()),
     ];
 
     [Fact]
@@ -42,37 +47,42 @@ public sealed class SynchronisationOrganisationTests
         [
             new("455", "FOYER HORIZON", true, "CENTRE OUEST", "bruno.secteur@vitalrest.com"), // change de région et de responsable
             new("440", "EHPAD SAINTE MONIQUE", true, "IDF", "b.secteur@vitalrest.com"),         // déjà à jour (autre adresse du même RS)
-            new("440-1", "EHPAD SAINTE MONIQUE (bis)", true, "IDF AL", "bruno.secteur@vitalrest.com"), // sous-site : le site principal fait foi
+            new("440-1", "EHPAD SAINTE MONIQUE (bis)", true, "IDF AL", "bruno.secteur@vitalrest.com"), // IDF AL = groupe IDF : pas de conflit
+            new("440-5", "SAINTE MONIQUE 5", true, "CENTRE OUEST", "bruno.secteur@vitalrest.com"), // pas de compte à son code : celui du 440, qui fait foi
             new("501", "POLE GERIATRIQUE", false, "CENTRE OUEST", "alice.ancien@vitalrest.com"),  // fermé : sort des groupes
-            new("87", "EHPAD LES LILAS", true, "SUD EST", "inconnu@vitalrest.com"),               // pas de compte Microsoft
-            new("999", "NOUVEAU", true, "IDF", "bruno.secteur@vitalrest.com"),                    // absent de l'inventaire
+            new("87", "EHPAD LES LILAS", true, "CENTRE OUEST", "inconnu@vitalrest.com"),          // fiche sans compte relié : compte trouvé par son nom
+            new("999", "NOUVEAU", true, "IDF", "bruno.secteur@vitalrest.com"),                    // absent de l'inventaire : compte trouvé par son nom
+            new("777", "DEUX COMPTES", true, "IDF", "bruno.secteur@vitalrest.com"),               // deux comptes à ce code : laissé de côté
+            new("123", "AUCUN COMPTE", true, "IDF", "bruno.secteur@vitalrest.com"),
         ];
         var plan = ServiceSynchronisationOrganisation.Calculer(lignes, Sites, Comptes, Groupes());
 
         string[] Textes(T type) => plan.Changements.Where(c => c.Type == type).Select(ServiceSynchronisationOrganisation.Texte).ToArray();
-        Assert.Equal(["455 - FOYER HORIZON (455) : responsable Alice ANCIEN → Bruno SECTEUR"], Textes(T.Responsable));
-        Assert.Equal(["455 - FOYER HORIZON (455) ajouté au groupe REGION_SITE_CENTRE_OUEST"], Textes(T.AjoutGroupe));
-        Assert.Equal(["455 - FOYER HORIZON (455) retiré du groupe REGION_SITE_IDF", "501 - POLE GERIATRIQUE (501) retiré du groupe REGION_SITE_CENTRE_OUEST"], Textes(T.RetraitGroupe));
+        Assert.Equal(["455 - FOYER HORIZON (455) : responsable Alice ANCIEN → Bruno SECTEUR", "999 - NOUVEAU SITE (999) : responsable aucun → Bruno SECTEUR"], Textes(T.Responsable));
+        Assert.Equal(["455 - FOYER HORIZON (455) ajouté au groupe REGION_SITES_CENTRE_OUEST", "087 - EHPAD LES LILAS (87) ajouté au groupe REGION_SITES_CENTRE_OUEST",
+            "999 - NOUVEAU SITE (999) ajouté au groupe REGION_SITES_IDF"], Textes(T.AjoutGroupe));
+        Assert.Equal(["455 - FOYER HORIZON (455) retiré du groupe REGION_SITES_IDF", "501 - POLE GERIATRIQUE (501) retiré du groupe REGION_SITES_CENTRE_OUEST"], Textes(T.RetraitGroupe));
+        Assert.Equal(["440-5 → 440 - EHPAD SAINTE MONIQUE", "87 → 087 - EHPAD LES LILAS", "999 → 999 - NOUVEAU SITE"], plan.RapprochementsParNom);
         // Fiches de l'inventaire : responsable de secteur (nom de l'annuaire, ou son adresse s'il est inconnu)
         Assert.Equal([("087", "inconnu@vitalrest.com"), ("440-1", "Bruno SECTEUR"), ("455", "Bruno SECTEUR")],
             plan.Changements.Where(c => c.Type == T.ResponsableInventaire).Select(c => (c.Sites, c.Apres)).ToArray());
 
-        Assert.Equal((6, 5, 1, 3), (plan.Lignes, plan.Ouverts, plan.Fermes, plan.ComptesConcernes));
-        Assert.Contains(plan.Problemes, p => p.Contains("absent(s) de l'inventaire : 999"));
-        Assert.Contains(plan.Problemes, p => p.Contains("sans compte Microsoft relié") && p.Contains("087"));
-        Assert.Contains(plan.Problemes, p => p.Contains("régions différentes") && p.Contains("440"));
-        Assert.Contains(("IDF AL", "REGION_SITE_IDF_AL"), plan.Correspondances);
-        Assert.Contains(("SUD EST", (string?)null), plan.Correspondances);
+        Assert.Equal((9, 8, 1, 5), (plan.Lignes, plan.Ouverts, plan.Fermes, plan.ComptesConcernes));
+        Assert.Contains(plan.Problemes, p => p.Contains("1 site(s) ouvert(s) sans compte Microsoft trouvé") && p.EndsWith(": 123."));
+        Assert.Contains(plan.Problemes, p => p.Contains("plusieurs comptes à leur code") && p.Contains("777 (777 - CUISINE / 777 - SELF)"));
+        // 440-5 (CENTRE OUEST) partage le compte du 440 (IDF) : le site principal fait foi, signalé
+        Assert.Contains(plan.Problemes, p => p.Contains("régions différentes") && p.Contains("440, 440-1, 440-5") && p.Contains("440 (IDF)"));
+        Assert.Contains(("IDF AL", "REGION_SITES_IDF"), plan.Correspondances);
     }
 
     [Fact]
     public void Liste_de_diffusion_signalee_non_modifiable_et_responsable_inconnu()
     {
         var plan = ServiceSynchronisationOrganisation.Calculer(
-            [new("455", null, true, "Idf-Al", "personne@vitalrest.com")], Sites, Comptes, Groupes());
+            [new("455", null, true, "Sud-Est", "personne@vitalrest.com")], Sites, Comptes, Groupes());
         var ajout = Assert.Single(plan.Changements, c => c.Type == T.AjoutGroupe);
-        Assert.Equal(("REGION_SITE_IDF_AL", "liste de diffusion Exchange"), (ajout.Apres, ajout.Blocage));
-        Assert.Single(plan.Changements, c => c.Type == T.RetraitGroupe && c.Avant == "REGION_SITE_IDF");
+        Assert.Equal(("REGION_SITES_SUD_EST", "liste de diffusion Exchange"), (ajout.Apres, ajout.Blocage));
+        Assert.Single(plan.Changements, c => c.Type == T.RetraitGroupe && c.Avant == "REGION_SITES_IDF");
         Assert.DoesNotContain(plan.Changements, c => c.Type == T.Responsable);
         Assert.Contains(plan.Problemes, p => p.Contains("introuvable(s) dans l'annuaire") && p.Contains("personne@vitalrest.com"));
     }
@@ -82,7 +92,7 @@ public sealed class SynchronisationOrganisationTests
     {
         var plan = ServiceSynchronisationOrganisation.Calculer([new("455", null, true, "NORD EST", null)], Sites, Comptes, Groupes());
         Assert.DoesNotContain(plan.Changements, c => c.Type is T.AjoutGroupe or T.RetraitGroupe);
-        Assert.Contains(plan.Problemes, p => p.Contains("Aucun groupe REGION_SITE_") && p.Contains("NORD EST"));
+        Assert.Contains(plan.Problemes, p => p.Contains("Aucun groupe REGION_SITES_") && p.Contains("NORD EST"));
     }
 
     [Fact]
@@ -137,17 +147,17 @@ public sealed class SynchronisationOrganisationTests
         }
         var ecriture = new EcritureDeTest();
         var service = new ServiceSynchronisationOrganisation(fabrique, new AnnuaireDeTest(), ecriture, NullLogger<ServiceSynchronisationOrganisation>.Instance);
-        var plan = await service.AnalyserAsync([new("455", null, true, "IDF AL", "bruno.secteur@vitalrest.com"), new("501", null, false, "CENTRE OUEST", null)]);
+        var plan = await service.AnalyserAsync([new("455", null, true, "SUD EST", "bruno.secteur@vitalrest.com"), new("501", null, false, "CENTRE OUEST", null)]);
         var admin = new Utilisateur("Anthony Lelay", "anthony.lelay@vitalrest.com", true) { EstAdministrateur = true };
 
         await Assert.ThrowsAsync<ErreurMetier>(() => service.AppliquerAsync(plan, new Utilisateur("Lamine", "lamine@vitalrest.com", true)));
         var resultats = await service.AppliquerAsync(plan, admin);
 
-        // Ajout au groupe IDF AL non modifiable (liste de diffusion) : pas tenté
+        // Ajout au groupe SUD EST non modifiable (liste de diffusion) : pas tenté
         Assert.Equal(["manager s455=rs-b", "-g-co s501"], ecriture.Faites);
         var echec = Assert.Single(resultats, r => r.Erreur is not null);
         Assert.Contains("Droits d'écriture non accordés", echec.Erreur);
-        Assert.Equal("REGION_SITE_IDF", echec.Changement.Avant);
+        Assert.Equal("REGION_SITES_IDF", echec.Changement.Avant);
         await using var lecture = fabrique.CreateDbContext();
         Assert.Equal("Bruno SECTEUR", (await lecture.Sites.SingleAsync(x => x.Code == "455")).Responsable);
         Assert.Equal("rs-b", (await lecture.ComptesMicrosoft.SingleAsync(x => x.Id == "s455")).ResponsableId);

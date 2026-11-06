@@ -10,8 +10,8 @@
 <MudText Typo="Typo.h4" Class="mb-1">Synchronisation organisation</MudText>
 <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
     À partir du fichier Organisation (Excel), met à jour pour chaque site : le <b>responsable</b> de son compte Microsoft et de sa fiche
-    (le responsable de secteur, colonne « Email RS ») et son groupe <b>REGION_SITE_&lt;région&gt;</b>. Un site ouvert n'est que dans le groupe
-    de sa région ; un site fermé sort de tous les groupes REGION_SITE_. Rien n'est modifié avant « Appliquer » ; le fichier n'est pas conservé.
+    (le responsable de secteur, colonne « Email RS ») et son groupe <b>REGION_SITES_&lt;région&gt;</b> (IDF AL : REGION_SITES_IDF). Un site ouvert n'est que dans le groupe
+    de sa région ; un site fermé sort de tous les groupes REGION_SITES_. Rien n'est modifié avant « Appliquer » ; le fichier n'est pas conservé.
 </MudText>
 
 <MudPaper Elevation="0" Class="carte pa-4 mb-3">
@@ -78,6 +78,16 @@
             }
         </div>
 
+        @if (plan.RapprochementsParNom.Count > 0)
+        {
+            <MudExpansionPanels Elevation="0" Class="mt-4">
+                <MudExpansionPanel Text="@($"{plan.RapprochementsParNom.Count} site(s) dont le compte a été trouvé par son nom « code - … » : à vérifier")">
+                    <div style="columns:280px;font-size:.85rem">
+                        @foreach (var r in plan.RapprochementsParNom) { <div>@r</div> }
+                    </div>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        }
         @if (plan.Problemes.Count > 0)
         {
             <MudAlert Severity="Severity.Info" Class="mt-4" Dense="true">
@@ -163,7 +173,7 @@
             await using (var flux = fichier.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024)) await flux.CopyToAsync(ms);
             ms.Position = 0;
             var lignes = await Task.Run(() => ServiceSynchronisationOrganisation.Lire(ms));
-            _etape = "Lecture des groupes REGION_SITE_ dans l'annuaire Microsoft et calcul des changements…";
+            _etape = "Lecture des groupes REGION_SITES_ dans l'annuaire Microsoft et calcul des changements…";
             StateHasChanged();
             _plan = await Service.AnalyserAsync(lignes);
         }
@@ -178,7 +188,7 @@
         string Nombre(TypeChangementOrganisation t) => applicables.Count(c => c.Type == t).ToString();
         var ok = await Dialogues.ShowMessageBoxAsync("Appliquer dans Microsoft 365 et l'inventaire ?",
             $"{Nombre(TypeChangementOrganisation.Responsable)} responsable(s) de compte, {Nombre(TypeChangementOrganisation.AjoutGroupe)} ajout(s) et "
-            + $"{Nombre(TypeChangementOrganisation.RetraitGroupe)} retrait(s) de groupes REGION_SITE_ dans Microsoft 365, "
+            + $"{Nombre(TypeChangementOrganisation.RetraitGroupe)} retrait(s) de groupes REGION_SITES_ dans Microsoft 365, "
             + $"{Nombre(TypeChangementOrganisation.ResponsableInventaire)} fiche(s) de site dans l'inventaire.",
             yesText: "Appliquer", cancelText: "Annuler");
         if (ok != true) return;

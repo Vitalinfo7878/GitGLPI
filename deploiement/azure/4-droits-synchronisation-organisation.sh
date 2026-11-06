@@ -4,7 +4,7 @@
 #
 # Ce que fait le script (rejouable) : accorde à l'application deux autorisations d'application Microsoft Graph
 #   - User.ReadWrite.All        : définir le responsable (manager) des comptes des sites
-#   - GroupMember.ReadWrite.All : ajouter / retirer les comptes des sites des groupes REGION_SITE_…
+#   - GroupMember.ReadWrite.All : ajouter / retirer les comptes des sites des groupes REGION_SITES_…
 # L'application ne fait ces modifications que depuis la page « Synchronisation organisation », réservée aux
 # administrateurs principaux, après affichage des changements et confirmation. Chaque modification est notée dans le Journal.
 # Pour retirer ces droits : Entra ID > Applications d'entreprise > « Parc informatique Vitalrest » > Autorisations.

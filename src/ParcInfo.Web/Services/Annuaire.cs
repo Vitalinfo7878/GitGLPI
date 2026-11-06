@@ -181,9 +181,9 @@ public sealed class AnnuaireDemo : IAnnuaireMicrosoft
 
     public Task<IReadOnlyList<GroupeRegion>> LireGroupesAsync(string prefixe, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<GroupeRegion>>(
     [
-        new("g-idf", "REGION_SITE_IDF", true, null, new HashSet<string> { "d4" }),
-        new("g-co", "REGION_SITE_CENTRE_OUEST", true, null, new HashSet<string>()),
-        new("g-se", "REGION_SITE_SUD_EST", false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange", new HashSet<string>()),
+        new("g-idf", "REGION_SITES_IDF", true, null, new HashSet<string> { "d4" }),
+        new("g-co", "REGION_SITES_CENTRE_OUEST", true, null, new HashSet<string>()),
+        new("g-se", "REGION_SITES_SUD_EST", false, "liste de diffusion Exchange : à modifier dans le centre d'administration Exchange", new HashSet<string>()),
     ]);
 
     private static CompteAnnuaire Compte(string id, string nom, string? prenom, string? famille, string mail, string? poste, string? service, string? responsable, bool actif) =>

@@ -4,13 +4,14 @@ using Microsoft.Graph.Models.ODataErrors;
 using ParcInfo.Web.Data;
 using ParcInfo.Web.Domain;
 using ParcInfo.Web.Import;
+using System.Text.RegularExpressions;
 
 namespace ParcInfo.Web.Services;
 
 /// <summary>Ligne utile du fichier « Organisation » : un site, son état, sa région et son responsable de secteur.</summary>
 public sealed record LigneOrganisation(string Code, string? NomCommercial, bool Ouvert, string? Region, string? EmailResponsable);
 
-/// <summary>Groupe REGION_SITE_… de l'annuaire, avec ses membres (identifiants Entra) au moment de l'analyse.</summary>
+/// <summary>Groupe REGION_SITES_… de l'annuaire, avec ses membres (identifiants Entra) au moment de l'analyse.</summary>
 public sealed record GroupeRegion(string Id, string Nom, bool Modifiable, string? Raison, IReadOnlySet<string> Membres);
 
 public enum TypeChangementOrganisation
@@ -29,7 +30,7 @@ public sealed record ChangementOrganisation(
 
 public sealed record PlanOrganisation(
     int Lignes, int Ouverts, int Fermes, int ComptesConcernes, List<ChangementOrganisation> Changements,
-    List<(string Region, string? Groupe)> Correspondances, List<string> Problemes);
+    List<(string Region, string? Groupe)> Correspondances, List<string> Problemes, List<string> RapprochementsParNom);
 
 public sealed record ResultatChangement(ChangementOrganisation Changement, string? Erreur);
 
@@ -81,13 +82,19 @@ public sealed class EcritureAnnuaireSimulee(ILogger<EcritureAnnuaireSimulee> log
 
 /// <summary>
 /// Page « Synchronisation organisation » : à partir du fichier Organisation, met à jour pour chaque site
-/// le responsable (responsable de secteur, « Email RS ») de son compte Microsoft et de sa fiche, et son groupe REGION_SITE_&lt;région&gt;
-/// (un site ouvert n'est que dans le groupe de sa région ; un site fermé sort de tous les groupes REGION_SITE_).
+/// le responsable (responsable de secteur, « Email RS ») de son compte Microsoft et de sa fiche, et son groupe REGION_SITES_&lt;région&gt;
+/// (un site ouvert n'est que dans le groupe de sa région ; un site fermé sort de tous les groupes REGION_SITES_).
 /// </summary>
 public sealed class ServiceSynchronisationOrganisation(
     IDbContextFactory<ParcDbContext> dbFactory, IAnnuaireMicrosoft annuaire, IEcritureAnnuaire ecriture, ILogger<ServiceSynchronisationOrganisation> log)
 {
-    public const string PrefixeGroupes = "REGION_SITE_";
+    public const string PrefixeGroupes = "REGION_SITES_";
+
+    /// <summary>Régions du fichier sans groupe à elles : rattachées au groupe d'une autre région.</summary>
+    public static readonly IReadOnlyDictionary<string, string> RegionsRegroupees = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["IDF AL"] = "IDF",
+    };
 
     // --- Lecture du fichier ---
 
@@ -122,14 +129,22 @@ public sealed class ServiceSynchronisationOrganisation(
         c.DataType == XLDataType.DateTime ? DateOnly.FromDateTime(c.GetDateTime())
         : DateOnly.TryParseExact(c.GetString().Trim(), "dd/MM/yyyy", out var d) ? d : null;
 
-    /// <summary>Groupe de la région : REGION_SITE_ suivi du nom de la région, espaces et tirets en « _ », sans accents ni casse.</summary>
+    /// <summary>
+    /// Groupe de la région : REGION_SITES_ (ou REGION_SITE_) suivi du nom de la région, espaces et tirets en « _ », sans accents ni casse
+    /// (IDF AL : groupe de l'IDF).
+    /// </summary>
     public static GroupeRegion? GroupeDe(string? region, IReadOnlyList<GroupeRegion> groupes)
     {
         if (string.IsNullOrWhiteSpace(region)) return null;
+        region = RegionsRegroupees.GetValueOrDefault(region.Trim(), region);
         static string Cle(string s) => new(Normalisation.SansAccents(s).ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
-        var cle = Cle(PrefixeGroupes + region);
-        return groupes.FirstOrDefault(g => Cle(g.Nom) == cle);
+        string[] cles = [Cle("REGION_SITES_" + region), Cle("REGION_SITE_" + region)];
+        return groupes.FirstOrDefault(g => cles.Contains(Cle(g.Nom)));
     }
+
+    /// <summary>Code en tête du nom d'affichage d'un compte de site : « 455 - FOYER HORIZON » → 455, « A010-40 - … » → A010-40.</summary>
+    public static string? CodeDuNom(string nom) =>
+        Regex.Match(nom, @"^\s*([A-Za-z]?\d+(?:-\d+)?)\s+-\s") is { Success: true } m ? m.Groups[1].Value : null;
 
     private static bool MemeCode(string a, string b) =>
         string.Equals(a, b, StringComparison.OrdinalIgnoreCase) || string.Equals(a.TrimStart('0'), b.TrimStart('0'), StringComparison.OrdinalIgnoreCase);
@@ -147,32 +162,55 @@ public sealed class ServiceSynchronisationOrganisation(
         foreach (var c in comptes.Where(c => !c.Supprime))
             foreach (var a in c.Adresses) parAdresse.TryAdd(a, c);
 
-        // Rapprochement fichier → fiche du site → compte Microsoft du site
-        var absents = new List<string>();
+        // Comptes des sites par le code en tête de leur nom d'affichage (« 455 - FOYER HORIZON »)
+        var parCodeDuNom = parId.Values.Select(c => (Code: CodeDuNom(c.NomAffichage), Compte: c)).Where(x => x.Code is not null)
+            .GroupBy(x => x.Code!.TrimStart('0').ToUpperInvariant()).ToDictionary(g => g.Key, g => g.Select(x => x.Compte).ToList());
+        List<CompteMicrosoft> ParNom(string code) => parCodeDuNom.GetValueOrDefault(code.TrimStart('0').ToUpperInvariant()) ?? [];
+
+        // Rapprochement fichier → compte Microsoft du site : celui relié à la fiche du site, sinon celui qui porte son code
+        // (un sous-site sans compte à son code : le compte du site principal)
         var sansCompte = new List<string>();
-        var parCompte = new Dictionary<string, List<(LigneOrganisation Ligne, Site Site)>>();
+        var ambigus = new List<string>();
+        var parNom = new List<string>();
+        var parCompte = new Dictionary<string, List<(LigneOrganisation Ligne, Site? Site)>>();
         foreach (var l in lignes)
         {
             var site = sites.FirstOrDefault(s => MemeCode(s.Code, l.Code));
-            if (site is null) { if (l.Ouvert) absents.Add(l.Code); continue; }
 
             // Fiche du site : responsable de secteur (nom de l'annuaire, à défaut son adresse)
-            if (l.Ouvert && l.EmailResponsable is { } rs)
+            if (site is not null && l.Ouvert && l.EmailResponsable is { } rs)
             {
                 var nom = parAdresse.GetValueOrDefault(rs)?.NomAffichage ?? rs;
                 if (!string.Equals(site.Responsable, nom, StringComparison.Ordinal))
                     changements.Add(new ChangementOrganisation(TypeChangementOrganisation.ResponsableInventaire, site.Code, null, site.Libelle, site.Responsable, nom, SiteId: site.Id));
             }
-            if (site.EntraObjectId is not { } compteId || !parId.ContainsKey(compteId))
+
+            string? compteId = site?.EntraObjectId is { } relie && parId.ContainsKey(relie) ? relie : null;
+            if (compteId is null)
             {
-                if (l.Ouvert) sansCompte.Add(site.Code);
+                var candidats = ParNom(l.Code);
+                if (candidats.Count == 0 && l.Code.Contains('-')) candidats = ParNom(l.Code[..l.Code.IndexOf('-')]);
+                if (candidats.Count > 1)
+                {
+                    if (l.Ouvert) ambigus.Add($"{l.Code} ({string.Join(" / ", candidats.Select(c => c.NomAffichage))})");
+                    continue;
+                }
+                if (candidats.Count == 1)
+                {
+                    compteId = candidats[0].Id;
+                    if (l.Ouvert) parNom.Add($"{l.Code} → {candidats[0].NomAffichage}");
+                }
+            }
+            if (compteId is null)
+            {
+                if (l.Ouvert) sansCompte.Add(l.Code);
                 continue;
             }
             if (!parCompte.TryGetValue(compteId, out var liste)) parCompte[compteId] = liste = [];
             liste.Add((l, site));
         }
-        if (absents.Count > 0) problemes.Add($"{absents.Count} site(s) ouvert(s) du fichier absent(s) de l'inventaire : {string.Join(", ", absents.Order())}.");
-        if (sansCompte.Count > 0) problemes.Add($"{sansCompte.Count} site(s) ouvert(s) sans compte Microsoft relié (page Comptes Microsoft) : {string.Join(", ", sansCompte.Order())}.");
+        if (sansCompte.Count > 0) problemes.Add($"{sansCompte.Count} site(s) ouvert(s) sans compte Microsoft trouvé (ni relié à la fiche du site, ni à son nom « code - … ») : {string.Join(", ", sansCompte.Order())}.");
+        if (ambigus.Count > 0) problemes.Add($"{ambigus.Count} site(s) ouvert(s) avec plusieurs comptes à leur code, laissés de côté : {string.Join(" ; ", ambigus.Order())}.");
 
         var regionsSansGroupe = new SortedSet<string>();
         var rsInconnus = new SortedSet<string>();
@@ -183,7 +221,7 @@ public sealed class ServiceSynchronisationOrganisation(
             var ouverts = rattaches.Where(x => x.Ligne.Ouvert).ToList();
             // Sous-sites qui partagent le compte du site : la ligne du site principal (code sans tiret) fait foi
             var principal = ouverts.OrderBy(x => x.Ligne.Code.Contains('-')).ThenBy(x => x.Ligne.Code).Select(x => x.Ligne).FirstOrDefault();
-            if (ouverts.Select(x => x.Ligne.Region).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            if (ouverts.Select(x => x.Ligne.Region is { } reg ? RegionsRegroupees.GetValueOrDefault(reg.Trim(), reg.Trim()) : null).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
                 problemes.Add($"Compte {compte.NomAffichage} ({codes}) : régions différentes dans le fichier, celle du site {principal!.Code} ({principal.Region}) est retenue.");
 
             var cible = principal is null ? null : GroupeDe(principal.Region, groupes);
@@ -194,7 +232,7 @@ public sealed class ServiceSynchronisationOrganisation(
                 var blocage = g.Modifiable ? null : g.Raison;
                 if (g == cible && !membre)
                     changements.Add(new ChangementOrganisation(TypeChangementOrganisation.AjoutGroupe, codes, compteId, compte.NomAffichage, null, g.Nom, g.Id, Blocage: blocage));
-                // Site fermé : retiré de tous les groupes REGION_SITE_ ; site ouvert : seulement du groupe de sa région
+                // Site fermé : retiré de tous les groupes REGION_SITES_ ; site ouvert : seulement du groupe de sa région
                 else if (g != cible && membre && (principal is null || cible is not null))
                     changements.Add(new ChangementOrganisation(TypeChangementOrganisation.RetraitGroupe, codes, compteId, compte.NomAffichage, g.Nom, null, g.Id, Blocage: blocage));
             }
@@ -211,7 +249,8 @@ public sealed class ServiceSynchronisationOrganisation(
         var correspondances = lignes.Where(l => l.Ouvert && l.Region is not null).Select(l => l.Region!).Distinct(StringComparer.OrdinalIgnoreCase).Order()
             .Select(r => (r, GroupeDe(r, groupes)?.Nom)).ToList();
         return new PlanOrganisation(lignes.Count, lignes.Count(l => l.Ouvert), lignes.Count(l => !l.Ouvert), parCompte.Count,
-            changements.OrderBy(c => c.Type).ThenBy(c => c.Sites, StringComparer.OrdinalIgnoreCase).ToList(), correspondances, problemes);
+            changements.OrderBy(c => c.Type).ThenBy(c => c.Sites, StringComparer.OrdinalIgnoreCase).ToList(), correspondances, problemes,
+            parNom.Order(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
     public async Task<PlanOrganisation> AnalyserAsync(IReadOnlyList<LigneOrganisation> lignes, CancellationToken ct = default)
@@ -219,7 +258,8 @@ public sealed class ServiceSynchronisationOrganisation(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var sites = await db.Sites.AsNoTracking().ToListAsync(ct);
         var comptes = await db.ComptesMicrosoft.AsNoTracking().ToListAsync(ct);
-        var groupes = await annuaire.LireGroupesAsync(PrefixeGroupes, ct);
+        // REGION_SITES_… (et l'éventuelle forme REGION_SITE_…)
+        var groupes = await annuaire.LireGroupesAsync("REGION_SITE", ct);
         return Calculer(lignes, sites, comptes, groupes);
     }
 
