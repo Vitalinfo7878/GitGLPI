@@ -102,8 +102,20 @@ else
                             }
                             else if (_typeDest == TypeDetenteur.Site)
                             {
-                                <MudAutocomplete T="Site" Value="_site" ValueChanged="ChoisirSite" SearchFunc="ChercherSite" ToStringFunc="@(s => s?.Libelle ?? "")"
-                                                 Label="Site (code ou nom)" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
+                                <div class="d-flex align-center gap-1">
+                                    <MudAutocomplete T="Site" Value="_site" ValueChanged="ChoisirSite" SearchFunc="ChercherSite" ToStringFunc="@(s => s?.Libelle ?? "")"
+                                                     Label="Site (code ou nom)" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="200" />
+                                    @if (_site is not null)
+                                    {
+                                        <MudTooltip Text="Modifier ce site (code, nom, mail, compte Microsoft)">
+                                            <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => _editionSite = !_editionSite" aria-label="Modifier ce site" />
+                                        </MudTooltip>
+                                    }
+                                </div>
+                                @if (_editionSite && _site is not null)
+                                {
+                                    <EditionSite Site="_site" Modifie="SiteModifie" Annule="() => _editionSite = false" />
+                                }
                                 @if (_annuaireDisponible)
                                 {
                                     <MudAutocomplete T="CompteMicrosoft" SearchFunc="ChercherCompte" ValueChanged="ChoisirCompteSite"
@@ -301,6 +313,16 @@ else
     {
         _site = s;
         _d.EmailDetenteur = s?.Email;
+        _editionSite = false;
+    }
+
+    private bool _editionSite;
+
+    private async Task SiteModifie(Site s)
+    {
+        // Libellé recalculé avec le compte relié (nom d'affichage Microsoft)
+        await using var db = await DbFactory.CreateDbContextAsync();
+        ChoisirSite(await db.Sites.AsNoTracking().FirstAsync(x => x.Id == s.Id));
     }
 
     private void ChoisirPersonne(Personne? p)

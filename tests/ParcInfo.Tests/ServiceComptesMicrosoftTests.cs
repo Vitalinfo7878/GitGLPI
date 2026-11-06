@@ -218,4 +218,36 @@ public sealed class ServiceComptesMicrosoftTests : IDisposable
         Assert.False(await lecture.Personnes.AnyAsync(p => p.EntraObjectId == "c621"));
         Assert.Equal(2, await lecture.Sites.CountAsync());
     }
+
+    [Fact]
+    public async Task Site_relie_au_compte_d_une_personne_corrige_et_site_modifie()
+    {
+        int site, materiel;
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.ComptesMicrosoft.AddRange(
+                new CompteMicrosoft { Id = "c621", NomAffichage = "621 - CUISINE SARRAZINIERE", Email = "cuisine.sarraziniere@vitalrest.com", Actif = true },
+                new CompteMicrosoft { Id = "cingrid", NomAffichage = "Ingrid Antunes (ingridantunes)", Email = "ingrid.antunes@vitalrest.com", Actif = true });
+            var s = new Site { Code = "621", Nom = "Ingrid Antunes (ingridantunes)", Email = "ingrid.antunes@vitalrest.com", EntraObjectId = "cingrid" };
+            var m = new Materiel { NumInterne = "PC0621", Type = TypeMateriel.PcFixe, Statut = StatutMateriel.Attribue, Site = s };
+            db.AddRange(s, m, new Site { Code = "622" });
+            await db.SaveChangesAsync();
+            (site, materiel) = (s.Id, m.Id);
+        }
+        // Le compte du site choisi dans l'annuaire : le site 621 lui est relié, avec son adresse
+        var relie = await _service.SitePourCompteAsync("c621");
+        Assert.Equal((site, "c621", "cuisine.sarraziniere@vitalrest.com"), (relie.Id, relie.EntraObjectId, relie.Email));
+
+        // Code et nom corrigés : tout le matériel du site suit
+        var admin = Informatique with { EstGestionnaire = true };
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.ModifierSiteAsync(site, new ModificationSite("622", "X", null, "c621"), admin)); // code déjà pris
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.ModifierSiteAsync(site, new ModificationSite("621", "X", "pas-une-adresse", "c621"), admin));
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.ModifierSiteAsync(site, new ModificationSite("621", "X", null, null), new Utilisateur("Salarié", "s@vitalrest.com", false)));
+        await _service.ModifierSiteAsync(site, new ModificationSite(" 621a ", "CUISINE SARRAZINIERE", "Cuisine.Sarraziniere@vitalrest.com", "c621"), admin);
+        await using var lecture = _fabrique.CreateDbContext();
+        var m2 = await lecture.Materiels.Include(x => x.Site).SingleAsync(x => x.Id == materiel);
+        Assert.Equal(("621A", "CUISINE SARRAZINIERE", "cuisine.sarraziniere@vitalrest.com"), (m2.Site!.Code, m2.Site.Nom, m2.Site.Email));
+        Assert.True(await lecture.Journal.AnyAsync(j => j.Action == "Site modifié" && j.Details!.Contains("621A")));
+        Assert.True(m2.Site.ModifieALaMain); // la synchronisation de l'annuaire ne remplace plus ce nom
+    }
 }

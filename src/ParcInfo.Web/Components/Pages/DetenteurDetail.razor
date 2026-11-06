@@ -21,7 +21,20 @@ else
         @if (_partage) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Info" Icon="@Icons.Material.Outlined.Laptop">Poste partagé (télétravail)</MudChip> }
         else if (_compte is null) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Sans compte Microsoft</MudChip> }
         @if (_sites.Count > 0) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Icon="@Icons.Material.Outlined.Restaurant">@(_sites.Count == 1 ? "Site" : $"{_sites.Count} sites") @string.Join(", ", _sites.Select(s => s.Code))</MudChip> }
+        @if (_u!.EstGestionnaire)
+        {
+            @foreach (var s in _sites)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Edit" OnClick="() => _siteEdite = _siteEdite == s.Id ? null : s.Id">Modifier le site @s.Code</MudButton>
+            }
+        }
     </div>
+    @if (_sites.FirstOrDefault(s => s.Id == _siteEdite) is { } edite)
+    {
+        <div class="mb-4" style="max-width:640px">
+            <EditionSite Site="edite" Modifie="SiteModifie" Annule="() => _siteEdite = null" />
+        </div>
+    }
 
     <MudGrid Spacing="3">
         <MudItem xs="12" lg="4">
@@ -141,6 +154,13 @@ else
     private bool _partage;
     private CompteMicrosoft? _compte;
     private List<Site> _sites = [];
+    private int? _siteEdite;
+
+    private async Task SiteModifie(Site s)
+    {
+        _siteEdite = null;
+        await OnParametersSetAsync();
+    }
     private List<PeriodeDetention> _periodes = [];
     private List<Demande> _demandes = [];
     private List<Ticket> _tickets = [];

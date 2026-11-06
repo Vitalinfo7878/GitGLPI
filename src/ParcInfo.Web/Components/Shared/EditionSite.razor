@@ -1,0 +1,67 @@
+@inject ServiceComptesMicrosoft ComptesMicrosoft
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+
+@* Modification d'un site (code, nom, adresse, compte Microsoft) : tout son matériel suit ; rien n'est modifié dans Microsoft 365. *@
+<div class="edition-site">
+    <MudText Typo="Typo.subtitle2" Class="mb-2">Modifier le site</MudText>
+    <div class="d-flex flex-wrap gap-2">
+        <MudTextField @bind-Value="_code" Label="Code *" MaxLength="50" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px" />
+        <MudTextField @bind-Value="_nom" Label="Nom" MaxLength="400" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:220px;flex:1" />
+    </div>
+    <MudTextField @bind-Value="_email" Label="Adresse mail du site" MaxLength="200" InputType="InputType.Email" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+    <div class="d-flex align-center gap-2 mt-2">
+        <MudAutocomplete T="CompteMicrosoft" Value="_compte" ValueChanged="ChoisirCompte" SearchFunc="Chercher" Clearable="true"
+                         ToStringFunc="@(c => c is null ? "" : $"{c.NomAffichage} · {c.AdressePrincipale}")"
+                         Label="Compte Microsoft du site" Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="250" MinCharacters="2"
+                         HelperText="Vide : site sans compte Microsoft" />
+    </div>
+    <MudText Typo="Typo.caption" Class="d-block mt-1">Le code, le nom et l'adresse s'appliquent partout dans l'application, pour tout le matériel du site, et ne sont plus remplacés par ceux du compte Microsoft à la synchronisation de l'annuaire. Rien n'est modifié dans Microsoft 365.</MudText>
+    <div class="d-flex justify-end gap-2 mt-2">
+        <MudButton Variant="Variant.Text" OnClick="Annule">Annuler</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Enregistrer" Disabled="_envoi">Enregistrer</MudButton>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Site Site { get; set; } = default!;
+    [Parameter] public EventCallback<Site> Modifie { get; set; }
+    [Parameter] public EventCallback Annule { get; set; }
+
+    private string? _code, _nom, _email;
+    private CompteMicrosoft? _compte;
+    private bool _envoi;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        (_code, _nom, _email) = (Site.Code, Site.Nom, Site.Email);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _compte = Site.EntraObjectId is { } id ? await db.ComptesMicrosoft.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id) : null;
+    }
+
+    private Task<IEnumerable<CompteMicrosoft>> Chercher(string? texte, CancellationToken ct) =>
+        ComptesMicrosoft.ChercherComptesAsync(texte, ct).ContinueWith(t => (IEnumerable<CompteMicrosoft>)t.Result, ct);
+
+    private void ChoisirCompte(CompteMicrosoft? c)
+    {
+        _compte = c;
+        if (c is null) return;
+        _email = c.AdressePrincipale;
+        // Compte « 621 - CUISINE SARRAZINIERE » : code et nom repris s'ils sont vides
+        if (string.IsNullOrWhiteSpace(_nom) && c.NomAffichage.IndexOf(" - ", StringComparison.Ordinal) is > 0 and var i) _nom = c.NomAffichage[(i + 3)..].Trim();
+    }
+
+    private async Task Enregistrer()
+    {
+        _envoi = true;
+        try
+        {
+            var site = await ComptesMicrosoft.ModifierSiteAsync(Site.Id, new ModificationSite(_code, _nom, _email, _compte?.Id), await Courant.ObtenirAsync());
+            Snackbar.Add($"Site {site.Code} modifié.", Severity.Success);
+            await Modifie.InvokeAsync(site);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+        finally { _envoi = false; }
+    }
+}

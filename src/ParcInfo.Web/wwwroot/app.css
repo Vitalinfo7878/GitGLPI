@@ -100,3 +100,4 @@
 .texte-ups { padding: 10px 12px; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; background: var(--mud-palette-background-gray); }
 .texte-ups pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: .875rem; user-select: all; }
 .attribution-demande { padding: 8px 12px 10px; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; }
+.edition-site { padding: 10px 12px; margin: 6px 0; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; background: var(--mud-palette-background-gray); }

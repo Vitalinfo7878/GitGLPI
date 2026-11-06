@@ -32,6 +32,8 @@ public class Site
     public CompteMicrosoft? CompteMicrosoft { get; set; }
     /// <summary>Décision prise sur la page « Comptes Microsoft » : ce site n'a pas de compte.</summary>
     public bool SansCompteMicrosoft { get; set; }
+    /// <summary>Nom et adresse modifiés à la main : la synchronisation de l'annuaire ne les remplace plus par ceux du compte.</summary>
+    public bool ModifieALaMain { get; set; }
 
     public string Libelle => LibelleDe(Code, Nom, EntraObjectId != null);
 

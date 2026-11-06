@@ -6,6 +6,8 @@ using ParcInfo.Web.Import;
 
 namespace ParcInfo.Web.Services;
 
+public sealed record ModificationSite(string? Code, string? Nom, string? Email, string? CompteId);
+
 public sealed record RapportSynchro(int Comptes, int ReliesAutomatiquement, int ATrancher, int Departs, DateTime Le);
 
 /// <summary>Compte proposé pour une personne ou un site, avec la raison de la proposition.</summary>
@@ -155,7 +157,7 @@ public sealed class ServiceComptesMicrosoft(
             if (nom != p.NomComplet) changements.Add($"Détenteur renommé : {nom} → {p.NomComplet}");
             if (!string.Equals(email, p.Email, StringComparison.OrdinalIgnoreCase)) changements.Add($"{p.NomComplet} : mail {email ?? "—"} → {p.Email ?? "—"}");
         }
-        foreach (var s in await db.Sites.Include(s => s.CompteMicrosoft).Where(s => s.CompteMicrosoft != null).ToListAsync(ct))
+        foreach (var s in await db.Sites.Include(s => s.CompteMicrosoft).Where(s => s.CompteMicrosoft != null && !s.ModifieALaMain).ToListAsync(ct))
         {
             var (nom, email) = (s.Libelle, s.Email);
             s.Nom = s.CompteMicrosoft!.NomAffichage;
@@ -291,13 +293,58 @@ public sealed class ServiceComptesMicrosoft(
             db.Sites.Add(site);
             db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = "Annuaire Microsoft", Action = "Site créé", Details = $"Site {site.Code} créé depuis le compte {c.NomAffichage}" });
         }
-        else if (site.EntraObjectId is null)
+        // Site relié à un autre compte qui ne porte pas son code (ex. le compte d'une personne) : relié au compte du site
+        else if (site.EntraObjectId is null || !(await db.ComptesMicrosoft.AsNoTracking().Where(x => x.Id == site.EntraObjectId).Select(x => x.NomAffichage).FirstOrDefaultAsync(ct) is { } autre
+                     && ServiceSynchronisationOrganisation.CodeDuNom(autre) is { } autreCode && MemeCode(autreCode, code)))
         {
+            var ancienneAdresse = site.EntraObjectId is { } ancien
+                ? await db.ComptesMicrosoft.AsNoTracking().Where(x => x.Id == ancien).Select(x => x.Email ?? x.Upn).FirstOrDefaultAsync(ct) : null;
             site.EntraObjectId = c.Id;
-            site.Email ??= c.AdressePrincipale;
+            if (site.Email is null || string.Equals(site.Email, ancienneAdresse, StringComparison.OrdinalIgnoreCase)) site.Email = c.AdressePrincipale;
             db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = "Annuaire Microsoft", Action = "Compte Microsoft relié", Details = $"Site {site.Code} relié à {c.NomAffichage}" });
         }
         await db.SaveChangesAsync(ct);
+        return site;
+    }
+
+    /// <summary>
+    /// Modification d'un site par le service informatique (code, nom, adresse mail, compte Microsoft relié) : tout le matériel
+    /// du site suit. Rien n'est modifié dans Microsoft 365.
+    /// </summary>
+    public async Task<Site> ModifierSiteAsync(int id, ModificationSite m, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        var code = m.Code?.Replace(" ", "").ToUpperInvariant();
+        if (string.IsNullOrEmpty(code)) throw new ErreurMetier("Le code du site est obligatoire.");
+        if (code.Length > 50) throw new ErreurMetier("Code trop long.");
+        var email = string.IsNullOrWhiteSpace(m.Email) ? null : m.Email.Trim().ToLowerInvariant();
+        if (email is not null && !FormulaireDemande.EmailValide(email)) throw new ErreurMetier($"Adresse mail invalide : {email}.");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var site = await db.Sites.FirstOrDefaultAsync(s => s.Id == id, ct) ?? throw new ErreurMetier("Site introuvable.");
+        var autres = await db.Sites.Where(s => s.Id != id).Select(s => s.Code).ToListAsync(ct);
+        if (autres.Any(c => string.Equals(c.TrimStart('0'), code.TrimStart('0'), StringComparison.OrdinalIgnoreCase)))
+            throw new ErreurMetier($"Le code {code} est déjà celui d'un autre site.");
+        if (m.CompteId is { } compteId)
+        {
+            if (!await db.ComptesMicrosoft.AnyAsync(c => c.Id == compteId, ct)) throw new ErreurMetier("Compte Microsoft introuvable.");
+            if (await db.Personnes.AnyAsync(p => p.EntraObjectId == compteId, ct)) throw new ErreurMetier("Ce compte Microsoft est celui d'une personne.");
+        }
+
+        var avant = $"{site.Code} – {site.Nom} – {site.Email}";
+        (site.Code, site.Nom, site.Email) = (code, string.IsNullOrWhiteSpace(m.Nom) ? null : m.Nom.Trim(), email);
+        site.ModifieALaMain = true;
+        if (site.EntraObjectId != m.CompteId)
+        {
+            site.EntraObjectId = m.CompteId;
+            site.SansCompteMicrosoft = false;
+        }
+        db.Journal.Add(new Journal
+        {
+            Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Site modifié",
+            Details = JournalInventaire.Tronquer($"{avant} → {site.Code} – {site.Nom} – {site.Email}{(m.CompteId is null ? " (sans compte Microsoft)" : "")}"),
+        });
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) { throw new ErreurMetier("Enregistrement impossible : le code est peut-être déjà utilisé."); }
         return site;
     }
 

@@ -967,6 +967,9 @@ namespace ParcInfo.Web.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<bool>("ModifieALaMain")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Nom")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
