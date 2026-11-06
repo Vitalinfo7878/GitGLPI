@@ -137,11 +137,15 @@ public sealed class ServiceSynchronisationOrganisation(
     {
         if (string.IsNullOrWhiteSpace(region)) return null;
         region = RegionsRegroupees.GetValueOrDefault(region.Trim(), region);
-        static string Cle(string s) => new(Normalisation.SansAccents(s).ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
         string[] cles = [Cle("REGION_SITES_" + region), Cle("REGION_SITE_" + region)];
         // Nom affiché du groupe, ou à défaut son alias de messagerie (region_sites_idf@…)
         return groupes.FirstOrDefault(g => cles.Contains(Cle(g.Nom))) ?? groupes.FirstOrDefault(g => g.Alias is { } a && cles.Contains(Cle(a)));
     }
+
+    private static string Cle(string s) => new(Normalisation.SansAccents(s).ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+    /// <summary>Groupe de région de sites : nom ou alias qui commence par REGION_SITE (quelle que soit la ponctuation) ; les autres ne sont jamais touchés.</summary>
+    public static bool EstGroupeRegion(GroupeRegion g) => Cle(g.Nom).StartsWith("REGIONSITE") || (g.Alias is { } a && Cle(a).StartsWith("REGIONSITE"));
 
     /// <summary>Code en tête du nom d'affichage d'un compte de site : « 455 - FOYER HORIZON » → 455, « A010-40 - … » → A010-40.</summary>
     public static string? CodeDuNom(string nom) =>
@@ -158,6 +162,7 @@ public sealed class ServiceSynchronisationOrganisation(
     {
         var changements = new List<ChangementOrganisation>();
         var problemes = new List<string>();
+        groupes = groupes.Where(EstGroupeRegion).ToList();
         var parId = comptes.Where(c => !c.Supprime).ToDictionary(c => c.Id);
         var parAdresse = new Dictionary<string, CompteMicrosoft>(StringComparer.OrdinalIgnoreCase);
         foreach (var c in comptes.Where(c => !c.Supprime))
@@ -268,7 +273,8 @@ public sealed class ServiceSynchronisationOrganisation(
         var groupes = await annuaire.LireGroupesAsync("REGION_SITE", ct);
         return Calculer(lignes, sites, comptes, groupes) with
         {
-            GroupesLus = groupes.Select(g => g.Alias is { } a && !string.Equals(a, g.Nom, StringComparison.OrdinalIgnoreCase) ? $"{g.Nom} ({a})" : g.Nom).ToList(),
+            GroupesLus = groupes.OrderBy(g => !EstGroupeRegion(g)).ThenBy(g => g.Nom).Take(40)
+                .Select(g => (g.Alias is { } a && !string.Equals(a, g.Nom, StringComparison.OrdinalIgnoreCase) ? $"{g.Nom} ({a})" : g.Nom) + (EstGroupeRegion(g) ? "" : " [ignoré]")).ToList(),
         };
     }
 

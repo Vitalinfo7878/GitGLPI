@@ -73,7 +73,7 @@
         @if (plan.GroupesLus is { } lus)
         {
             <MudText Typo="Typo.body2" Class="mt-4">
-                <b>Groupes REGION_SITE… trouvés dans l'annuaire (nom ou adresse mail) :</b>
+                <b>Groupes de régions trouvés dans l'annuaire (nom ou adresse mail) :</b>
                 @(lus.Count == 0 ? "aucun" : string.Join(", ", lus))
             </MudText>
         }

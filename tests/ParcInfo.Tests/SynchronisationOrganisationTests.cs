@@ -180,4 +180,18 @@ public sealed class SynchronisationOrganisationTests
         Assert.Equal(("619-1", "env"), (plan.Changements.Single().Sites, plan.Changements.Single().CompteId));
         Assert.DoesNotContain(plan.Problemes, p => p.Contains("plusieurs comptes"));
     }
+
+    [Fact]
+    public void Seuls_les_groupes_REGION_SITE_sont_touches()
+    {
+        List<GroupeRegion> groupes =
+        [
+            new("g-idf", "REGION_SITES_IDF", true, null, new HashSet<string> { "s455" }),
+            new("g-dir", "Direction Région Centre Ouest", true, null, new HashSet<string> { "s455" }), // trouvé par la recherche large : jamais touché
+        ];
+        Assert.False(ServiceSynchronisationOrganisation.EstGroupeRegion(groupes[1]));
+        Assert.True(ServiceSynchronisationOrganisation.EstGroupeRegion(new("x", "Région Sites Sud Est", true, null, new HashSet<string>())));
+        var plan = ServiceSynchronisationOrganisation.Calculer([new("455", null, false, "CENTRE OUEST", null)], Sites, Comptes, groupes);
+        Assert.Equal(["REGION_SITES_IDF"], plan.Changements.Where(c => c.Type == T.RetraitGroupe).Select(c => c.Avant));
+    }
 }

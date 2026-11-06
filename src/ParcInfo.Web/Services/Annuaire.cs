@@ -141,6 +141,17 @@ public sealed class AnnuaireGraph(IConfiguration config) : IAnnuaireMicrosoft
                 r.QueryParameters.Select = ["id", "displayName", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
                 r.QueryParameters.Top = 999;
             }, ct), ct));
+        // Rien avec ce début de nom : recherche plus large des groupes dont le nom ou l'adresse contient « region »
+        // (« Région Sites IDF », « region.sites.idf@… ») ; la correspondance avec les régions se fait ensuite sans tenir compte de la forme
+        if (groupes.Count == 0)
+            groupes.AddRange(await ToutLire<Group, GroupCollectionResponse>(await _graph.Groups.GetAsync(r =>
+            {
+                r.QueryParameters.Search = "\"displayName:region\" OR \"mail:region\"";
+                r.QueryParameters.Count = true;
+                r.QueryParameters.Select = ["id", "displayName", "mailNickname", "mailEnabled", "securityEnabled", "groupTypes", "onPremisesSyncEnabled"];
+                r.QueryParameters.Top = 999;
+                r.Headers.Add("ConsistencyLevel", "eventual");
+            }, ct), ct));
         groupes = groupes.DistinctBy(g => g.Id).ToList();
         var resultat = new List<GroupeRegion>();
         foreach (var g in groupes.Where(g => g.Id is not null && g.DisplayName is not null).OrderBy(g => g.DisplayName))
