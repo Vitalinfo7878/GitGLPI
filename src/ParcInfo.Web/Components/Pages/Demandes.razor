@@ -67,7 +67,7 @@ else
         {
             "terminees" => Terminees.OrderByDescending(d => d.RealiseeLe ?? d.ModifieLe),
             "valider" => AValider,
-            "traiter" => ATraiter.OrderByDescending(d => d.Priorite).ThenBy(d => d.Echeance ?? DateOnly.MaxValue),
+            "traiter" => ATraiter,
             _ => _demandes ?? [],
         })
         .Where(d => string.IsNullOrWhiteSpace(_recherche)
@@ -76,7 +76,8 @@ else
     protected override async Task OnInitializedAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _demandes = await db.Demandes.AsNoTracking().OrderByDescending(d => d.Numero).ToListAsync();
+        // De la plus ancienne à la plus récente (sauf « Terminées » : les dernières réalisées d'abord)
+        _demandes = await db.Demandes.AsNoTracking().OrderBy(d => d.CreeLe).ThenBy(d => d.Numero).ToListAsync();
         if (!AValider.Any()) _vue = ATraiter.Any() ? "traiter" : "toutes";
     }
 
