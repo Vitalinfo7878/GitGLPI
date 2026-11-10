@@ -1,4 +1,6 @@
 using ClosedXML.Excel;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ParcInfo.Web.Domain;
 using ParcInfo.Web.Services;
 using D = ParcInfo.Web.Services.DonneesActivite;
@@ -70,5 +72,29 @@ public sealed class ServiceActiviteTests : IDisposable
         Assert.Equal(["Synthèse", "Répartitions", "Tickets", "Demandes", "Mouvements"], wb.Worksheets.Select(w => w.Name));
         Assert.Contains("Octobre 2026", wb.Worksheet("Synthèse").Cell(1, 1).GetString());
         Assert.Equal(1, wb.Worksheet("Tickets").RowsUsed().Count() - 1); // le ticket interne n'est pas compté
+    }
+
+    [Fact]
+    public async Task Rapport_envoye_aux_abonnes_une_fois_en_debut_de_mois()
+    {
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            db.DroitsAcces.Add(new DroitAcces { Email = "thomas.verchere@groupe-vitalrest.com", NotifRapportMensuel = true });
+            await db.SaveChangesAsync();
+        }
+        var notifications = new ServiceNotifications(new EnvoiCourrielSimule(NullLogger<EnvoiCourrielSimule>.Instance), _fabrique,
+            new OptionsMessagerie { UrlApplication = "https://parc.test" }, NullLogger<ServiceNotifications>.Instance);
+        var service = new ServiceActivite(_fabrique, notifications);
+
+        Assert.Equal(0, await service.EnvoyerRapportDuMoisEcouleAsync(new DateOnly(2026, 11, 10))); // après la première semaine : rien
+        Assert.Equal(1, await service.EnvoyerRapportDuMoisEcouleAsync(new DateOnly(2026, 12, 1)));  // rapport de novembre
+        Assert.Equal(0, await service.EnvoyerRapportDuMoisEcouleAsync(new DateOnly(2026, 12, 2)));  // une seule fois
+        await Assert.ThrowsAsync<ErreurMetier>(() => service.EnvoyerMaintenantAsync(new DateOnly(2026, 11, 1), new Utilisateur("Lamine", "l@v.com", true)));
+
+        await using var lecture = _fabrique.CreateDbContext();
+        var mail = Assert.Single(await lecture.Courriels.ToListAsync());
+        Assert.Equal(("thomas.verchere@groupe-vitalrest.com", "Rapport d'activité informatique – Novembre 2026", "Rapport activite informatique 2026-11.xlsx"),
+            (mail.Destinataire, mail.Sujet, mail.PiecesJointes));
+        Assert.Contains("Tickets créés / résolus", System.Net.WebUtility.HtmlDecode(mail.CorpsHtml));
     }
 }

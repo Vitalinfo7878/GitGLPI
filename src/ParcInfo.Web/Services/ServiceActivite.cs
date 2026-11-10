@@ -31,8 +31,9 @@ public sealed record DonneesActivite(
 /// Onglet « Indicateurs » et rapport d'activité mensuel : évolution du parc, tickets (hors tickets internes de rapatriement),
 /// demandes informatiques et mouvements, mois par mois.
 /// </summary>
-public sealed class ServiceActivite(IDbContextFactory<ParcDbContext> dbFactory)
+public sealed class ServiceActivite(IDbContextFactory<ParcDbContext> dbFactory, ServiceNotifications? notifications = null)
 {
+    public const string ActionEnvoi = "Rapport d'activité envoyé";
     private static readonly TimeZoneInfo Paris = TimeZoneInfo.FindSystemTimeZoneById("Europe/Paris");
     private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
@@ -138,6 +139,65 @@ public sealed class ServiceActivite(IDbContextFactory<ParcDbContext> dbFactory)
     public async Task<byte[]> RapportAsync(DateOnly mois, Utilisateur u, CancellationToken ct = default)
     {
         if (!u.EstAdministrateur) throw new ErreurMetier("Réservé aux administrateurs principaux.");
+        var (octets, _) = await ConstruireAsync(mois, u.Nom, ct);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Rapport d'activité exporté", Details = NomMois(MoisDe(mois)) });
+        await db.SaveChangesAsync(ct);
+        return octets;
+    }
+
+    /// <summary>
+    /// Envoi du rapport du mois aux abonnés de la notification « Rapport d'activité mensuel ». Renvoie les adresses servies.
+    /// Un échec d'envoi est tracé dans les courriels (renvoi possible depuis la page Courriels).
+    /// </summary>
+    public async Task<List<string>> EnvoyerAsync(DateOnly mois, string auteur, CancellationToken ct = default)
+    {
+        if (notifications is null) return [];
+        mois = MoisDe(mois);
+        List<string> abonnes;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            abonnes = await ServiceDroits.AbonnesAsync(db, Notification.RapportMensuel, ct);
+        if (abonnes.Count == 0) return [];
+        var (octets, chiffres) = await ConstruireAsync(mois, auteur, ct);
+        string? erreur = null;
+        try { await notifications.RapportMensuelAsync(NomMois(mois), chiffres, octets, $"Rapport activite informatique {mois:yyyy-MM}.xlsx", abonnes, ct); }
+        catch (InvalidOperationException ex) { erreur = ex.Message; }
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = auteur, Action = ActionEnvoi,
+                Details = $"{NomMois(mois)} : {string.Join(", ", abonnes)}{(erreur is null ? "" : " (échec d'envoi, voir Courriels)")}" });
+            await db.SaveChangesAsync(ct);
+        }
+        if (erreur is not null) throw new ErreurMetier($"Le rapport n'a pas pu partir : {erreur}");
+        return abonnes;
+    }
+
+    /// <summary>Bouton « Envoyer par mail » de la page Indicateurs (administrateurs principaux).</summary>
+    public async Task<List<string>> EnvoyerMaintenantAsync(DateOnly mois, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstAdministrateur) throw new ErreurMetier("Réservé aux administrateurs principaux.");
+        var envoyes = await EnvoyerAsync(mois, u.Signature, ct);
+        if (envoyes.Count == 0) throw new ErreurMetier("Personne n'est abonné au « Rapport d'activité mensuel » (page Droits).");
+        return envoyes;
+    }
+
+    /// <summary>
+    /// Envoi automatique (passage quotidien de 8 h 30, jours ouvrés) : pendant la première semaine du mois, le rapport du mois écoulé
+    /// part une seule fois. Renvoie le nombre de destinataires.
+    /// </summary>
+    public async Task<int> EnvoyerRapportDuMoisEcouleAsync(DateOnly aujourdhui, CancellationToken ct = default)
+    {
+        if (aujourdhui.Day > 7) return 0;
+        var mois = MoisDe(aujourdhui).AddMonths(-1);
+        var trace = $"{NomMois(mois)} :";
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            if (await db.Journal.AnyAsync(j => j.Action == ActionEnvoi && j.Details != null && j.Details.StartsWith(trace), ct)) return 0;
+        try { return (await EnvoyerAsync(mois, "Envoi automatique", ct)).Count; }
+        catch (ErreurMetier) { return 0; } // tracé : pas de nouvel essai automatique, renvoi depuis la page Courriels
+    }
+
+    private async Task<(byte[] Octets, IndicateursMois Chiffres)> ConstruireAsync(DateOnly mois, string auteur, CancellationToken ct)
+    {
         mois = MoisDe(mois);
         var donnees = await LireAsync(ct);
         var courant = Calculer(donnees, mois);
@@ -163,7 +223,7 @@ public sealed class ServiceActivite(IDbContextFactory<ParcDbContext> dbFactory)
         ws.Cell(1, 1).Value = $"Rapport d'activité du service informatique – {nom}";
         ws.Cell(1, 1).Style.Font.Bold = true;
         ws.Cell(1, 1).Style.Font.FontSize = 14;
-        ws.Cell(2, 1).Value = $"Généré le {TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Paris):dd/MM/yyyy à HH:mm} par {u.Nom}. Tickets : hors tickets internes de rapatriement.";
+        ws.Cell(2, 1).Value = $"Généré le {TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Paris):dd/MM/yyyy à HH:mm} par {auteur}. Tickets : hors tickets internes de rapatriement.";
         ws.Cell(2, 1).Style.Font.FontColor = XLColor.Gray;
         var ligne = 4;
         void Entete(params string[] titres)
@@ -271,8 +331,6 @@ public sealed class ServiceActivite(IDbContextFactory<ParcDbContext> dbFactory)
 
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
-        db.Journal.Add(new Journal { Date = DateTime.UtcNow, Utilisateur = u.Signature, Action = "Rapport d'activité exporté", Details = nom });
-        await db.SaveChangesAsync(ct);
-        return ms.ToArray();
+        return (ms.ToArray(), courant);
     }
 }

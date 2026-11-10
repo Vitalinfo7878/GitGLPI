@@ -638,6 +638,9 @@ public sealed class RelanceDemandes(IServiceScopeFactory scopes, ILogger<Relance
                 if (n > 0) log.LogInformation("{Nombre} demande(s) en attente relancée(s)", n);
                 var fiches = await service.EnvoyerFichesAttributionAsync(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Paris).Date), ct);
                 if (fiches > 0) log.LogInformation("{Nombre} fiche(s) d'attribution envoyée(s)", fiches);
+                var rapport = await scope.ServiceProvider.GetRequiredService<ServiceActivite>()
+                    .EnvoyerRapportDuMoisEcouleAsync(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Paris).Date), ct);
+                if (rapport > 0) log.LogInformation("Rapport d'activité mensuel envoyé à {Nombre} destinataire(s)", rapport);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

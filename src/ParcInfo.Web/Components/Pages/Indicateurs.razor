@@ -2,6 +2,8 @@
 @attribute [Authorize(Policy = Roles.PolitiqueGestion)]
 @inject ServiceActivite Service
 @inject UtilisateurCourant Courant
+@inject IDialogService Dialogues
+@inject ISnackbar Snackbar
 
 <PageTitle>Indicateurs</PageTitle>
 <div class="d-flex flex-wrap align-center gap-3 mb-1">
@@ -16,12 +18,19 @@
     {
         <MudButton Href="@($"/export/rapport-activite/{_mois:yyyy-MM}.xlsx")" Target="_blank" Variant="Variant.Filled" Color="Color.Primary"
                    StartIcon="@Icons.Material.Outlined.FileDownload">Rapport @ServiceActivite.NomMois(_mois)</MudButton>
+        <MudTooltip Text="Envoie maintenant le rapport de ce mois aux abonnés du « Rapport d'activité mensuel » (page Droits)">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ForwardToInbox" OnClick="Envoyer" Disabled="_envoi">Envoyer par mail</MudButton>
+        </MudTooltip>
     }
 </div>
 <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
     Activité du service informatique pour le mois choisi, comparée au mois précédent, et évolution sur 12 mois.
     Tickets : hors tickets internes de rapatriement. Parc : matériel en service (hors rebut, vol ou perte) en fin de mois, depuis son entrée dans l'application.
-    @if (_u?.EstAdministrateur == true) { <span>Le rapport mensuel (Excel) reprend ces chiffres avec la liste des tickets, demandes et mouvements du mois.</span> }
+    @if (_u?.EstAdministrateur == true)
+    {
+        <span>Le rapport mensuel (Excel) reprend ces chiffres avec la liste des tickets, demandes et mouvements du mois ; il part automatiquement
+            le 1er jour ouvré de chaque mois aux abonnés du « Rapport d'activité mensuel » (page Droits).</span>
+    }
 </MudText>
 
 @if (_courant is null || _precedent is null || _evolution is null || _detail is null)
@@ -139,6 +148,23 @@ else
     private IndicateursMois? _courant, _precedent;
     private List<IndicateursMois>? _evolution;
     private DetailMois? _detail;
+    private bool _envoi;
+
+    private async Task Envoyer()
+    {
+        var ok = await Dialogues.ShowMessageBoxAsync("Envoyer le rapport ?",
+            $"Le rapport de {ServiceActivite.NomMois(_mois).ToLowerInvariant()} part par mail, en pièce jointe, aux abonnés du « Rapport d'activité mensuel ».",
+            yesText: "Envoyer", cancelText: "Annuler");
+        if (ok != true) return;
+        _envoi = true;
+        try
+        {
+            var envoyes = await Service.EnvoyerMaintenantAsync(_mois, _u!);
+            Snackbar.Add($"Rapport envoyé à {string.Join(", ", envoyes)}.", Severity.Success);
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+        finally { _envoi = false; }
+    }
 
     protected override async Task OnInitializedAsync()
     {

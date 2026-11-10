@@ -24,6 +24,8 @@ public enum Notification
     NouveauMateriel,
     [Display(Name = "Nouveau ticket", Description = "Mail à chaque nouveau ticket ouvert par un salarié (pas les tickets internes de rapatriement) : problème, demandeur, lieu, priorité, avec le lien vers le ticket.")]
     NouveauTicket,
+    [Display(Name = "Rapport d'activité mensuel", Description = "Le 1er jour ouvré de chaque mois, le rapport d'activité du service informatique du mois écoulé (Excel), avec ses chiffres clés.")]
+    RapportMensuel,
 }
 
 /// <summary>
@@ -48,6 +50,7 @@ public class DroitAcces
     public bool NotifReceptionAchat { get; set; }
     public bool NotifNouveauMateriel { get; set; }
     public bool NotifNouveauTicket { get; set; }
+    public bool NotifRapportMensuel { get; set; }
     public string? ModifiePar { get; set; }
     public DateTime ModifieLe { get; set; }
 
@@ -89,6 +92,7 @@ public class DroitAcces
         Notification.ReceptionAchat => NotifReceptionAchat,
         Notification.NouveauMateriel => NotifNouveauMateriel,
         Notification.NouveauTicket => NotifNouveauTicket,
+        Notification.RapportMensuel => NotifRapportMensuel,
         _ => false,
     };
 
@@ -99,6 +103,7 @@ public class DroitAcces
             case Notification.ReceptionAchat: NotifReceptionAchat = valeur; break;
             case Notification.NouveauMateriel: NotifNouveauMateriel = valeur; break;
             case Notification.NouveauTicket: NotifNouveauTicket = valeur; break;
+            case Notification.RapportMensuel: NotifRapportMensuel = valeur; break;
         }
     }
 

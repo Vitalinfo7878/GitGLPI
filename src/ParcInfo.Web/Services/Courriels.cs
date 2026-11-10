@@ -273,6 +273,39 @@ public sealed class ServiceNotifications(
         await EnvoyerATousAsync(destinataires, $"Nouveau ticket n° {t.Numero} – {t.Priorite.Libelle()} – {t.Titre}", corps, ct);
     }
 
+    // --- Rapport d'activité ---
+
+    /// <summary>Rapport d'activité mensuel en pièce jointe (Excel), avec les chiffres clés dans le mail.</summary>
+    public async Task RapportMensuelAsync(string mois, IndicateursMois c, byte[] fichier, string nomFichier, IEnumerable<string> destinataires, CancellationToken ct = default)
+    {
+        static string Ligne(string libelle, string valeur) =>
+            $"""<tr><td style="padding:3px 16px 3px 0;color:#5b6478">{E(libelle)}</td><td style="padding:3px 0;font-weight:600">{E(valeur)}</td></tr>""";
+        static string Jours(double? j) => j is { } v ? $"{v.ToString("0.#", CultureInfo.GetCultureInfo("fr-FR"))} j" : "—";
+        var corps = Gabarit($"""
+            <p style="margin:0 0 12px">Bonjour,</p>
+            <p style="margin:0 0 12px">Vous trouverez ci-joint le rapport d'activité du service informatique pour <b>{E(mois.ToLowerInvariant())}</b>. En bref :</p>
+            <table style="border-collapse:collapse;font-size:14px;margin:0 0 16px">
+            {Ligne("Tickets créés / résolus", $"{c.TicketsCrees} / {c.TicketsResolus}")}
+            {Ligne("Tickets ouverts en fin de mois", c.TicketsOuvertsFin.ToString())}
+            {Ligne("Délai moyen de résolution", Jours(c.ResolutionJours))}
+            {Ligne("Demandes reçues / réalisées", $"{c.DemandesRecues} / {c.DemandesRealisees}")}
+            {Ligne("Demandes en attente de validation", c.DemandesEnAttenteFin.ToString())}
+            {Ligne("Matériel en service en fin de mois", c.ParcFin.ToString())}
+            {Ligne("Achats / attributions / rebuts", $"{c.Achats} / {c.Attributions} / {c.Rebuts}")}
+            </table>
+            <p style="margin:0 0 8px">{Bouton(Url("indicateurs"), "Voir les indicateurs", "#233d8e")}</p>
+            <p style="margin:0">Le service informatique</p>
+            """);
+        var pieces = new[] { new PieceJointe(nomFichier, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fichier) };
+        var erreurs = new List<string>();
+        foreach (var dest in destinataires.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try { await EnvoyerEtTracerAsync(dest, $"Rapport d'activité informatique – {mois}", corps, ct, pieces); }
+            catch (InvalidOperationException ex) { erreurs.Add(ex.Message); }
+        }
+        if (erreurs.Count > 0) throw new InvalidOperationException(string.Join(" ", erreurs));
+    }
+
     // --- Inventaire ---
 
     /// <summary>Matériel entré au parc (réception d'achat ou ajout hors achat), pour les abonnés de la notification.</summary>
