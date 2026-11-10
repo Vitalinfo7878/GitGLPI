@@ -21,7 +21,7 @@ public sealed class EtiquettesUpsTests
             Peux tu stp préparer 2 étiquettes UPS pour demain 14h :
 
             Pc portable -5kg : Longueur 50 * largeur 30 * hauteur 10 cm
-            Ecran -10kg
+            Ecran -10kg : Longueur 35 * largeur 15 * hauteur 75 cm
 
             Marie DURAND (cheffe gérante)
             Site 440 – Restaurant Les Tilleuls, 12 rue de la Paix, 75002 Paris
@@ -43,8 +43,8 @@ public sealed class EtiquettesUpsTests
 
             Pc Fixe -5kg : Longueur 50 * largeur 30 * hauteur 20 cm
             Pc Fixe -5kg : Longueur 50 * largeur 30 * hauteur 20 cm
-            Ecran -10kg
-            Ecran -10kg
+            Ecran -10kg : Longueur 35 * largeur 15 * hauteur 75 cm
+            Ecran -10kg : Longueur 35 * largeur 15 * hauteur 75 cm
             Imprimante -10kg : Longueur 50 * largeur 45 * hauteur 30 cm
 
             Thomas VERCHÈRE
