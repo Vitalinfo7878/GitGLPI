@@ -15,7 +15,10 @@ permissions:
 env:
   AZURE_GROUPE: rg-parc-informatique
   AZURE_REGISTRE: acrparcinfo94eed4
-  AZURE_APPLICATION: ca-parc-informatique
+  # Application d'origine (environnement Vital Pilot) ; après la séparation (deploiement/azure/separation),
+  # le déploiement vise automatiquement la nouvelle application, dans son propre environnement
+  AZURE_APPLICATION_ANCIENNE: ca-parc-informatique
+  AZURE_APPLICATION_SEPAREE: ca-informatique
   IMAGE: parc-informatique
 
 jobs:
@@ -82,6 +85,16 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Application cible
+        run: |
+          if az containerapp show -g "$AZURE_GROUPE" -n "$AZURE_APPLICATION_SEPAREE" -o none 2>/dev/null; then
+            APPLICATION="$AZURE_APPLICATION_SEPAREE"
+          else
+            APPLICATION="$AZURE_APPLICATION_ANCIENNE"
+          fi
+          echo "Application mise à jour : $APPLICATION"
+          echo "AZURE_APPLICATION=$APPLICATION" >> "$GITHUB_ENV"
 
       - name: Construction et publication de l'image
         run: |

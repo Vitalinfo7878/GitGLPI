@@ -11,6 +11,9 @@ SERVEUR_PG="pg-vital-pilot-94eed4"       # on y ajoute seulement la base « parc
 GROUPE="rg-parc-informatique"
 REGION="francecentral"
 APPLICATION="ca-parc-informatique"
+APPLICATION_ANCIENNE="$APPLICATION"     # application d'origine, hébergée chez Vital Pilot (voir separation/)
+APPLICATION_SEPAREE="ca-informatique"   # application dans son propre environnement, après separation/2-basculer.sh
+ENV_SEPARE="cae-parc-informatique"
 IDENTITE_APP="id-parc-informatique"      # identité de l'application (lecture des images)
 IDENTITE_GITHUB="id-parc-github"         # identité du déploiement automatique GitHub
 BASE="parcinfo"                          # base PostgreSQL, et compte du même nom
@@ -61,7 +64,6 @@ confirmer() {
 # Charge les identifiants communs. Avec « sans-groupe », ne vérifie pas que notre groupe existe (script 0).
 verifier_abonnement() {
     az account set --subscription "$ABONNEMENT" || erreur "abonnement $ABONNEMENT inaccessible."
-    az group show -n "$GROUPE_VP" -o none 2>/dev/null || erreur "groupe $GROUPE_VP introuvable (droits de lecture insuffisants ?)."
     if [[ "${1:-}" != "sans-groupe" ]]; then
         az group show -n "$GROUPE" -o none 2>/dev/null || erreur "groupe $GROUPE introuvable : lancez d'abord 0-preparer-acces.sh."
     fi
@@ -71,6 +73,14 @@ verifier_abonnement() {
     # Nom de registre unique au niveau mondial, dérivé de l'abonnement (comme ceux de Vital Pilot)
     REGISTRE="acrparcinfo${ID_ABONNEMENT:0:6}"
     SERVEUR_REGISTRE="$REGISTRE.azurecr.io"
+    # Après la séparation (separation/2-basculer.sh), les scripts d'exploitation (SSO, mails…) visent la nouvelle
+    # application, qui ne dépend plus de Vital Pilot
+    if [[ -z "${GARDER_ANCIENNE:-}" ]] && az containerapp show -g "$GROUPE" -n "$APPLICATION_SEPAREE" -o none 2>/dev/null; then
+        APPLICATION="$APPLICATION_SEPAREE"
+        ADRESSE_APP="$APPLICATION.$(az containerapp env show -g "$GROUPE" -n "$ENV_SEPARE" --query properties.defaultDomain -o tsv)"
+        return 0
+    fi
+    az group show -n "$GROUPE_VP" -o none 2>/dev/null || erreur "groupe $GROUPE_VP introuvable (droits de lecture insuffisants ?)."
     ID_ENV=$(az containerapp env show -g "$GROUPE_VP" -n "$ENVIRONNEMENT" --query id -o tsv)
     ID_SERVEUR_PG=$(az postgres flexible-server show -g "$GROUPE_VP" -n "$SERVEUR_PG" --query id -o tsv)
     DOMAINE_ENV=$(az containerapp env show -g "$GROUPE_VP" -n "$ENVIRONNEMENT" --query properties.defaultDomain -o tsv)

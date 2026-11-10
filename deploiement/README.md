@@ -17,6 +17,8 @@ Adresse de l'application : `https://ca-parc-informatique.salmonmushroom-95a18e16
 
 > Prévenez votre collègue responsable de Vital Pilot avant de commencer.
 
+> Pour donner au Parc informatique son propre hébergement (plus rien de partagé avec Vital Pilot) : voir [azure/separation](azure/separation/README.md).
+
 ## Prérequis
 
 - Pouvoir **attribuer des rôles Azure** sur l'abonnement : par exemple un administrateur général qui a activé
