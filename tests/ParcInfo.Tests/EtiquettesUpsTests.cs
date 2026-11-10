@@ -20,7 +20,7 @@ public sealed class EtiquettesUpsTests
 
             Peux tu stp préparer 2 étiquettes UPS pour demain 14h :
 
-            Pc portable -5kg
+            Pc portable -5kg : Longueur 50 * largeur 30 * hauteur 10 cm
             Ecran -10kg
 
             Marie DURAND (cheffe gérante)
@@ -41,11 +41,11 @@ public sealed class EtiquettesUpsTests
 
             Peux tu stp préparer 5 étiquettes UPS pour lundi 14h :
 
-            Pc Fixe -5kg
-            Pc Fixe -5kg
+            Pc Fixe -5kg : Longueur 50 * largeur 30 * hauteur 20 cm
+            Pc Fixe -5kg : Longueur 50 * largeur 30 * hauteur 20 cm
             Ecran -10kg
             Ecran -10kg
-            Imprimante -10kg
+            Imprimante -10kg : Longueur 50 * largeur 45 * hauteur 30 cm
 
             Thomas VERCHÈRE
             Site 087 – EHPAD Les Lilas, 4 avenue des Roses, 69003 Lyon
@@ -64,7 +64,7 @@ public sealed class EtiquettesUpsTests
 
             Peux tu stp préparer 1 étiquette UPS pour jeudi 14h :
 
-            Pc portable -5kg
+            Pc portable -5kg : Longueur 50 * largeur 30 * hauteur 10 cm
 
             Dominique MARTIN
             Siège – 10 rue du Commerce, 92100 Boulogne-Billancourt

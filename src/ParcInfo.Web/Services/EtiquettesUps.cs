@@ -11,10 +11,10 @@ public static class EtiquettesUps
 {
     public static string Colis(TypeMateriel t) => t switch
     {
-        TypeMateriel.PcFixe => "Pc Fixe -5kg",
-        TypeMateriel.PcPortable => "Pc portable -5kg",
+        TypeMateriel.PcFixe => "Pc Fixe -5kg : Longueur 50 * largeur 30 * hauteur 20 cm",
+        TypeMateriel.PcPortable => "Pc portable -5kg : Longueur 50 * largeur 30 * hauteur 10 cm",
         TypeMateriel.Ecran => "Ecran -10kg",
-        TypeMateriel.Imprimante => "Imprimante -10kg",
+        TypeMateriel.Imprimante => "Imprimante -10kg : Longueur 50 * largeur 45 * hauteur 30 cm",
         _ => t.Libelle(),
     };
 
