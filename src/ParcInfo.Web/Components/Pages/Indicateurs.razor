@@ -1,0 +1,209 @@
+@page "/indicateurs"
+@attribute [Authorize(Policy = Roles.PolitiqueGestion)]
+@inject ServiceActivite Service
+@inject UtilisateurCourant Courant
+
+<PageTitle>Indicateurs</PageTitle>
+<div class="d-flex flex-wrap align-center gap-3 mb-1">
+    <MudText Typo="Typo.h4">Indicateurs d'activité</MudText>
+    <MudSpacer />
+    <div style="min-width:200px">
+        <MudSelect T="DateOnly" Value="_mois" ValueChanged="ChoisirMois" Label="Mois" Variant="Variant.Outlined" Margin="Margin.Dense">
+            @foreach (var m in _moisPossibles) { <MudSelectItem Value="m">@ServiceActivite.NomMois(m)</MudSelectItem> }
+        </MudSelect>
+    </div>
+    @if (_u?.EstAdministrateur == true)
+    {
+        <MudButton Href="@($"/export/rapport-activite/{_mois:yyyy-MM}.xlsx")" Target="_blank" Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Outlined.FileDownload">Rapport @ServiceActivite.NomMois(_mois)</MudButton>
+    }
+</div>
+<MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+    Activité du service informatique pour le mois choisi, comparée au mois précédent, et évolution sur 12 mois.
+    Tickets : hors tickets internes de rapatriement. Parc : matériel en service (hors rebut, vol ou perte) en fin de mois, depuis son entrée dans l'application.
+    @if (_u?.EstAdministrateur == true) { <span>Le rapport mensuel (Excel) reprend ces chiffres avec la liste des tickets, demandes et mouvements du mois.</span> }
+</MudText>
+
+@if (_courant is null || _precedent is null || _evolution is null || _detail is null)
+{
+    <Attente />
+}
+else
+{
+    var (c, p) = (_courant, _precedent);
+    var nomPrecedent = ServiceActivite.NomMois(p.Mois).Split(' ')[0].ToLowerInvariant();
+
+    <MudText Typo="Typo.h6" Class="mb-2">Parc</MudText>
+    <MudGrid Spacing="2" Class="mb-4">
+        @Tuile("Matériel en service", c.ParcFin, p.ParcFin, null, nomPrecedent, "fin de mois")
+        @Tuile("Achats", c.Achats, p.Achats, null, nomPrecedent, "matériels entrés en stock")
+        @Tuile("Attributions", c.Attributions, p.Attributions, null, nomPrecedent)
+        @Tuile("Mises au rebut", c.Rebuts, p.Rebuts, null, nomPrecedent)
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Tickets</MudText>
+    <MudGrid Spacing="2" Class="mb-4">
+        @Tuile("Créés", c.TicketsCrees, p.TicketsCrees, null, nomPrecedent)
+        @Tuile("Résolus", c.TicketsResolus, p.TicketsResolus, null, nomPrecedent)
+        @Tuile("Ouverts", c.TicketsOuvertsFin, p.TicketsOuvertsFin, null, nomPrecedent, "fin de mois")
+        @Delai("Prise en charge", c.PriseEnChargeHeures, p.PriseEnChargeHeures, enJours: false, nomPrecedent)
+        @Delai("Résolution", c.ResolutionJours, p.ResolutionJours, enJours: true, nomPrecedent)
+        @Tuile("Satisfaction", c.Satisfaction, p.Satisfaction, "/ 5", nomPrecedent, "note moyenne")
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Demandes informatiques</MudText>
+    <MudGrid Spacing="2" Class="mb-4">
+        @Tuile("Reçues", c.DemandesRecues, p.DemandesRecues, null, nomPrecedent)
+        @Tuile("Validées", c.DemandesValidees, p.DemandesValidees, null, nomPrecedent, $"{c.DemandesRefusees} refusée(s)")
+        @Tuile("Réalisées", c.DemandesRealisees, p.DemandesRealisees, null, nomPrecedent)
+        @Tuile("En attente de validation", c.DemandesEnAttenteFin, p.DemandesEnAttenteFin, null, nomPrecedent, "fin de mois")
+        @Delai("Validation", c.ValidationJours, p.ValidationJours, enJours: true, nomPrecedent)
+        @Delai("Réalisation", c.RealisationJours, p.RealisationJours, enJours: true, nomPrecedent)
+    </MudGrid>
+
+    var mois = _evolution.Select(e => e.Mois).ToList();
+    <MudText Typo="Typo.h6" Class="mb-2">Évolution sur 12 mois</MudText>
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Tickets créés et résolus</b></MudText>
+                <EvolutionMensuelle Mois="mois" Serie1="@_evolution.Select(e => e.TicketsCrees).ToList()" Nom1="Créés"
+                                    Serie2="@_evolution.Select(e => e.TicketsResolus).ToList()" Nom2="Résolus" Titre="Tickets créés et résolus par mois" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Demandes reçues et réalisées</b></MudText>
+                <EvolutionMensuelle Mois="mois" Serie1="@_evolution.Select(e => e.DemandesRecues).ToList()" Nom1="Reçues"
+                                    Serie2="@_evolution.Select(e => e.DemandesRealisees).ToList()" Nom2="Réalisées" Titre="Demandes reçues et réalisées par mois" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Matériel en service (fin de mois)</b></MudText>
+                <EvolutionMensuelle Mois="mois" Serie1="@_evolution.Select(e => e.ParcFin).ToList()" Nom1="Matériels" Titre="Matériel en service en fin de mois" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Achats et attributions</b></MudText>
+                <EvolutionMensuelle Mois="mois" Serie1="@_evolution.Select(e => e.Achats).ToList()" Nom1="Achats"
+                                    Serie2="@_evolution.Select(e => e.Attributions).ToList()" Nom2="Attributions" Titre="Achats et attributions par mois" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudExpansionPanels Elevation="0" Class="carte mb-4">
+        <MudExpansionPanel Text="Les chiffres des 12 mois (tableau)">
+            <div style="overflow-x:auto">
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <thead><tr><th>Mois</th><th>Parc</th><th>Achats</th><th>Attributions</th><th>Rebuts</th><th>Tickets créés</th><th>Tickets résolus</th><th>Demandes reçues</th><th>Demandes réalisées</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in Enumerable.Reverse(_evolution))
+                        {
+                            <tr><td>@ServiceActivite.NomMois(e.Mois)</td><td>@e.ParcFin</td><td>@e.Achats</td><td>@e.Attributions</td><td>@e.Rebuts</td>
+                                <td>@e.TicketsCrees</td><td>@e.TicketsResolus</td><td>@e.DemandesRecues</td><td>@e.DemandesRealisees</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Détail de @ServiceActivite.NomMois(_mois).ToLowerInvariant()</MudText>
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Elevation="0" Class="carte pa-4"><MudText Typo="Typo.subtitle2" Class="mb-2">Tickets par type de problème</MudText>
+                <Barres Donnees="_detail.TicketsParCategorie" Titre="Tickets par type de problème" Vide="Aucun ticket ce mois-ci." /></MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Elevation="0" Class="carte pa-4"><MudText Typo="Typo.subtitle2" Class="mb-2">Demandes par objet</MudText>
+                <Barres Donnees="_detail.DemandesParObjet" Titre="Demandes par objet" Unite="demande(s)" Vide="Aucune demande ce mois-ci." /></MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Elevation="0" Class="carte pa-4"><MudText Typo="Typo.subtitle2" Class="mb-2">Mouvements par type</MudText>
+                <Barres Donnees="_detail.MouvementsParType" Titre="Mouvements par type" Unite="mouvement(s)" Vide="Aucun mouvement ce mois-ci." /></MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Elevation="0" Class="carte pa-4"><MudText Typo="Typo.subtitle2" Class="mb-2">Parc en service par type</MudText>
+                <Barres Donnees="_detail.ParcParType" Titre="Parc en service par type" Unite="matériel(s)" Vide="Pas encore de matériel." /></MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private Utilisateur? _u;
+    private DonneesActivite? _donnees;
+    private DateOnly _mois = ServiceActivite.MoisCourant();
+    private List<DateOnly> _moisPossibles = [];
+    private IndicateursMois? _courant, _precedent;
+    private List<IndicateursMois>? _evolution;
+    private DetailMois? _detail;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        _moisPossibles = Enumerable.Range(0, 24).Select(i => ServiceActivite.MoisCourant().AddMonths(-i)).ToList();
+        _donnees = await Service.LireAsync();
+        Calculer();
+    }
+
+    private void ChoisirMois(DateOnly m)
+    {
+        _mois = m;
+        Calculer();
+    }
+
+    private void Calculer()
+    {
+        _courant = ServiceActivite.Calculer(_donnees!, _mois);
+        _precedent = ServiceActivite.Calculer(_donnees!, _mois.AddMonths(-1));
+        _evolution = ServiceActivite.Evolution(_donnees!, _mois);
+        _detail = ServiceActivite.Detail(_donnees!, _mois);
+    }
+
+    private static readonly System.Globalization.CultureInfo Fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Durée lisible : minutes sous l'heure, heures sous le jour, sinon jours.</summary>
+    private static string Duree(double? valeur, bool enJours)
+    {
+        if (valeur is not { } v) return "—";
+        var heures = enJours ? v * 24 : v;
+        return heures < 1 ? $"{Math.Round(heures * 60):0} min" : heures < 24 ? $"{heures.ToString("0.#", Fr)} h" : $"{(heures / 24).ToString("0.#", Fr)} j";
+    }
+
+    /// <summary>Tuile d'un délai moyen, comparé au mois précédent.</summary>
+    private RenderFragment Delai(string libelle, double? valeur, double? avant, bool enJours, string moisPrecedent) => __builder =>
+    {
+        <MudItem xs="6" sm="4" md="2">
+            <MudPaper Elevation="0" Class="carte tuile-kpi">
+                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@libelle</MudText>
+                <div class="valeur">@Duree(valeur, enJours)</div>
+                <div class="ecart">délai moyen</div>
+                <div class="ecart">@(avant is null ? $"— en {moisPrecedent}" : $"{Duree(avant, enJours)} en {moisPrecedent}")</div>
+            </MudPaper>
+        </MudItem>
+    };
+
+    /// <summary>Tuile : valeur du mois, unité, et écart avec le mois précédent (sans jugement de couleur).</summary>
+    private RenderFragment Tuile(string libelle, double? valeur, double? avant, string? unite, string moisPrecedent, string? precision = null) => __builder =>
+    {
+        var ecart = valeur is { } v && avant is { } a ? Math.Round(v - a, 1) : (double?)null;
+        <MudItem xs="6" sm="4" md="2">
+            <MudPaper Elevation="0" Class="carte tuile-kpi">
+                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@libelle</MudText>
+                <div class="valeur">@(valeur?.ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")) ?? "—")@if (unite is not null && valeur is not null) {<span class="unite">@unite</span>}</div>
+                @if (precision is not null) { <div class="ecart">@precision</div> }
+                <div class="ecart">
+                    @(ecart switch
+                    {
+                        null => $"— en {moisPrecedent}",
+                        0 => $"= {moisPrecedent}",
+                        > 0 => $"▲ +{ecart.Value.ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"))} vs {moisPrecedent}",
+                        _ => $"▼ {ecart.Value.ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"))} vs {moisPrecedent}",
+                    })
+                </div>
+            </MudPaper>
+        </MudItem>
+    };
+}

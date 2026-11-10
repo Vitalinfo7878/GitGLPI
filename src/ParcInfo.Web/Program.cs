@@ -115,6 +115,7 @@ builder.Services.AddScoped<ServiceMouvements>();
 builder.Services.AddScoped<ServiceDemandes>();
 builder.Services.AddHostedService<RelanceDemandes>();
 builder.Services.AddScoped<ServiceTickets>();
+builder.Services.AddScoped<ServiceActivite>();
 // Annuaire Microsoft : lecture via Graph quand Entra ID est configuré, annuaire fictif en mode démo
 if (entraConfigure)
 {

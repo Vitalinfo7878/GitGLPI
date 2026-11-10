@@ -1,0 +1,48 @@
+@using System.Globalization
+@* Colonnes par mois (une ou deux séries, même échelle) ; survol : valeurs du mois ; le dernier mois (mois choisi) est mis en avant. *@
+@if (Serie2 is not null)
+{
+    <div class="legende">
+        <span><i style="background:var(--serie-1)"></i>@Nom1</span>
+        <span><i style="background:var(--serie-2)"></i>@Nom2</span>
+    </div>
+}
+@{ var max = Math.Max(1, Mois.Select((_, i) => Math.Max(Serie1[i], Serie2?[i] ?? 0)).DefaultIfEmpty(0).Max()); }
+<div class="mois" role="table" aria-label="@Titre">
+    @for (var i = 0; i < Mois.Count; i++)
+    {
+        var (a, b) = (Serie1[i], Serie2?[i]);
+        var dernier = i == Mois.Count - 1;
+        <div class="mois-colonne" role="row" title="@($"{Nom(Mois[i])} : {a} {Nom1.ToLowerInvariant()}{(b is { } v ? $", {v} {Nom2!.ToLowerInvariant()}" : "")}")">
+            @if (dernier)
+            {
+                <div class="mois-valeur">@a@(b is { } v2 ? $" / {v2}" : "")</div>
+            }
+            <div class="mois-barres">
+                <span role="cell" aria-label="@($"{a} {Nom1}")" style="height:@Pourcent(a, max);background:var(--serie-1)"></span>
+                @if (b is { } y)
+                {
+                    <span role="cell" aria-label="@($"{y} {Nom2}")" style="height:@Pourcent(y, max);background:var(--serie-2)"></span>
+                }
+            </div>
+        </div>
+    }
+</div>
+<div class="mois-libelles">
+    @for (var i = 0; i < Mois.Count; i++)
+    {
+        <span style="@(i == Mois.Count - 1 ? "font-weight:700;color:var(--mud-palette-text-primary)" : "")">@Mois[i].ToString("MMM yy", CultureInfo.GetCultureInfo("fr-FR"))</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<DateOnly> Mois { get; set; } = [];
+    [Parameter, EditorRequired] public List<int> Serie1 { get; set; } = [];
+    [Parameter, EditorRequired] public string Nom1 { get; set; } = "";
+    [Parameter] public List<int>? Serie2 { get; set; }
+    [Parameter] public string? Nom2 { get; set; }
+    [Parameter] public string Titre { get; set; } = "";
+
+    private static string Nom(DateOnly m) => ServiceActivite.NomMois(m);
+    private static string Pourcent(int v, int max) => (100.0 * v / max).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+}

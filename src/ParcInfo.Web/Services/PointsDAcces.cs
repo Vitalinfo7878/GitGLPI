@@ -85,6 +85,14 @@ public static class PointsDAcces
             return Classeur(wb, ws, "inventaire");
         }).RequireAuthorization(Roles.PolitiqueInventaire);
 
+        // Rapport d'activité mensuel (Excel) : administrateurs principaux ; mois au format aaaa-mm
+        app.MapGet("/export/rapport-activite/{mois}.xlsx", async (string mois, ClaimsPrincipal user, ServiceActivite activite) =>
+        {
+            if (!DateOnly.TryParseExact(mois + "-01", "yyyy-MM-dd", out var debut)) return Results.BadRequest();
+            var contenu = await activite.RapportAsync(debut, Utilisateur.Depuis(user));
+            return Results.File(contenu, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rapport activite informatique {mois}.xlsx");
+        }).RequireAuthorization(Roles.PolitiqueAdministration);
+
         app.MapGet("/export/mouvements.xlsx", async (IDbContextFactory<ParcDbContext> f) =>
         {
             await using var db = await f.CreateDbContextAsync();
