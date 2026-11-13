@@ -130,10 +130,6 @@ else
             {
                 <MudPaper Elevation="0" Class="carte pa-4 mb-3" Style="border-color:var(--mud-palette-success)">
                     <MudText Typo="Typo.h6" Class="mb-1">Le problème est-il réglé ?</MudText>
-                    @if (_t.Solution is not null)
-                    {
-                        <MudText Typo="Typo.body2" Class="mb-3" Style="white-space:pre-line"><b>Solution apportée :</b> @_t.Solution</MudText>
-                    }
                     <MudText Typo="Typo.body2">Votre avis sur la réponse apportée :</MudText>
                     <MudRating @bind-SelectedValue="_note" MaxValue="5" Size="Size.Large" Class="mb-2" />
                     <MudTextField @bind-Value="_avis" MaxLength="2000" Label="Commentaire ou explication si le problème persiste" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
@@ -228,7 +224,7 @@ else
                             </MudSelect>
                         </MudItem>
                         <MudItem xs="12">
-                            <MudTextField @bind-Value="_m.Solution" MaxLength="4000" Label="Solution apportée (visible par le demandeur)" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
+                            <MudTextField @bind-Value="_m.Solution" MaxLength="4000" Label="Solution apportée (interne, non visible par le demandeur)" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense"
                                           Error="@(Err(nameof(MiseAJourTicket.Solution)) is not null)" ErrorText="@Err(nameof(MiseAJourTicket.Solution))" />
                         </MudItem>
                         <MudItem xs="12">
@@ -261,7 +257,6 @@ else
                     <dl class="champ-lecture">
                         <Champ Libelle="Statut" Valeur="@_t.Statut.Libelle()" />
                         <Champ Libelle="Pris en charge par" Valeur="@_t.AssigneA" />
-                        @if (!_t.EstOuvert) { <Champ Libelle="Solution apportée" Valeur="@_t.Solution" /> }
                         @if (_t.ResoluLe is { } r) { <Champ Libelle="Résolu le" Valeur="@r.ToLocalTime().ToString("dd/MM/yyyy")" /> }
                     </dl>
                 </MudPaper>

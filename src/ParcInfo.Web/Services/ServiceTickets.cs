@@ -657,7 +657,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, S
     }
 
     /// <summary>Trace sur les tickets ouverts d'une demande (validation, envoi…) ; un refus clôt le rapatriement.</summary>
-    /// <summary>Ticket transformé en demande informatique : clos, avec le n° de la demande (visible du demandeur).</summary>
+    /// <summary>Ticket transformé en demande informatique : clos, avec le n° de la demande (dans l'historique, visible du demandeur).</summary>
     public static void FermerPourDemande(Ticket t, Demande d, Utilisateur u, DateTime maintenant)
     {
         var texte = $"Transformé en demande informatique n° {d.Numero} : la suite se fait sur la demande.";
