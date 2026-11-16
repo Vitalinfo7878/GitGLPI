@@ -539,7 +539,39 @@ public sealed class ServiceMouvements(
     /// (statut, détenteur) que lui donnait le mouvement précédent. Une fiche qui ne contenait que ce mouvement est supprimée avec lui.
     /// La suppression est notée dans le journal d'inventaire et peut être annulée (« Restaurer »).
     /// </summary>
-    public async Task<string> SupprimerMouvementAsync(int mouvementId, Utilisateur u, CancellationToken ct = default)
+    /// <summary>Ce que deviendra le matériel si l'on annule ce mouvement (pour la question posée avant l'annulation).</summary>
+    public sealed record ApercuAnnulation(int Numero, string Libelle, bool EstDernier, string? AncienneAffectation);
+
+    private static (DateOnly, int) OrdreMouvement(Mouvement x) => (x.Date ?? DateOnly.MinValue, x.Numero);
+
+    /// <summary>Affectation donnée par un mouvement : détenteur pour une attribution, sinon statut (« En stock »…).</summary>
+    private static string AffectationApres(Mouvement x)
+    {
+        var regle = RegleMouvement.Pour(x.Type);
+        var detenteur = x.DestinationSite?.Libelle ?? x.DestinationPersonne?.NomComplet;
+        return regle.DestinationEstDetenteur && detenteur is not null ? detenteur
+            : regle.StatutResultant == StatutMateriel.EnStock ? "Service informatique (en stock)" : regle.StatutResultant.Libelle();
+    }
+
+    public async Task<ApercuAnnulation> ApercuAnnulationAsync(int mouvementId, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var mv = await db.Mouvements.Include(x => x.Materiel).FirstOrDefaultAsync(x => x.Id == mouvementId, ct)
+            ?? throw new ErreurMetier("Mouvement introuvable.");
+        var autres = await db.Mouvements.Include(x => x.DestinationSite).Include(x => x.DestinationPersonne)
+            .Where(x => x.MaterielId == mv.MaterielId && x.Id != mv.Id).ToListAsync(ct);
+        var dernier = autres.All(x => OrdreMouvement(x).CompareTo(OrdreMouvement(mv)) < 0);
+        var precedent = dernier ? autres.MaxBy(OrdreMouvement) : null;
+        return new ApercuAnnulation(mv.Numero, $"{mv.Type.Libelle()} de {mv.Materiel.NumInterne}", dernier,
+            precedent is null ? null : AffectationApres(precedent));
+    }
+
+    /// <summary>
+    /// Annule (supprime) un mouvement. S'il s'agit du dernier mouvement du matériel, celui-ci revient à son ancienne affectation
+    /// (état donné par le mouvement précédent) ou, au choix ou à défaut de mouvement précédent, au service informatique (en stock).
+    /// Une fiche qui ne contenait que ce mouvement est supprimée. Restaurable depuis le journal d'inventaire.
+    /// </summary>
+    public async Task<string> SupprimerMouvementAsync(int mouvementId, Utilisateur u, CancellationToken ct = default, bool versServiceInformatique = false)
     {
         if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -547,7 +579,7 @@ public sealed class ServiceMouvements(
             .Include(x => x.DestinationSite).Include(x => x.DestinationPersonne).FirstOrDefaultAsync(x => x.Id == mouvementId, ct)
             ?? throw new ErreurMetier("Mouvement introuvable.");
         var m = mv.Materiel;
-        static (DateOnly, int) Ordre(Mouvement x) => (x.Date ?? DateOnly.MinValue, x.Numero);
+        static (DateOnly, int) Ordre(Mouvement x) => OrdreMouvement(x);
         var autres = await db.Mouvements.Include(x => x.DestinationSite).Include(x => x.DestinationPersonne)
             .Where(x => x.MaterielId == m.Id && x.Id != mv.Id).ToListAsync(ct);
         var inst = new InstantaneSuppressionMouvement
@@ -558,19 +590,21 @@ public sealed class ServiceMouvements(
         };
         var maintenant = DateTime.UtcNow;
         var suite = "";
-        // Dernier mouvement du matériel : retour à l'état donné par le mouvement précédent
-        if (autres.Count > 0 && autres.All(x => Ordre(x).CompareTo(Ordre(mv)) < 0))
+        // Dernier mouvement du matériel : retour à l'ancienne affectation (état donné par le mouvement précédent),
+        // ou au service informatique (en stock) si demandé ou s'il n'y a pas de mouvement précédent
+        if (autres.All(x => Ordre(x).CompareTo(Ordre(mv)) < 0))
         {
-            var precedent = autres.MaxBy(Ordre)!;
-            var regle = RegleMouvement.Pour(precedent.Type);
-            var (statut, site, personne) = (regle.StatutResultant,
-                regle.DestinationEstDetenteur ? precedent.DestinationSiteId : null, regle.DestinationEstDetenteur ? precedent.DestinationPersonneId : null);
+            var precedent = versServiceInformatique ? null : autres.MaxBy(Ordre);
+            var regle = precedent is null ? null : RegleMouvement.Pour(precedent.Type);
+            var (statut, site, personne) = regle is null ? (StatutMateriel.EnStock, (int?)null, (int?)null)
+                : (regle.StatutResultant, regle.DestinationEstDetenteur ? precedent!.DestinationSiteId : null, regle.DestinationEstDetenteur ? precedent!.DestinationPersonneId : null);
             if (statut != m.Statut || site != m.SiteId || personne != m.PersonneId)
             {
                 inst.EtatModifie = true;
                 (m.Statut, m.SiteId, m.PersonneId, m.ModifieLe) = (statut, site, personne, maintenant);
-                var detenteur = precedent.DestinationSite?.Libelle ?? precedent.DestinationPersonne?.NomComplet;
-                suite = $" ; {m.NumInterne} revient à « {statut.Libelle()} »{(regle.DestinationEstDetenteur && detenteur is not null ? $" ({detenteur})" : "")} comme après le mouvement n° {precedent.Numero}";
+                suite = precedent is null
+                    ? $" ; {m.NumInterne} revient au service informatique (en stock)"
+                    : $" ; {m.NumInterne} revient à « {statut.Libelle()} »{(regle!.DestinationEstDetenteur && (precedent.DestinationSite?.Libelle ?? precedent.DestinationPersonne?.NomComplet) is { } detenteur ? $" ({detenteur})" : "")} comme après le mouvement n° {precedent.Numero}";
             }
         }
         // Fiche qui ne contenait que ce mouvement : supprimée avec lui
@@ -590,7 +624,7 @@ public sealed class ServiceMouvements(
             Instantane = inst.Serialiser(),
         });
         await db.SaveChangesAsync(ct);
-        return $"Mouvement n° {mv.Numero} supprimé{ficheSupprimee}{suite}.";
+        return $"Mouvement n° {mv.Numero} annulé{ficheSupprimee}{suite}.";
     }
 
     /// <summary>

@@ -48,6 +48,17 @@ else
     <MudDataGrid T="Ligne" Breakpoint="Breakpoint.None" Items="_filtres" Hover="true" Dense="true" Elevation="0" Class="carte" RowsPerPage="50"
                  RowClick="Ouvrir" RowClass="lien-ligne" HorizontalScrollbar="true">
         <Columns>
+            <TemplateColumn T="Ligne" Title="" Sortable="false">
+                <CellTemplate>
+                    @* Sans ouvrir la fiche matériel (clic sur la ligne) *@
+                    <span @onclick:stopPropagation="true">
+                        <MudTooltip Text="Annuler ce mouvement (erreur, doublon) : le matériel revient à son ancienne affectation ou au service informatique">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Undo" Size="Size.Small" Color="Color.Error" aria-label="@($"Annuler le mouvement n° {context.Item.Numero}")"
+                                           OnClick="() => Annuler(context.Item)" />
+                        </MudTooltip>
+                    </span>
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.Numero" Title="N°" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <PropertyColumn Property="x => x.Date" Title="Date" HeaderClass="mobile-cache" CellClass="mobile-cache" Format="dd/MM/yyyy" />
             <PropertyColumn Property="x => x.TypeLibelle" Title="Type" />
@@ -62,17 +73,6 @@ else
                     {
                         <MudLink Href="@($"/fiches/{f}/pdf")" Target="_blank" @onclick:stopPropagation="true">@context.Item.Fiche</MudLink>
                     }
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn T="Ligne" Title="" Sortable="false" HeaderClass="mobile-cache" CellClass="mobile-cache">
-                <CellTemplate>
-                    @* Sans ouvrir la fiche matériel (clic sur la ligne) *@
-                    <span @onclick:stopPropagation="true">
-                        <MudTooltip Text="Supprimer ce mouvement (doublon, erreur)">
-                            <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" aria-label="@($"Supprimer le mouvement n° {context.Item.Numero}")"
-                                           OnClick="() => Supprimer(context.Item)" />
-                        </MudTooltip>
-                    </span>
                 </CellTemplate>
             </TemplateColumn>
         </Columns>
@@ -132,16 +132,14 @@ else
         _filtres = q.ToList();
     }
 
-    private async Task Supprimer(Ligne l)
+    private async Task Annuler(Ligne l)
     {
-        var ok = await Dialogues.ShowMessageBoxAsync($"Supprimer le mouvement n° {l.Numero} ?",
-            $"{l.TypeLibelle} de {l.NumInterne} ({l.Expediteur} → {l.Destination}). S'il s'agit du dernier mouvement du matériel, celui-ci reprend l'état du mouvement précédent ; "
-            + "une fiche qui ne contient que ce mouvement est supprimée avec lui. La suppression peut être annulée depuis le journal d'inventaire.",
-            yesText: "Supprimer", cancelText: "Annuler");
-        if (ok != true) return;
         try
         {
-            Snackbar.Add(await Service.SupprimerMouvementAsync(l.Id, await Courant.ObtenirAsync()), Severity.Success);
+            var choix = await AnnulationMouvement.DemanderAsync(Dialogues, await Service.ApercuAnnulationAsync(l.Id));
+            if (choix == AnnulationMouvement.Choix.Abandon) return;
+            Snackbar.Add(await Service.SupprimerMouvementAsync(l.Id, await Courant.ObtenirAsync(),
+                versServiceInformatique: choix == AnnulationMouvement.Choix.ServiceInformatique), Severity.Success);
             await Charger();
         }
         catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }

@@ -445,6 +445,74 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal((StatutMateriel.EnStock, (int?)null), (apres!.Statut, apres.PersonneId));
     }
 
+    private int SiteDeTest()
+    {
+        using var db = _fabrique.CreateDbContext();
+        var site = new Site { Code = "087", Nom = "EHPAD TEST", Email = "site087@vitalrest.com" };
+        db.Sites.Add(site); db.SaveChanges();
+        return site.Id;
+    }
+
+    private int IdMouvement(int numero)
+    {
+        using var db = _fabrique.CreateDbContext();
+        return db.Mouvements.Single(x => x.Numero == numero).Id;
+    }
+
+    private async Task<(StatutMateriel, int?, int?)> Etat(int materiel)
+    {
+        await using var db = _fabrique.CreateDbContext();
+        var m = await db.Materiels.FindAsync(materiel);
+        return (m!.Statut, m.SiteId, m.PersonneId);
+    }
+
+    [Fact]
+    public async Task Annulation_remet_l_ancienne_affectation_ou_le_service_informatique()
+    {
+        var (pc, _, personne) = Donnees();
+        var site = SiteDeTest();
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        var versSite = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site }, Informatique);
+
+        // Aperçu : dernier mouvement, ancienne affectation = la personne
+        var apercu = await _service.ApercuAnnulationAsync(IdMouvement(versSite.Numeros[0]));
+        Assert.True(apercu.EstDernier);
+        Assert.Equal("Camille TEST", apercu.AncienneAffectation);
+
+        // Par défaut : retour à l'ancienne affectation
+        var message = await _service.SupprimerMouvementAsync(IdMouvement(versSite.Numeros[0]), Informatique);
+        Assert.StartsWith($"Mouvement n° {versSite.Numeros[0]} annulé", message);
+        Assert.Equal((StatutMateriel.Attribue, (int?)null, (int?)personne), await Etat(pc));
+
+        // Au choix : retour au service informatique (en stock)
+        var autre = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site }, Informatique);
+        message = await _service.SupprimerMouvementAsync(IdMouvement(autre.Numeros[0]), Informatique, versServiceInformatique: true);
+        Assert.Contains("revient au service informatique (en stock)", message);
+        Assert.Equal((StatutMateriel.EnStock, (int?)null, (int?)null), await Etat(pc));
+
+        // Mouvement qui n'est pas le dernier : l'affectation actuelle ne change pas
+        var a1 = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationSiteId = site }, Informatique);
+        Assert.False((await _service.ApercuAnnulationAsync(IdMouvement(a1.Numeros[0]))).EstDernier);
+        Assert.DoesNotContain("revient", await _service.SupprimerMouvementAsync(IdMouvement(a1.Numeros[0]), Informatique));
+        Assert.Equal((StatutMateriel.Attribue, (int?)site, (int?)null), await Etat(pc));
+    }
+
+    [Fact]
+    public async Task Annulation_du_seul_mouvement_remet_le_materiel_au_service_informatique()
+    {
+        var (_, ecran, _) = Donnees(); // aucun mouvement avant l'attribution
+        var site = SiteDeTest();
+        var a = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [ecran], DestinationSiteId = site }, Informatique);
+        var id = IdMouvement(a.Numeros[0]);
+
+        var apercu = await _service.ApercuAnnulationAsync(id);
+        Assert.True(apercu.EstDernier);
+        Assert.Null(apercu.AncienneAffectation);
+        Assert.Contains("revient au service informatique", await _service.SupprimerMouvementAsync(id, Informatique));
+        Assert.Equal((StatutMateriel.EnStock, (int?)null, (int?)null), await Etat(ecran));
+    }
+
     [Fact]
     public async Task Historique_du_materiel_d_une_personne()
     {
