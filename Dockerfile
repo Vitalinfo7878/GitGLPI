@@ -1,7 +1,7 @@
 # Image de l'application « Parc informatique » pour Azure Container Apps
 # Construction : docker build -t parc-informatique .
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS construction
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS construction
 WORKDIR /src
 COPY src/ParcInfo.Web/ParcInfo.Web.csproj src/ParcInfo.Web/
 RUN dotnet restore src/ParcInfo.Web/ParcInfo.Web.csproj
