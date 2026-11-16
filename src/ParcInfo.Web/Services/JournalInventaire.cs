@@ -108,7 +108,8 @@ public static class JournalInventaire
 /// <summary>Mouvement d'un matériel supprimé, conservé pour sa restauration.</summary>
 public sealed record InstantaneMouvement(
     int Numero, string? NumeroOrigine, TypeMouvement Type, DateOnly? Date, string? Expediteur, int? DestinationSiteId, int? DestinationPersonneId,
-    string? DestinationLibre, string? Region, string? DocumentReference, DateOnly? DateReception, string? Commentaire, int? FicheId, string? CreePar, DateTime CreeLe);
+    string? DestinationLibre, string? Region, string? DocumentReference, DateOnly? DateReception, string? Commentaire, int? FicheId, string? CreePar, DateTime CreeLe,
+    string? ProfilMicrosoftEfface = null);
 
 /// <summary>
 /// État d'un matériel enregistré dans le journal avant une modification ou une suppression.
@@ -161,7 +162,7 @@ public sealed class InstantaneMateriel
         CleOffice = m.CleOffice, NumImmo = m.NumImmo, NumFacture = m.NumFacture, CreeLe = m.CreeLe, EmailDetenteur = emailDetenteur,
         Mouvements = (mouvements ?? []).OrderBy(x => x.Numero).Select(x => new InstantaneMouvement(x.Numero, x.NumeroOrigine, x.Type, x.Date, x.Expediteur,
             x.DestinationSiteId, x.DestinationPersonneId, x.DestinationLibre, x.Region, x.DocumentReference, x.DateReception, x.Commentaire, x.FicheId,
-            x.CreePar, x.CreeLe)).ToList(),
+            x.CreePar, x.CreeLe, x.ProfilMicrosoftEfface)).ToList(),
         Demandes = demandes?.ToList() ?? [],
     };
 
@@ -196,6 +197,8 @@ public sealed class InstantaneSuppressionMouvement
     public int? SiteId { get; set; }
     public int? PersonneId { get; set; }
     public InstantaneFiche? Fiche { get; set; }
+    /// <summary>Profil Microsoft remis sur le PC par l'annulation d'une entrée dans le SI (effacé de nouveau si on la restaure).</summary>
+    public string? ProfilRemis { get; set; }
 
     private static readonly JsonSerializerOptions Options = new() { Converters = { new JsonStringEnumConverter() } };
 

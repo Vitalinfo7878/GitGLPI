@@ -104,6 +104,7 @@ public class ParcDbContext(DbContextOptions<ParcDbContext> options) : DbContext(
         {
             e.HasIndex(x => x.Numero).IsUnique();
             e.Property(x => x.Commentaire).HasMaxLength(2000);
+            e.Property(x => x.ProfilMicrosoftEfface).HasMaxLength(320);
             e.HasOne(x => x.Materiel).WithMany(m => m.Mouvements).HasForeignKey(x => x.MaterielId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.DestinationSite).WithMany().HasForeignKey(x => x.DestinationSiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.DestinationPersonne).WithMany().HasForeignKey(x => x.DestinationPersonneId).OnDelete(DeleteBehavior.Restrict);

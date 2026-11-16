@@ -156,6 +156,9 @@ public class Mouvement
     public int? FicheId { get; set; }
     public Fiche? Fiche { get; set; }
 
+    /// <summary>Profil Microsoft effacé du PC par cette entrée dans le SI : remis si le mouvement est annulé.</summary>
+    public string? ProfilMicrosoftEfface { get; set; }
+
     public string? CreePar { get; set; }
     public DateTime CreeLe { get; set; }
 

@@ -498,6 +498,62 @@ public sealed class ServiceMouvementsTests : IDisposable
         Assert.Equal((StatutMateriel.Attribue, (int?)site, (int?)null), await Etat(pc));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)] // entrée enregistrée avant la mémorisation du profil sur le mouvement : retrouvé dans le journal
+    public async Task Annulation_d_une_entree_remet_le_profil_Microsoft(bool ancienneEntree)
+    {
+        var (pc, _, personne) = Donnees();
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            (await db.Materiels.FindAsync(pc))!.ProfilMicrosoft = "camille.test@vitalrest.com";
+            await db.SaveChangesAsync();
+        }
+        var entree = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        var id = IdMouvement(entree.Numeros[0]);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            Assert.Null((await db.Materiels.FindAsync(pc))!.ProfilMicrosoft);
+            if (ancienneEntree)
+            {
+                (await db.Mouvements.FindAsync(id))!.ProfilMicrosoftEfface = null;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        var message = await _service.SupprimerMouvementAsync(id, Informatique);
+        Assert.Contains("profil Microsoft camille.test@vitalrest.com remis", message);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = await db.Materiels.FindAsync(pc);
+            Assert.Equal((StatutMateriel.Attribue, (int?)personne, "camille.test@vitalrest.com"), (m!.Statut, m.PersonneId, m.ProfilMicrosoft));
+        }
+
+        // Restaurer l'entrée annulée efface de nouveau le profil
+        await using (var db = _fabrique.CreateDbContext())
+            await _service.RestaurerAsync((await db.Journal.SingleAsync(j => j.Action == JournalInventaire.MouvementSupprime)).Id, Informatique);
+        await using (var db = _fabrique.CreateDbContext())
+            Assert.Null((await db.Materiels.FindAsync(pc))!.ProfilMicrosoft);
+    }
+
+    [Fact]
+    public async Task Annulation_d_une_entree_vers_le_service_informatique_ne_remet_pas_le_profil()
+    {
+        var (pc, _, personne) = Donnees();
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            (await db.Materiels.FindAsync(pc))!.ProfilMicrosoft = "camille.test@vitalrest.com";
+            await db.SaveChangesAsync();
+        }
+        var entree = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        await _service.SupprimerMouvementAsync(IdMouvement(entree.Numeros[0]), Informatique, versServiceInformatique: true);
+        await using var db2 = _fabrique.CreateDbContext();
+        var m = await db2.Materiels.FindAsync(pc);
+        Assert.Equal((StatutMateriel.EnStock, (string?)null), (m!.Statut, m.ProfilMicrosoft));
+    }
+
     [Fact]
     public async Task Annulation_du_seul_mouvement_remet_le_materiel_au_service_informatique()
     {

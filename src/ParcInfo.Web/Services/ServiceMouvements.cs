@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using ParcInfo.Web.Data;
 using ParcInfo.Web.Domain;
@@ -303,6 +304,7 @@ public sealed class ServiceMouvements(
             if (d.Type == TypeMouvement.Restitution && d.EffacerProfilMicrosoft && !string.IsNullOrWhiteSpace(m.ProfilMicrosoft))
             {
                 profilsEffaces.Add($"{m.NumInterne} ({m.ProfilMicrosoft})");
+                mv.ProfilMicrosoftEfface = m.ProfilMicrosoft;
                 m.ProfilMicrosoft = null;
             }
             if (regle.DestinationEstDetenteur)
@@ -443,6 +445,7 @@ public sealed class ServiceMouvements(
                     DestinationPersonneId = x.DestinationPersonneId is { } dp && personnes.Contains(dp) ? dp : null,
                     FicheId = x.FicheId is { } f && fiches.Contains(f) ? f : null,
                     DateReception = x.DateReception, Commentaire = x.Commentaire, CreePar = x.CreePar, CreeLe = x.CreeLe,
+                    ProfilMicrosoftEfface = x.ProfilMicrosoftEfface,
                 });
             var demandes = await db.Demandes.Where(x => inst.Demandes.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct);
             foreach (var dem in demandes) m.Demandes.Add(new DemandeMateriel { DemandeId = dem, Le = maintenant, Par = u.Signature });
@@ -482,9 +485,11 @@ public sealed class ServiceMouvements(
                 DestinationSiteId = x.DestinationSiteId is { } ds && await db.Sites.AnyAsync(y => y.Id == ds, ct) ? ds : null,
                 DestinationPersonneId = x.DestinationPersonneId is { } dp && await db.Personnes.AnyAsync(y => y.Id == dp, ct) ? dp : null,
                 DestinationLibre = x.DestinationLibre, Region = x.Region, DocumentReference = x.DocumentReference, DateReception = x.DateReception,
-                Commentaire = x.Commentaire, Fiche = fiche, CreePar = x.CreePar, CreeLe = x.CreeLe,
+                Commentaire = x.Commentaire, Fiche = fiche, CreePar = x.CreePar, CreeLe = x.CreeLe, ProfilMicrosoftEfface = x.ProfilMicrosoftEfface,
             };
             db.Mouvements.Add(mv);
+            // L'annulation de cette entrée avait remis le profil Microsoft : l'entrée restaurée l'efface de nouveau
+            if (s.ProfilRemis is { } remis && m.ProfilMicrosoft == remis) m.ProfilMicrosoft = null;
             // La suppression avait remis le matériel dans l'état précédent : il retrouve l'état que ce mouvement lui donnait
             if (s.EtatModifie)
             {
@@ -553,6 +558,26 @@ public sealed class ServiceMouvements(
             : regle.StatutResultant == StatutMateriel.EnStock ? "Service informatique (en stock)" : regle.StatutResultant.Libelle();
     }
 
+    /// <summary>
+    /// Entrées enregistrées avant la mémorisation du profil sur le mouvement : profil retrouvé dans le journal
+    /// (« Mouvements 2120–2121 : … — profil Microsoft effacé : PC0001 (profil) »).
+    /// </summary>
+    private static async Task<string?> ProfilEffaceSelonJournalAsync(ParcDbContext db, Mouvement mv, string numInterne, CancellationToken ct)
+    {
+        var action = TypeMouvement.Restitution.Libelle();
+        var lignes = await db.Journal.Where(j => j.Action == action && j.Details != null && j.Details.Contains("profil Microsoft effacé"))
+            .Select(j => j.Details!).ToListAsync(ct);
+        foreach (var l in lignes)
+        {
+            var plage = Regex.Match(l, @"Mouvements (\d+)–(\d+)");
+            if (!plage.Success || mv.Numero < int.Parse(plage.Groups[1].Value) || mv.Numero > int.Parse(plage.Groups[2].Value)) continue;
+            var effaces = l[(l.IndexOf("profil Microsoft effacé", StringComparison.Ordinal))..];
+            var p = Regex.Match(effaces, $@"(?<![\w-]){Regex.Escape(numInterne)} \(([^()]+)\)");
+            if (p.Success) return p.Groups[1].Value;
+        }
+        return null;
+    }
+
     public async Task<ApercuAnnulation> ApercuAnnulationAsync(int mouvementId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -586,7 +611,8 @@ public sealed class ServiceMouvements(
         {
             MaterielId = m.Id, Statut = m.Statut, SiteId = m.SiteId, PersonneId = m.PersonneId,
             Mouvement = new InstantaneMouvement(mv.Numero, mv.NumeroOrigine, mv.Type, mv.Date, mv.Expediteur, mv.DestinationSiteId, mv.DestinationPersonneId,
-                mv.DestinationLibre, mv.Region, mv.DocumentReference, mv.DateReception, mv.Commentaire, mv.FicheId, mv.CreePar, mv.CreeLe),
+                mv.DestinationLibre, mv.Region, mv.DocumentReference, mv.DateReception, mv.Commentaire, mv.FicheId, mv.CreePar, mv.CreeLe,
+                mv.ProfilMicrosoftEfface),
         };
         var maintenant = DateTime.UtcNow;
         var suite = "";
@@ -598,13 +624,21 @@ public sealed class ServiceMouvements(
             var regle = precedent is null ? null : RegleMouvement.Pour(precedent.Type);
             var (statut, site, personne) = regle is null ? (StatutMateriel.EnStock, (int?)null, (int?)null)
                 : (regle.StatutResultant, regle.DestinationEstDetenteur ? precedent!.DestinationSiteId : null, regle.DestinationEstDetenteur ? precedent!.DestinationPersonneId : null);
+            // Entrée dans le SI annulée, matériel rendu à son détenteur : son profil Microsoft effacé à l'entrée est remis
+            if (mv.Type == TypeMouvement.Restitution && regle?.DestinationEstDetenteur == true && string.IsNullOrWhiteSpace(m.ProfilMicrosoft)
+                && (mv.ProfilMicrosoftEfface ?? await ProfilEffaceSelonJournalAsync(db, mv, m.NumInterne, ct)) is { } profil)
+            {
+                m.ProfilMicrosoft = profil;
+                inst.ProfilRemis = profil;
+            }
             if (statut != m.Statut || site != m.SiteId || personne != m.PersonneId)
             {
                 inst.EtatModifie = true;
                 (m.Statut, m.SiteId, m.PersonneId, m.ModifieLe) = (statut, site, personne, maintenant);
-                suite = precedent is null
+                suite = (precedent is null
                     ? $" ; {m.NumInterne} revient au service informatique (en stock)"
-                    : $" ; {m.NumInterne} revient à « {statut.Libelle()} »{(regle!.DestinationEstDetenteur && (precedent.DestinationSite?.Libelle ?? precedent.DestinationPersonne?.NomComplet) is { } detenteur ? $" ({detenteur})" : "")} comme après le mouvement n° {precedent.Numero}";
+                    : $" ; {m.NumInterne} revient à « {statut.Libelle()} »{(regle!.DestinationEstDetenteur && (precedent.DestinationSite?.Libelle ?? precedent.DestinationPersonne?.NomComplet) is { } detenteur ? $" ({detenteur})" : "")} comme après le mouvement n° {precedent.Numero}")
+                    + (inst.ProfilRemis is { } p ? $", profil Microsoft {p} remis" : "");
             }
         }
         // Fiche qui ne contenait que ce mouvement : supprimée avec lui
