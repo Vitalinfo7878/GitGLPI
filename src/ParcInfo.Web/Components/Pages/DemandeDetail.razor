@@ -198,6 +198,12 @@ else
                                             <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Outlined.Devices" OnClose="() => _attribues.Remove(m)">@m.NumInterne</MudChip>
                                         }
                                     </div>
+                                    @foreach (var pc in _attribues.Where(x => x.EstUnPc))
+                                    {
+                                        <MudTextField T="string" Value="@MotDePasse(pc)" ValueChanged="v => _motsDePasse[pc.Id] = v" MaxLength="400"
+                                                      Label="@($"Mot de passe de session – {pc.NumInterne}")" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2"
+                                                      HelperText="Enregistré dans l'inventaire et imprimé sur la fiche d'attribution." />
+                                    }
                                 }
                                 @if (AAttribuer.Count > 0)
                                 {
@@ -388,6 +394,9 @@ else
     private StatutRealisation _statut;
     private string? _commentaireInfo;
     private List<Materiel> _attribues = [];
+    /// <summary>Mots de passe de session saisis pour les PC attribués (n° de matériel → mot de passe).</summary>
+    private Dictionary<int, string?> _motsDePasse = [];
+    private string? MotDePasse(Materiel pc) => _motsDePasse.TryGetValue(pc.Id, out var v) ? v : pc.MotDePasseSession;
 
     // Attribution du matériel rattaché (mouvement + fiche FIA), au site de livraison ou à la personne
     private bool _attribuer = true;
@@ -490,6 +499,8 @@ else
         _statut = _d.StatutRealisation;
         _commentaireInfo = _d.CommentaireInformatique;
         _attribues = _d.Materiels.Select(x => x.Materiel).OrderBy(m => m.NumInterne).ToList();
+        _motsDePasse = [];
+        if (!_u.EstGestionnaire) foreach (var m in _attribues) m.MotDePasseSession = null; // jamais affiché hors service informatique
         if (_u!.EstGestionnaire && _siteAttribution is null && _personneAttribution is null)
         {
             var (site, personne) = await ServiceDemandes.DestinationParDefautAsync(db, _d);
@@ -670,6 +681,10 @@ else
         _envoi = true;
         try
         {
+            // Mots de passe des PC : dans l'inventaire, avant l'attribution pour figurer sur la fiche
+            var mdp = _attribues.Where(m => m.EstUnPc && _motsDePasse.ContainsKey(m.Id)).ToDictionary(m => m.Id, m => _motsDePasse[m.Id]);
+            if (mdp.Count > 0 && await Mouvements.DefinirMotsDePasseAsync(mdp, _u!) is var n and > 0)
+                Snackbar.Add(n == 1 ? "Mot de passe enregistré dans l'inventaire." : $"{n} mots de passe enregistrés dans l'inventaire.", Severity.Success);
             if (aAttribuer.Count > 0)
             {
                 var a = await Mouvements.CreerMouvementsAsync(new DemandeMouvement

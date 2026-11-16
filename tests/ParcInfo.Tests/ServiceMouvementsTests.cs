@@ -538,6 +538,55 @@ public sealed class ServiceMouvementsTests : IDisposable
     }
 
     [Fact]
+    public async Task Annulation_remet_la_fiche_materiel_comme_avant_le_mouvement()
+    {
+        var (pc, _, personne) = Donnees(); // mot de passe de session « secret »
+        await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc], DestinationPersonneId = personne }, Informatique);
+        var entree = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Restitution, MaterielIds = [pc] }, Informatique);
+        // Après l'entrée, la fiche est vidée (mot de passe effacé, enregistré dans le journal)
+        Assert.Equal(1, await _service.DefinirMotsDePasseAsync(new Dictionary<int, string?> { [pc] = null }, Informatique));
+
+        var message = await _service.SupprimerMouvementAsync(IdMouvement(entree.Numeros[0]), Informatique);
+        Assert.Contains("fiche matériel remise comme avant le mouvement (Mot de passe de session)", message);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = await db.Materiels.FindAsync(pc);
+            Assert.Equal((StatutMateriel.Attribue, (int?)personne, "secret"), (m!.Statut, m.PersonneId, m.MotDePasseSession));
+        }
+
+        // Défaire l'annulation : l'entrée revient avec la fiche telle qu'elle était
+        await using (var db = _fabrique.CreateDbContext())
+            await _service.RestaurerAsync((await db.Journal.SingleAsync(j => j.Action == JournalInventaire.MouvementSupprime)).Id, Informatique);
+        await using (var db = _fabrique.CreateDbContext())
+        {
+            var m = await db.Materiels.FindAsync(pc);
+            Assert.Equal((StatutMateriel.EnStock, (string?)null), (m!.Statut, m.MotDePasseSession));
+        }
+    }
+
+    [Fact]
+    public async Task Mot_de_passe_saisi_au_traitement_dans_l_inventaire_et_sur_la_fiche()
+    {
+        var (pc, ecran, personne) = Donnees();
+        var a = await _service.CreerMouvementsAsync(new DemandeMouvement { Type = TypeMouvement.Attribution, MaterielIds = [pc, ecran], DestinationPersonneId = personne }, Informatique);
+        DateTime? avant;
+        await using (var db = _fabrique.CreateDbContext()) avant = (await db.Fiches.FindAsync(a.Fiche!.Id))!.PdfGenereLe;
+
+        await Assert.ThrowsAsync<ErreurMetier>(() => _service.DefinirMotsDePasseAsync(new Dictionary<int, string?> { [pc] = "x" }, new Utilisateur("Thomas", "thomas@vitalrest.com", false)));
+        // L'écran est ignoré ; un mot de passe identique ne compte pas
+        Assert.Equal(1, await _service.DefinirMotsDePasseAsync(new Dictionary<int, string?> { [pc] = " Vital2026! ", [ecran] = "y" }, Informatique));
+        Assert.Equal(0, await _service.DefinirMotsDePasseAsync(new Dictionary<int, string?> { [pc] = "Vital2026!" }, Informatique));
+
+        await using var db2 = _fabrique.CreateDbContext();
+        Assert.Equal("Vital2026!", (await db2.Materiels.FindAsync(pc))!.MotDePasseSession);
+        Assert.Null((await db2.Materiels.FindAsync(ecran))!.MotDePasseSession);
+        var j = await db2.Journal.SingleAsync(x => x.Action == JournalInventaire.MaterielModifie && x.MaterielId == pc);
+        Assert.Contains("Mot de passe de session modifié", j.Details);
+        Assert.DoesNotContain("Vital2026", j.Details);
+        Assert.NotEqual(avant, (await db2.Fiches.FindAsync(a.Fiche.Id))!.PdfGenereLe); // fiche régénérée avec le mot de passe
+    }
+
+    [Fact]
     public async Task Annulation_d_une_entree_vers_le_service_informatique_ne_remet_pas_le_profil()
     {
         var (pc, _, personne) = Donnees();

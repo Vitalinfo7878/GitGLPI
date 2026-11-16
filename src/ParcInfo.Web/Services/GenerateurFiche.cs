@@ -109,6 +109,33 @@ public sealed class GenerateurFiche
             r.Cells[5].AddParagraph(m.Materiel.AnneeAcquisition?.ToString() ?? "");
         }
 
+        // Fiche d'attribution : mot de passe de session des PC attribués
+        var motsDePasse = fiche.Type == TypeFiche.Attribution
+            ? fiche.Mouvements.OrderBy(m => m.Numero).Select(m => m.Materiel)
+                .Where(m => m.EstUnPc && !string.IsNullOrWhiteSpace(m.MotDePasseSession)).ToList()
+            : [];
+        if (motsDePasse.Count > 0)
+        {
+            var titreMdp = section.AddParagraph("Mot de passe de session");
+            titreMdp.Format.Font.Bold = true;
+            titreMdp.Format.Font.Size = 12;
+            titreMdp.Format.Font.Color = Bleu;
+            titreMdp.Format.SpaceBefore = Unit.FromCentimeter(0.6);
+            titreMdp.Format.SpaceAfter = Unit.FromCentimeter(0.2);
+            var tm = section.AddTable();
+            tm.Borders.Width = 0.5;
+            tm.Borders.Color = new Color(0xc8, 0xcd, 0xd8);
+            tm.AddColumn(Unit.FromCentimeter(4.3));
+            tm.AddColumn(Unit.FromCentimeter(12.7));
+            foreach (var m in motsDePasse)
+            {
+                var r = tm.AddRow();
+                r.TopPadding = r.BottomPadding = Unit.FromPoint(2);
+                r.Cells[0].AddParagraph(m.NumInterne).Format.Font.Bold = true;
+                r.Cells[1].AddParagraph(m.MotDePasseSession!);
+            }
+        }
+
         if (fiche.Type == TypeFiche.Attribution)
         {
             var p = section.AddParagraph();

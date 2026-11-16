@@ -199,6 +199,8 @@ public sealed class InstantaneSuppressionMouvement
     public InstantaneFiche? Fiche { get; set; }
     /// <summary>Profil Microsoft remis sur le PC par l'annulation d'une entrée dans le SI (effacé de nouveau si on la restaure).</summary>
     public string? ProfilRemis { get; set; }
+    /// <summary>Fiche matériel juste avant l'annulation, quand l'annulation l'a remise comme avant le mouvement.</summary>
+    public InstantaneMateriel? EtatMateriel { get; set; }
 
     private static readonly JsonSerializerOptions Options = new() { Converters = { new JsonStringEnumConverter() } };
 

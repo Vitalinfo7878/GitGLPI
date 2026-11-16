@@ -489,7 +489,13 @@ public sealed class ServiceMouvements(
             };
             db.Mouvements.Add(mv);
             // L'annulation de cette entrée avait remis le profil Microsoft : l'entrée restaurée l'efface de nouveau
-            if (s.ProfilRemis is { } remis && m.ProfilMicrosoft == remis) m.ProfilMicrosoft = null;
+            if (s.EtatMateriel is { } fiche0)
+            {
+                var (num, type) = (m.NumInterne, m.Type);
+                fiche0.AppliquerChampsA(m);
+                (m.NumInterne, m.Type) = (num, type);
+            }
+            else if (s.ProfilRemis is { } remis && m.ProfilMicrosoft == remis) m.ProfilMicrosoft = null;
             // La suppression avait remis le matériel dans l'état précédent : il retrouve l'état que ce mouvement lui donnait
             if (s.EtatModifie)
             {
@@ -578,6 +584,20 @@ public sealed class ServiceMouvements(
         return null;
     }
 
+    /// <summary>
+    /// Fiche matériel telle qu'elle était juste après le mouvement (donc, hors statut, détenteur, région et profil, comme avant lui) :
+    /// la première modification enregistrée depuis dans le journal garde l'état d'avant. Null si la fiche n'a pas été modifiée depuis.
+    /// </summary>
+    private static async Task<InstantaneMateriel?> FicheAvantModificationsAsync(ParcDbContext db, int materielId, DateTime depuis, CancellationToken ct)
+    {
+        string[] actions = [JournalInventaire.MaterielModifie, JournalInventaire.MaterielRestaure, "Catégorie PC"];
+        var j = await db.Journal.Where(x => x.MaterielId == materielId && x.Date > depuis && actions.Contains(x.Action) && x.Instantane != null)
+            .OrderBy(x => x.Date).ThenBy(x => x.Id).FirstOrDefaultAsync(ct);
+        if (j is null) return null;
+        try { return InstantaneMateriel.Lire(j.Instantane!); }
+        catch (Exception) { return null; }
+    }
+
     public async Task<ApercuAnnulation> ApercuAnnulationAsync(int mouvementId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -620,10 +640,22 @@ public sealed class ServiceMouvements(
         // ou au service informatique (en stock) si demandé ou s'il n'y a pas de mouvement précédent
         if (autres.All(x => Ordre(x).CompareTo(Ordre(mv)) < 0))
         {
+            // Fiche matériel remise comme avant le mouvement : les modifications faites depuis (mot de passe, commentaire…) sont défaites
+            var avantAnnulation = InstantaneMateriel.Depuis(m, null);
+            var copie = (Materiel)db.Entry(m).CurrentValues.ToObject();
+            if (await FicheAvantModificationsAsync(db, m.Id, mv.CreeLe, ct) is { } fiche0)
+            {
+                var (num, type) = (m.NumInterne, m.Type);
+                fiche0.AppliquerChampsA(m);
+                (m.NumInterne, m.Type) = (num, type); // identité du matériel inchangée
+            }
             var precedent = versServiceInformatique ? null : autres.MaxBy(Ordre);
             var regle = precedent is null ? null : RegleMouvement.Pour(precedent.Type);
             var (statut, site, personne) = regle is null ? (StatutMateriel.EnStock, (int?)null, (int?)null)
                 : (regle.StatutResultant, regle.DestinationEstDetenteur ? precedent!.DestinationSiteId : null, regle.DestinationEstDetenteur ? precedent!.DestinationPersonneId : null);
+            // Retour au détenteur précédent : la région suit son site ou sa personne
+            if (regle?.DestinationEstDetenteur == true && (precedent!.DestinationSite?.RegionId ?? precedent.DestinationPersonne?.RegionId) is { } region)
+                m.RegionId = region;
             // Entrée dans le SI annulée, matériel rendu à son détenteur : son profil Microsoft effacé à l'entrée est remis
             if (mv.Type == TypeMouvement.Restitution && regle?.DestinationEstDetenteur == true && string.IsNullOrWhiteSpace(m.ProfilMicrosoft)
                 && (mv.ProfilMicrosoftEfface ?? await ProfilEffaceSelonJournalAsync(db, mv, m.NumInterne, ct)) is { } profil)
@@ -640,6 +672,16 @@ public sealed class ServiceMouvements(
                     : $" ; {m.NumInterne} revient à « {statut.Libelle()} »{(regle!.DestinationEstDetenteur && (precedent.DestinationSite?.Libelle ?? precedent.DestinationPersonne?.NomComplet) is { } detenteur ? $" ({detenteur})" : "")} comme après le mouvement n° {precedent.Numero}")
                     + (inst.ProfilRemis is { } p ? $", profil Microsoft {p} remis" : "");
             }
+            var regions = await db.Regions.ToDictionaryAsync(r => r.Id, r => r.Nom, ct);
+            var champs = JournalInventaire.Differences(copie, m, id => id is { } r && regions.TryGetValue(r, out var nom) ? nom : null)
+                .Select(c => c.Split(" : ")[0].Replace(" modifié(e)", ""))
+                .Where(c => c != "Profil Microsoft" || inst.ProfilRemis is null).ToList();
+            if (champs.Count > 0 || inst.ProfilRemis is not null)
+            {
+                inst.EtatMateriel = avantAnnulation;
+                m.ModifieLe = maintenant;
+            }
+            if (champs.Count > 0) suite += $" ; fiche matériel remise comme avant le mouvement ({string.Join(", ", champs)})";
         }
         // Fiche qui ne contenait que ce mouvement : supprimée avec lui
         var ficheSupprimee = "";
@@ -709,6 +751,53 @@ public sealed class ServiceMouvements(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var existants = await db.Personnes.Where(x => x.Partage).Select(x => x.NomComplet).ToListAsync(ct);
         return configures.Concat(existants).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Mots de passe de session des PC (saisis au traitement d'une demande) : enregistrés dans l'inventaire (journal d'inventaire),
+    /// et fiche de la dernière attribution du PC régénérée pour qu'elle les porte. Renvoie le nombre de PC modifiés.
+    /// </summary>
+    public async Task<int> DefinirMotsDePasseAsync(IReadOnlyDictionary<int, string?> motsDePasse, Utilisateur u, CancellationToken ct = default)
+    {
+        if (!u.EstGestionnaire) throw new ErreurMetier("Réservé au service informatique.");
+        if (motsDePasse.Values.Any(v => v?.Trim().Length > 400)) throw new ErreurMetier("Mot de passe trop long (400 caractères maximum).");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var ids = motsDePasse.Keys.ToList();
+        var pcs = await db.Materiels.Include(m => m.Personne).Include(m => m.Site)
+            .Where(m => ids.Contains(m.Id) && (m.Type == TypeMateriel.PcFixe || m.Type == TypeMateriel.PcPortable)).ToListAsync(ct);
+        var maintenant = DateTime.UtcNow;
+        var modifies = new List<int>();
+        foreach (var m in pcs)
+        {
+            var nouveau = Vide(motsDePasse[m.Id]);
+            if (nouveau == m.MotDePasseSession) continue;
+            var avant = (Materiel)db.Entry(m).CurrentValues.ToObject();
+            m.MotDePasseSession = nouveau;
+            m.ModifieLe = maintenant;
+            modifies.Add(m.Id);
+            db.Journal.Add(new Journal
+            {
+                Date = maintenant, Utilisateur = u.Signature, Action = JournalInventaire.MaterielModifie, MaterielId = m.Id,
+                Details = JournalInventaire.Tronquer($"{m.NumInterne} : {string.Join(" ; ", JournalInventaire.Differences(avant, m, _ => null))} (traitement d'une demande)"),
+                Instantane = InstantaneMateriel.Depuis(avant, m.Personne?.Email ?? m.Site?.Email).Serialiser(),
+            });
+        }
+        if (modifies.Count == 0) return 0;
+        await db.SaveChangesAsync(ct);
+        // Fiche de la dernière attribution de chaque PC : régénérée avec le mot de passe
+        var fiches = new HashSet<int>();
+        foreach (var id in modifies)
+        {
+            // Tri en mémoire : PostgreSQL et SQLite ne placent pas les dates vides au même endroit
+            var dernier = (await db.Mouvements.Where(x => x.MaterielId == id).ToListAsync(ct)).MaxBy(OrdreMouvement);
+            if (dernier is { Type: TypeMouvement.Attribution, FicheId: { } f }) fiches.Add(f);
+        }
+        foreach (var f in fiches)
+        {
+            try { await RegenererPdfAsync(f, ct); }
+            catch (Exception ex) { log.LogError(ex, "Régénération de la fiche {Id} impossible", f); }
+        }
+        return modifies.Count;
     }
 
     /// <summary>Range des PC dans une catégorie (PC Site / PC Enrôlé), ou l'efface ; les autres matériels sont ignorés.</summary>

@@ -17,6 +17,7 @@ public static class AnnulationMouvement
     {
         var titre = $"Annuler le mouvement n° {a.Numero} ?";
         var fiche = " Une fiche qui ne contient que ce mouvement est supprimée avec lui. L'annulation peut être défaite depuis le journal d'inventaire.";
+        var infos = " Les informations de la fiche matériel modifiées depuis ce mouvement (mot de passe, profil Microsoft, commentaire…) sont remises comme avant.";
         if (!a.EstDernier)
         {
             var ok = await dialogues.ShowMessageBoxAsync(titre,
@@ -27,12 +28,12 @@ public static class AnnulationMouvement
         if (a.AncienneAffectation is null or Si)
         {
             var ok = await dialogues.ShowMessageBoxAsync(titre,
-                $"{a.Libelle}. Le matériel revient au service informatique (en stock).{fiche}",
+                $"{a.Libelle}. Le matériel revient au service informatique (en stock).{infos}{fiche}",
                 yesText: "Annuler le mouvement", cancelText: "Ne rien faire");
             return ok == true ? Choix.ServiceInformatique : Choix.Abandon;
         }
         var r = await dialogues.ShowMessageBoxAsync(titre,
-            $"{a.Libelle}. Où remettre le matériel ? Par défaut, à son ancienne affectation : {a.AncienneAffectation}.{fiche}",
+            $"{a.Libelle}. Où remettre le matériel ? Par défaut, à son ancienne affectation : {a.AncienneAffectation}.{infos}{fiche}",
             yesText: $"Remettre à : {a.AncienneAffectation}", noText: "Remettre au service informatique", cancelText: "Ne rien faire");
         return r switch { true => Choix.AncienneAffectation, false => Choix.ServiceInformatique, _ => Choix.Abandon };
     }
