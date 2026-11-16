@@ -131,6 +131,34 @@ else
                 </MudPaper>
             }
 
+            @* --- Échanges internes valideur / service informatique (juste sous la décision, pour répondre au commentaire) --- *@
+            @if (_u.VoitToutesLesDemandes)
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3" id="echanges">
+                    <MudText Typo="Typo.h6">Échanges internes</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block mb-2">Entre le valideur et le service informatique : non visibles du demandeur. Chaque message est envoyé par mail aux autres.</MudText>
+                    @foreach (var m in _messages)
+                    {
+                        <div class="py-2" style="border-top:1px solid var(--mud-palette-lines-default)">
+                            <MudText Typo="Typo.caption"><b>@m.Auteur</b> · @m.Le.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")</MudText>
+                            <MudText Typo="Typo.body2" Style="white-space:pre-line">@m.Texte</MudText>
+                        </div>
+                    }
+                    @if (_u.EstValideur && !_u.EstGestionnaire && _d.StatutValidation == StatutValidation.EnAttente)
+                    {
+                        @if (_messages.Count == 0) { <MudText Typo="Typo.body2" Class="mt-2">Aucun échange. Pour écrire au service informatique, choisissez « Commenter » ci-dessus.</MudText> }
+                    }
+                    else
+                    {
+                        <MudTextField @bind-Value="_nouveauMessage" Immediate="true" MaxLength="4000" Label="@(_messages.Count > 0 ? "Répondre" : !string.IsNullOrEmpty(_d.CommentaireDecision) ? "Répondre au valideur" : "Message (ex. « Validez-vous ? »)")" Lines="2"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+                        <div class="d-flex justify-end mt-2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Send" OnClick="EnvoyerMessage"
+                                       Disabled="@(_envoi || string.IsNullOrWhiteSpace(_nouveauMessage))">Envoyer le message</MudButton>
+                        </div>
+                    }
+                </MudPaper>
+            }
             @* --- Traitement par l'informatique --- *@
             @if (_d.StatutValidation == StatutValidation.Validee)
             {
@@ -341,34 +369,6 @@ else
                 </MudPaper>
             }
 
-            @* --- Échanges internes valideur / service informatique --- *@
-            @if (_u.VoitToutesLesDemandes)
-            {
-                <MudPaper Elevation="0" Class="carte pa-4 mt-3" id="echanges">
-                    <MudText Typo="Typo.h6">Échanges internes</MudText>
-                    <MudText Typo="Typo.caption" Class="d-block mb-2">Entre le valideur et le service informatique : non visibles du demandeur. Chaque message est envoyé par mail aux autres.</MudText>
-                    @foreach (var m in _messages)
-                    {
-                        <div class="py-2" style="border-top:1px solid var(--mud-palette-lines-default)">
-                            <MudText Typo="Typo.caption"><b>@m.Auteur</b> · @m.Le.ToLocalTime().ToString("dd/MM/yyyy à HH:mm")</MudText>
-                            <MudText Typo="Typo.body2" Style="white-space:pre-line">@m.Texte</MudText>
-                        </div>
-                    }
-                    @if (_u.EstValideur && !_u.EstGestionnaire && _d.StatutValidation == StatutValidation.EnAttente)
-                    {
-                        @if (_messages.Count == 0) { <MudText Typo="Typo.body2" Class="mt-2">Aucun échange. Pour écrire au service informatique, choisissez « Commenter » ci-dessus.</MudText> }
-                    }
-                    else
-                    {
-                        <MudTextField @bind-Value="_nouveauMessage" Immediate="true" MaxLength="4000" Label="@(_messages.Count == 0 ? "Message (ex. « Validez-vous ? »)" : "Répondre")" Lines="2"
-                                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
-                        <div class="d-flex justify-end mt-2">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Send" OnClick="EnvoyerMessage"
-                                       Disabled="@(_envoi || string.IsNullOrWhiteSpace(_nouveauMessage))">Envoyer le message</MudButton>
-                        </div>
-                    }
-                </MudPaper>
-            }
         </MudItem>
     </MudGrid>
 }
