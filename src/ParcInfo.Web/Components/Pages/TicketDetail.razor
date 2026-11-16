@@ -16,7 +16,7 @@ else if (_t is null || !ServiceTickets.PeutVoir(_u!, _t))
 }
 else
 {
-    <MudBreadcrumbs Items="@([_u!.EstAdminTickets ? new("Tickets", "/tickets") : new("Mes tickets", "/mes-tickets"), new($"n° {_t.Numero}", null, true)])" Class="px-0 pt-0" />
+    <MudBreadcrumbs Items="@([_u!.EstAdminTickets ? (_t.Interne ? new("Rapatriements", "/rapatriements") : new("Tickets", "/tickets")) : new("Mes tickets", "/mes-tickets"), new($"n° {_t.Numero}", null, true)])" Class="px-0 pt-0" />
     <div class="d-flex flex-wrap align-center gap-3 mb-1">
         <MudText Typo="Typo.h4">Ticket n° @_t.Numero</MudText>
         <ChipTicket Statut="_t.Statut" />

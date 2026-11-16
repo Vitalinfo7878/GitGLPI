@@ -8,6 +8,7 @@
 <div class="d-flex flex-wrap align-center gap-2 mb-4">
     <MudText Typo="Typo.h4">Tickets</MudText>
     <MudSpacer />
+    <MudButton Href="/rapatriements" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.AssignmentReturn">Rapatriements</MudButton>
     <MudButton Href="/tickets/solutions" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.TipsAndUpdates">Solutions</MudButton>
     <MudButton Href="/tickets/analyse" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Insights">Analyse</MudButton>
     <MudButton Href="/tickets/nouveau" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">Nouveau ticket</MudButton>
@@ -85,7 +86,8 @@ else
     {
         _u = await Courant.ObtenirAsync();
         await using var db = await DbFactory.CreateDbContextAsync();
-        _tickets = await db.Tickets.AsNoTracking().OrderByDescending(t => t.Numero).ToListAsync();
+        // Rapatriements (tickets internes) : section à part
+        _tickets = await db.Tickets.AsNoTracking().Where(t => !t.Interne).OrderByDescending(t => t.Numero).ToListAsync();
         if (_tickets.Any(t => t.Statut == StatutTicket.Nouveau)) _vue = "nouveaux";
     }
 

@@ -34,6 +34,12 @@ else if (!_u.EstGestionnaire)
             <b>@_ticketsOuverts</b> ticket(s) ouvert(s), dont <b>@_ticketsNouveaux</b> à prendre en charge. <MudLink Href="/tickets">Voir les tickets</MudLink>
         </MudAlert>
     }
+    @if (_u.EstAdminTickets && _rapatriements > 0)
+    {
+        <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Outlined.AssignmentReturn" Class="mb-6">
+            <b>@_rapatriements</b> rapatriement(s) d'ancien matériel en cours. <MudLink Href="/rapatriements">Voir les rapatriements</MudLink>
+        </MudAlert>
+    }
     @if (_u.EstValideur && _demandesAValider > 0)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-6">
@@ -74,6 +80,12 @@ else
                         <MudListItem Icon="@Icons.Material.Outlined.ConfirmationNumber" IconColor="Color.Warning" Href="/tickets">
                             <b>@_ticketsOuverts</b> ticket(s) ouvert(s), dont <b>@_ticketsNouveaux</b> à prendre en charge
                         </MudListItem>
+                        @if (_rapatriements > 0)
+                        {
+                            <MudListItem Icon="@Icons.Material.Outlined.AssignmentReturn" IconColor="Color.Info" Href="/rapatriements">
+                                <b>@_rapatriements</b> rapatriement(s) d'ancien matériel en cours
+                            </MudListItem>
+                        }
                         @if (_departs > 0)
                         {
                             <MudListItem Icon="@Icons.Material.Outlined.PersonOff" IconColor="Color.Error" Href="/comptes-microsoft">
@@ -128,7 +140,7 @@ else
     private Utilisateur? _u;
     private Stats? _stats;
     private int _demandesAValider, _demandesATraiter;
-    private int _ticketsOuverts, _ticketsNouveaux;
+    private int _ticketsOuverts, _ticketsNouveaux, _rapatriements;
     private int _departs, _aTrancher, _doublons;
 
     private sealed record Stats(
@@ -173,8 +185,9 @@ else
 
     private async Task CompterTickets(ParcDbContext db)
     {
-        _ticketsOuverts = await db.Tickets.CountAsync(t => t.Statut != StatutTicket.Resolu && t.Statut != StatutTicket.Clos);
-        _ticketsNouveaux = await db.Tickets.CountAsync(t => t.Statut == StatutTicket.Nouveau);
+        _ticketsOuverts = await db.Tickets.CountAsync(t => !t.Interne && t.Statut != StatutTicket.Resolu && t.Statut != StatutTicket.Clos);
+        _ticketsNouveaux = await db.Tickets.CountAsync(t => !t.Interne && t.Statut == StatutTicket.Nouveau);
+        _rapatriements = await db.Tickets.CountAsync(t => t.Interne && t.Statut != StatutTicket.Resolu && t.Statut != StatutTicket.Clos);
     }
 
 }

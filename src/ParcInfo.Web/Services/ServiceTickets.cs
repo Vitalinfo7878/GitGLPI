@@ -368,8 +368,9 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, S
     public async Task<List<Ticket>> ChercherSolutionsAsync(string? texte, int? classementId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        // Rapatriements (tickets internes) exclus : pas des solutions d'assistance
         var q = db.Tickets.AsNoTracking().Include(t => t.Classement).Include(t => t.Materiel)
-            .Where(t => t.Statut == StatutTicket.Resolu || t.Statut == StatutTicket.Clos);
+            .Where(t => !t.Interne && (t.Statut == StatutTicket.Resolu || t.Statut == StatutTicket.Clos));
         if (classementId == 0) q = q.Where(t => t.ClassementId == null);
         else if (classementId is { } cid) q = q.Where(t => t.ClassementId == cid);
         var tickets = await q.ToListAsync(ct);
