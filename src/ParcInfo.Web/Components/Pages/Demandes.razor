@@ -22,6 +22,7 @@ else
                 <MudToggleItem Value="@("valider")" Text="@($"À valider ({AValider.Count()})")" />
                 <MudToggleItem Value="@("traiter")" Text="@($"À traiter ({ATraiter.Count()})")" />
                 <MudToggleItem Value="@("terminees")" Text="@($"Terminées ({Terminees.Count()})")" />
+                <MudToggleItem Value="@("refusees")" Text="@($"Refusées ({Refusees.Count()})")" />
                 <MudToggleItem Value="@("toutes")" Text="@($"Toutes ({_demandes.Count})")" />
             </MudToggleGroup>
             <MudTextField T="string" @bind-Value="_recherche" Immediate="true" DebounceInterval="250" Placeholder="N°, demandeur, objet, adresse…"
@@ -63,9 +64,13 @@ else
     /// <summary>Demandes réalisées (matériel envoyé ou demande terminée), les plus récentes d'abord.</summary>
     private IEnumerable<Demande> Terminees => (_demandes ?? []).Where(d => d.StatutValidation == StatutValidation.Validee && d.StatutRealisation == StatutRealisation.Realisee);
 
+    /// <summary>Demandes refusées par le valideur, les plus récemment refusées d'abord.</summary>
+    private IEnumerable<Demande> Refusees => (_demandes ?? []).Where(d => d.StatutValidation == StatutValidation.Refusee);
+
     private IEnumerable<Demande> Filtrees => (_vue switch
         {
             "terminees" => Terminees.OrderByDescending(d => d.RealiseeLe ?? d.ModifieLe),
+            "refusees" => Refusees.OrderByDescending(d => d.DecisionLe ?? d.ModifieLe),
             "valider" => AValider,
             "traiter" => ATraiter,
             _ => _demandes ?? [],
@@ -76,7 +81,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        // De la plus ancienne à la plus récente (sauf « Terminées » : les dernières réalisées d'abord)
+        // De la plus ancienne à la plus récente (sauf « Terminées » et « Refusées » : les plus récentes d'abord)
         _demandes = await db.Demandes.AsNoTracking().OrderBy(d => d.CreeLe).ThenBy(d => d.Numero).ToListAsync();
         if (!AValider.Any()) _vue = ATraiter.Any() ? "traiter" : "toutes";
     }
