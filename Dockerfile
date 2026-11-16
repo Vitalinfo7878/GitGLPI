@@ -9,7 +9,7 @@ COPY src/ src/
 # Pas de --no-restore : le SDK n'ajoute le paquet des scripts Blazor (blazor.web.js) qu'en voyant les fichiers .razor
 RUN dotnet publish src/ParcInfo.Web/ParcInfo.Web.csproj -c Release -o /publication
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 # Fuseau horaire de Paris pour l'affichage des heures (l'application stocke tout en UTC)
 ENV TZ=Europe/Paris \
     ASPNETCORE_HTTP_PORTS=8080 \
