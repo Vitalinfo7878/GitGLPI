@@ -1,0 +1,333 @@
+@page "/rapatriements/{Id:int}"
+@attribute [Authorize(Policy = Roles.PolitiqueTickets)]
+@inject ServiceRapatriements Service
+@inject IDbContextFactory<ParcDbContext> DbFactory
+@inject UtilisateurCourant Courant
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogues
+
+<PageTitle>Rapatriement @(_t?.Numero)</PageTitle>
+
+@if (_chargement)
+{
+    <Attente />
+}
+else if (_t is null)
+{
+    <MudAlert Severity="Severity.Error">Rapatriement introuvable.</MudAlert>
+}
+else
+{
+    var m = _t.Materiel;
+    var etat = ServiceRapatriements.Etat(_t);
+    var relances = _t.Messages.Where(x => ServiceRapatriements.EstRelance(x.Suivi)).OrderByDescending(x => x.Date).ToList();
+    <MudBreadcrumbs Items="@([new("Rapatriements", "/rapatriements"), new($"n° {_t.Numero}", null, true)])" Class="px-0 pt-0" />
+    <div class="d-flex flex-wrap align-center gap-3 mb-1">
+        <MudText Typo="Typo.h4">Rapatriement n° @_t.Numero</MudText>
+        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(etat == "En cours" ? Color.Warning : etat == "Rapatrié" ? Color.Success : Color.Default)">@etat</MudChip>
+    </div>
+    <MudText Class="mb-4" Style="color:var(--mud-palette-text-secondary)">
+        Ancien matériel à récupérer@(_t.Demande is { } d0 ? $" après la demande n° {d0.Numero}" : "") · ouvert le @_t.CreeLe.ToLocalTime().ToString("dd/MM/yyyy")
+        · @(relances.Count == 0 ? "aucune relance" : $"{relances.Count} relance(s), dernière le {relances[0].Date.ToLocalTime():dd/MM/yyyy}")
+    </MudText>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="5">
+            @* --- Matériel à récupérer --- *@
+            <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                <MudText Typo="Typo.h6" Class="mb-2">Matériel à récupérer</MudText>
+                @if (m is not null)
+                {
+                    <dl class="champ-lecture">
+                        <Champ Libelle="Matériel"><MudLink Href="@($"/materiels/{m.Id}")"><b>@m.NumInterne</b></MudLink> · @m.Type.Libelle() @m.Modele</Champ>
+                        <Champ Libelle="N° de série" Valeur="@m.NumSerie" />
+                        <Champ Libelle="Statut dans l'inventaire"><ChipStatut Statut="m.Statut" /></Champ>
+                        <Champ Libelle="Détenteur actuel" Valeur="@(m.DetenteurLibelle.Length > 0 ? m.DetenteurLibelle : null)" />
+                    </dl>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Ancien matériel à identifier.</MudAlert>
+                }
+                @if (_t.EstOuvert)
+                {
+                    <div class="d-flex gap-2 align-center mt-2">
+                        <MudAutocomplete T="Materiel" @bind-Value="_choixMateriel" SearchFunc="ChercherMateriel" ToStringFunc="@(x => x?.NumInterne ?? "")"
+                                         Label="@(m is null ? "Identifier l'ancien matériel" : "Corriger le matériel")" Placeholder="N° interne, n° de série ou modèle"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense" MinCharacters="2" DebounceInterval="200" MaxItems="15" ShowProgressIndicator="false">
+                            <ItemTemplate>
+                                <div>
+                                    <b>@context.NumInterne</b> · @context.Type.Libelle() @context.Modele
+                                    <div><small>S/N @(context.NumSerie ?? "—") · @context.Statut.Libelle()@(context.DetenteurLibelle.Length > 0 ? $" · {context.DetenteurLibelle}" : "")</small></div>
+                                </div>
+                            </ItemTemplate>
+                        </MudAutocomplete>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DefinirMateriel" Disabled="@(_envoi || _choixMateriel is null)">Valider</MudButton>
+                    </div>
+                }
+            </MudPaper>
+
+            @* --- Contact --- *@
+            <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                <MudText Typo="Typo.h6" Class="mb-2">Contact</MudText>
+                <dl class="champ-lecture">
+                    <Champ Libelle="Demandeur" Valeur="@_t.DemandeurNom" />
+                    <Champ Libelle="Téléphone">
+                        @if (!string.IsNullOrWhiteSpace(_t.DemandeurTelephone)) { <MudLink Href="@($"tel:{_t.DemandeurTelephone}")">@_t.DemandeurTelephone</MudLink> } else { <span>—</span> }
+                    </Champ>
+                    <Champ Libelle="Mail">
+                        @if (!string.IsNullOrWhiteSpace(_t.DemandeurEmail)) { <MudLink Href="@LienMail">@_t.DemandeurEmail</MudLink> } else { <span>—</span> }
+                    </Champ>
+                    <Champ Libelle="Adresse" Valeur="@_t.Lieu" />
+                    @if (_t.Demande is { } d)
+                    {
+                        <Champ Libelle="Demande"><MudLink Href="@($"/demandes/{d.IdPublic}")">n° @d.Numero</MudLink> · @d.Objets</Champ>
+                    }
+                </dl>
+                @if (_t.EstOuvert && !string.IsNullOrWhiteSpace(_t.DemandeurEmail))
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Email" Href="@LienMail" Target="_blank"
+                               OnClick="() => Preparer(SuiviRapatriement.RelanceMail)" Class="mt-2">Écrire le mail de relance</MudButton>
+                    <MudText Typo="Typo.caption" Class="d-block">Ouvre votre messagerie avec un mail prêt à envoyer, et prépare la ligne « Relance mail » du suivi.</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="7">
+            @if (_t.EstOuvert)
+            {
+                @* --- Ajouter un suivi --- *@
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3">
+                    <MudText Typo="Typo.h6" Class="mb-2">Ajouter un suivi</MudText>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="7">
+                            <MudSelect T="SuiviRapatriement" @bind-Value="_type" Label="Action" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                @foreach (var s in ServiceRapatriements.SuivisSaisissables) { <MudSelectItem T="SuiviRapatriement" Value="s">@s.Libelle()</MudSelectItem> }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="5">
+                            <MudDatePicker Date="@(_jour.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? x) => _jour = DateOnly.FromDateTime(x ?? DateTime.Today))"
+                                           Label="Date" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" MaxDate="DateTime.Today" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudTextField @bind-Value="_commentaire" MaxLength="2000" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Label="@(_type == SuiviRapatriement.Note ? "Note *" : "Commentaire (réponse obtenue, date de retour promise…)")" />
+                        </MudItem>
+                        <MudItem xs="12" Class="d-flex justify-end">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="AjouterSuivi" Disabled="_envoi">Ajouter</MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+
+                @* --- Clôture --- *@
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3" Style="border-color:var(--mud-palette-success)">
+                    <MudText Typo="Typo.h6" Class="mb-2">Matériel rapatrié</MudText>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="5">
+                            <MudDatePicker Date="@(_jourRetour.ToDateTime(TimeOnly.MinValue))" DateChanged="@((DateTime? x) => _jourRetour = DateOnly.FromDateTime(x ?? DateTime.Today))"
+                                           Label="Reçu le" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd/MM/yyyy" MaxDate="DateTime.Today" />
+                        </MudItem>
+                        <MudItem xs="12" sm="7">
+                            <MudTextField @bind-Value="_commentaireRetour" MaxLength="2000" Variant="Variant.Outlined" Margin="Margin.Dense" Label="Commentaire (état du matériel…)" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            @if (m is null)
+                            {
+                                <MudText Typo="Typo.body2">Identifiez l'ancien matériel pour enregistrer aussi son entrée dans le SI.</MudText>
+                            }
+                            else if (m.Statut == StatutMateriel.EnStock)
+                            {
+                                <MudText Typo="Typo.body2">@m.NumInterne est déjà en stock : pas de nouveau mouvement.</MudText>
+                            }
+                            else
+                            {
+                                <MudCheckBox @bind-Value="_entree" Color="Color.Primary" Dense="true"
+                                             Label="@($"Enregistrer l'entrée de {m.NumInterne} dans le SI (mouvement « Entrée (dans le SI) », inventaire mis à jour)")" />
+                            }
+                        </MudItem>
+                        <MudItem xs="12" Class="d-flex flex-wrap gap-2 justify-space-between">
+                            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="CloreSansRapatriement" Disabled="_envoi">Clore sans rapatriement…</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Outlined.Inventory" OnClick="MarquerRapatrie" Disabled="_envoi">
+                                Matériel rapatrié – terminer
+                            </MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            }
+            else
+            {
+                <MudPaper Elevation="0" Class="carte pa-4 mb-3" Style="@(etat == "Rapatrié" ? "border-color:var(--mud-palette-success)" : "")">
+                    <MudText Typo="Typo.h6" Class="mb-1">@(etat == "Rapatrié" ? "Matériel rapatrié" : "Rapatriement clos")</MudText>
+                    <MudText Typo="Typo.body2" Style="white-space:pre-line">@(_t.Solution ?? "—")</MudText>
+                    @if (_t.ClosLe is { } c) { <MudText Typo="Typo.caption">Terminé le @c.ToLocalTime().ToString("dd/MM/yyyy")</MudText> }
+                    <div class="mt-2"><MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Replay" OnClick="Rouvrir" Disabled="_envoi">Rouvrir le suivi</MudButton></div>
+                </MudPaper>
+            }
+
+            @* --- Historique --- *@
+            <MudPaper Elevation="0" Class="carte pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Historique</MudText>
+                @foreach (var x in _t.Messages.Where(x => !TraceDeTicket(x)).OrderByDescending(x => x.Date).ThenByDescending(x => x.Id))
+                {
+                    <div class="d-flex gap-3 py-2" style="border-top:1px solid var(--mud-palette-lines-default)">
+                        <MudIcon Icon="@Icone(x)" Color="@(x.Suivi is null ? Color.Default : x.Suivi == SuiviRapatriement.Rapatrie ? Color.Success : Color.Primary)" Size="Size.Small" Class="mt-1" />
+                        <div style="flex:1">
+                            <MudText Typo="Typo.caption">
+                                @x.Date.ToLocalTime().ToString(x.Suivi is null ? "dd/MM/yyyy HH:mm" : "dd/MM/yyyy") · @x.Auteur
+                            </MudText>
+                            @if (x.Suivi is { } s)
+                            {
+                                <MudText Typo="Typo.body2"><b>@s.Libelle()</b>@(x.Texte != s.Libelle() ? $" — {x.Texte}" : "")</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Style="@($"white-space:pre-line;{(x.Systeme ? "color:var(--mud-palette-text-secondary)" : "")}")">@x.Texte</MudText>
+                            }
+                        </div>
+                    </div>
+                }
+                <MudExpansionPanels Elevation="0" Class="mt-2">
+                    <MudExpansionPanel Text="Description d'origine">
+                        <MudText Typo="Typo.body2" Style="white-space:pre-line">@_t.Description</MudText>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private bool _chargement = true;
+    private bool _envoi;
+    private Ticket? _t;
+    private Utilisateur? _u;
+    private Materiel? _choixMateriel;
+    private SuiviRapatriement _type = SuiviRapatriement.RelanceTelephone;
+    private DateOnly _jour = DateOnly.FromDateTime(DateTime.Today);
+    private string? _commentaire;
+    private DateOnly _jourRetour = DateOnly.FromDateTime(DateTime.Today);
+    private string? _commentaireRetour;
+    private bool _entree = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _u = await Courant.ObtenirAsync();
+        await Charger();
+        _chargement = false;
+    }
+
+    private async Task Charger() => _t = await Service.ChargerAsync(Id, _u!);
+
+    /// <summary>Traces de statut héritées des tickets (« Statut : Nouveau → En cours »…) : sans intérêt pour le suivi du matériel.</summary>
+    private static bool TraceDeTicket(TicketMessage x) => x.Systeme
+        && (x.Texte.StartsWith("Statut :") || x.Texte is "Matériel rapatrié (clos)" or "Clos sans rapatriement (clos)" || x.Texte.StartsWith("Priorité :"));
+
+    private static string Icone(TicketMessage x) => x.Suivi switch
+    {
+        SuiviRapatriement.RelanceTelephone => Icons.Material.Outlined.Phone,
+        SuiviRapatriement.RelanceMail => Icons.Material.Outlined.Email,
+        SuiviRapatriement.EtiquetteEnvoyee => Icons.Material.Outlined.LocalShipping,
+        SuiviRapatriement.Rapatrie => Icons.Material.Outlined.Inventory,
+        SuiviRapatriement.SansRapatriement => Icons.Material.Outlined.Block,
+        SuiviRapatriement.Note => Icons.Material.Outlined.StickyNote2,
+        _ => Icons.Material.Outlined.History,
+    };
+
+    /// <summary>Mail de relance prêt à envoyer (messagerie de l'utilisateur).</summary>
+    private string LienMail
+    {
+        get
+        {
+            var t = _t!;
+            var materiel = t.Materiel is { } m ? $"{m.Type.Libelle().ToLowerInvariant()} {m.Modele} ({m.NumInterne})".Replace("  ", " ") : "ancien matériel";
+            var demande = t.Demande is { } d ? $" (demande n° {d.Numero})" : "";
+            var sujet = $"Retour de l'ancien matériel{(t.Materiel is { } mm ? $" {mm.NumInterne}" : "")}{demande}";
+            var corps = $"Bonjour,\n\nSuite à la livraison de votre nouveau matériel{demande}, merci de nous renvoyer l'ancien matériel : {materiel}.\n"
+                + "Pour l'envoi, rapprochez-vous de votre secrétaire de région.\n\nMerci,\nLe service informatique";
+            return $"mailto:{t.DemandeurEmail}?subject={Uri.EscapeDataString(sujet)}&body={Uri.EscapeDataString(corps)}";
+        }
+    }
+
+    private void Preparer(SuiviRapatriement type)
+    {
+        _type = type;
+        _jour = DateOnly.FromDateTime(DateTime.Today);
+    }
+
+    private async Task<IEnumerable<Materiel>> ChercherMateriel(string? texte, CancellationToken ct)
+    {
+        var t = texte?.Trim().ToLower();
+        if (string.IsNullOrEmpty(t) || t.Length < 2) return [];
+        await using var db = await DbFactory.CreateDbContextAsync(ct);
+        return await db.Materiels.AsNoTracking().Include(x => x.Site).Include(x => x.Personne)
+            .Where(x => x.NumInterne.ToLower().Contains(t) || (x.NumSerie != null && x.NumSerie.ToLower().Contains(t)) || (x.Modele != null && x.Modele.ToLower().Contains(t)))
+            .OrderBy(x => x.Statut != StatutMateriel.Attribue).ThenBy(x => x.NumInterne).Take(15).ToListAsync(ct);
+    }
+
+    private async Task Executer(Func<Task<string>> action)
+    {
+        _envoi = true;
+        try
+        {
+            Snackbar.Add(await action(), Severity.Success);
+            await Charger();
+        }
+        catch (ErreurMetier ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _envoi = false; }
+    }
+
+    private Task DefinirMateriel() => Executer(async () =>
+    {
+        await Service.DefinirMaterielAsync(Id, _choixMateriel?.NumInterne, _u!);
+        _choixMateriel = null;
+        return "Ancien matériel enregistré.";
+    });
+
+    private Task AjouterSuivi() => Executer(async () =>
+    {
+        await Service.NoterSuiviAsync(Id, _type, _jour, _commentaire, _u!);
+        _commentaire = null;
+        return $"{_type.Libelle()} ajoutée au suivi.";
+    });
+
+    private async Task MarquerRapatrie()
+    {
+        var entree = _entree && _t!.Materiel is { Statut: not StatutMateriel.EnStock };
+        var ok = await Dialogues.ShowMessageBoxAsync("Matériel rapatrié ?",
+            $"Le rapatriement sera terminé (reçu le {_jourRetour:dd/MM/yyyy})."
+            + (entree ? $" L'entrée de {_t!.Materiel!.NumInterne} dans le SI sera enregistrée (mouvement et inventaire)." : ""),
+            yesText: "Terminer", cancelText: "Annuler");
+        if (ok != true) return;
+        await Executer(() => Service.MarquerRapatrieAsync(Id, _jourRetour, entree, _commentaireRetour, _u!));
+    }
+
+    private async Task CloreSansRapatriement()
+    {
+        var motif = await DemanderMotif();
+        if (motif is null) return;
+        await Executer(async () =>
+        {
+            await Service.CloreSansRapatriementAsync(Id, motif, _u!);
+            return "Rapatriement clos sans rapatriement.";
+        });
+    }
+
+    /// <summary>Motif saisi dans le champ commentaire du bloc « Matériel rapatrié » (obligatoire).</summary>
+    private async Task<string?> DemanderMotif()
+    {
+        if (string.IsNullOrWhiteSpace(_commentaireRetour))
+        {
+            Snackbar.Add("Indiquez le motif dans le champ « Commentaire » (matériel perdu, laissé sur place…), puis recliquez.", Severity.Warning);
+            return null;
+        }
+        var ok = await Dialogues.ShowMessageBoxAsync("Clore sans rapatriement ?", $"Motif : {_commentaireRetour.Trim()}", yesText: "Clore", cancelText: "Annuler");
+        return ok == true ? _commentaireRetour.Trim() : null;
+    }
+
+    private Task Rouvrir() => Executer(async () =>
+    {
+        await Service.RouvrirAsync(Id, _u!);
+        return "Suivi rouvert.";
+    });
+}

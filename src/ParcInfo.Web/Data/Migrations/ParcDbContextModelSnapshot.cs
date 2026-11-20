@@ -1200,6 +1200,10 @@ namespace ParcInfo.Web.Data.Migrations
                     b.Property<bool>("Interne")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Suivi")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<bool>("Systeme")
                         .HasColumnType("boolean");
 

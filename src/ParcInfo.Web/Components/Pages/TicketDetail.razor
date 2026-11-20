@@ -3,6 +3,7 @@
 @inject ServiceTickets Service
 @inject UtilisateurCourant Courant
 @inject ISnackbar Snackbar
+@inject NavigationManager Nav
 
 <PageTitle>Ticket @(_t?.Numero)</PageTitle>
 
@@ -321,6 +322,12 @@ else
     {
         _u = await Courant.ObtenirAsync();
         await Charger();
+        // Rapatriement (ticket interne) : suivi dédié
+        if (_t is { Interne: true } && _u.EstAdminTickets)
+        {
+            Nav.NavigateTo($"/rapatriements/{_t.Id}", replace: true);
+            return;
+        }
         _chargement = false;
     }
 

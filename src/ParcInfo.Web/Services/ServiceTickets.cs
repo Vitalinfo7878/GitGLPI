@@ -437,14 +437,14 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, S
         await db.SaveChangesAsync(ct);
     }
 
-    private static async Task<Ticket> ChargerAsync(ParcDbContext db, int id, Utilisateur u, CancellationToken ct)
+    internal static async Task<Ticket> ChargerAsync(ParcDbContext db, int id, Utilisateur u, CancellationToken ct)
     {
         var t = await db.Tickets.Include(x => x.Messages).FirstOrDefaultAsync(x => x.Id == id, ct);
         if (t is null || !PeutVoir(u, t)) throw new ErreurMetier("Ticket introuvable.");
         return t;
     }
 
-    private static void ChangerStatut(Ticket t, StatutTicket nouveau, Utilisateur u, DateTime maintenant, string? motif = null)
+    internal static void ChangerStatut(Ticket t, StatutTicket nouveau, Utilisateur u, DateTime maintenant, string? motif = null)
     {
         t.Messages.Add(Trace(u, motif is null ? $"Statut : {t.Statut.Libelle()} → {nouveau.Libelle()}" : $"{motif} ({nouveau.Libelle().ToLowerInvariant()})", maintenant));
         t.Statut = nouveau;
@@ -453,7 +453,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, S
         t.ClosLe = nouveau == StatutTicket.Clos ? maintenant : null;
     }
 
-    private static async Task LierMaterielAsync(ParcDbContext db, Ticket t, string? reference, CancellationToken ct)
+    internal static async Task LierMaterielAsync(ParcDbContext db, Ticket t, string? reference, CancellationToken ct)
     {
         t.MaterielReference = Vide(reference)?.ToUpperInvariant();
         var cle = t.MaterielReference?.ToLower();
@@ -464,7 +464,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, S
     private static TicketMessage Message(Utilisateur u, string texte, bool interne, DateTime date) =>
         new() { Date = date, Auteur = u.Nom, AuteurEmail = u.Email, Texte = texte, Interne = interne };
 
-    private static TicketMessage Trace(Utilisateur u, string texte, DateTime date) =>
+    internal static TicketMessage Trace(Utilisateur u, string texte, DateTime date) =>
         new() { Date = date, Auteur = u.Nom, AuteurEmail = u.Email, Texte = texte, Systeme = true };
 
     private static string? Vide(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
@@ -477,7 +477,7 @@ public sealed class ServiceTickets(IDbContextFactory<ParcDbContext> dbFactory, S
     /// Correction de l'ancien matériel d'un ticket de rapatriement : il doit exister dans l'inventaire ; le titre du ticket et
     /// la demande (« Ancien matériel ») suivent, et la correction est notée sur le ticket.
     /// </summary>
-    private static async Task CorrigerRapatriementAsync(ParcDbContext db, Ticket t, int demandeId, string? ancien, Utilisateur u, DateTime maintenant, CancellationToken ct)
+    internal static async Task CorrigerRapatriementAsync(ParcDbContext db, Ticket t, int demandeId, string? ancien, Utilisateur u, DateTime maintenant, CancellationToken ct)
     {
         if (t.MaterielReference is not null && t.MaterielId is null)
             throw new ErreurFormulaire(new() { [nameof(MiseAJourTicket.MaterielReference)] = $"{t.MaterielReference} est introuvable dans l'inventaire." });

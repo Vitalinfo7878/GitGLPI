@@ -53,8 +53,22 @@ else
             </TemplateColumn>
             <PropertyColumn Property="x => x.DemandeurNom" Title="Demandeur" HeaderClass="mobile-cache" CellClass="mobile-cache" />
             <PropertyColumn Property="x => x.Lieu" Title="Adresse" HeaderClass="mobile-cache" CellClass="mobile-cache" />
-            <PropertyColumn Property="x => x.AssigneA" Title="Pris en charge par" HeaderClass="mobile-cache" CellClass="mobile-cache" />
-            <TemplateColumn T="Ticket" Title="Statut" SortBy="x => x.Statut"><CellTemplate><ChipTicket Statut="context.Item.Statut" /></CellTemplate></TemplateColumn>
+            <TemplateColumn T="Ticket" Title="Relances" SortBy="x => Relances(x).Count()">
+                <CellTemplate>
+                    @{ var r = Relances(context.Item).ToList(); }
+                    @if (r.Count > 0)
+                    {
+                        <span>@r.Count · <small>dernière le @r[0].Date.ToLocalTime().ToString("dd/MM") (@(r[0].Suivi == SuiviRapatriement.RelanceTelephone ? "tél." : "mail"))</small></span>
+                    }
+                    else { <span style="color:var(--mud-palette-text-secondary)">aucune</span> }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="Ticket" Title="État" SortBy="x => ServiceRapatriements.Etat(x)">
+                <CellTemplate>
+                    @{ var etat = ServiceRapatriements.Etat(context.Item); }
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(etat == "En cours" ? Color.Warning : etat == "Rapatrié" ? Color.Success : Color.Default)">@etat</MudChip>
+                </CellTemplate>
+            </TemplateColumn>
             <TemplateColumn T="Ticket" Title="Depuis" SortBy="x => x.CreeLe">
                 <CellTemplate>@(context.Item.EstOuvert ? Duree.Texte(DateTime.UtcNow - context.Item.CreeLe) : "")</CellTemplate>
             </TemplateColumn>
@@ -86,10 +100,12 @@ else
     protected override async Task OnInitializedAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _tickets = await db.Tickets.AsNoTracking().Include(t => t.Materiel).Include(t => t.Demande)
+        _tickets = await db.Tickets.AsNoTracking().Include(t => t.Materiel).Include(t => t.Demande).Include(t => t.Messages)
             .Where(t => t.Interne).OrderBy(t => t.Numero).ToListAsync();
         if (!_tickets.Any(t => t.EstOuvert)) _vue = "tous";
     }
 
-    private void Ouvrir(DataGridRowClickEventArgs<Ticket> e) => Nav.NavigateTo($"/tickets/{e.Item.Id}");
+    private static IEnumerable<TicketMessage> Relances(Ticket t) => t.Messages.Where(x => ServiceRapatriements.EstRelance(x.Suivi)).OrderByDescending(x => x.Date);
+
+    private void Ouvrir(DataGridRowClickEventArgs<Ticket> e) => Nav.NavigateTo($"/rapatriements/{e.Item.Id}");
 }

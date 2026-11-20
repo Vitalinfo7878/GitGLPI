@@ -167,6 +167,19 @@ public class TicketMessage
     public bool Interne { get; set; }
     /// <summary>Trace générée par l'application (changement de statut…).</summary>
     public bool Systeme { get; set; }
+    /// <summary>Rapatriement : action de suivi (relance téléphonique, relance mail…) ; la date est celle de l'action.</summary>
+    public SuiviRapatriement? Suivi { get; set; }
+}
+
+/// <summary>Actions de suivi d'un rapatriement d'ancien matériel.</summary>
+public enum SuiviRapatriement
+{
+    [Display(Name = "Relance téléphonique")] RelanceTelephone,
+    [Display(Name = "Relance mail")] RelanceMail,
+    [Display(Name = "Étiquette de retour envoyée")] EtiquetteEnvoyee,
+    [Display(Name = "Note")] Note,
+    [Display(Name = "Matériel rapatrié")] Rapatrie,
+    [Display(Name = "Clos sans rapatriement")] SansRapatriement,
 }
 
 /// <summary>Photo jointe à un ticket (à sa création ou à un message ; celle d'une note interne n'est visible que de l'informatique).</summary>

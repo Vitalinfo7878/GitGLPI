@@ -349,10 +349,11 @@ else
                     @foreach (var rt in _rapatriements)
                     {
                         <div class="d-flex align-center gap-2 py-1">
-                            <MudLink Href="@($"/tickets/{rt.Id}")">Ticket n° @rt.Numero</MudLink>
+                            <MudLink Href="@($"/rapatriements/{rt.Id}")">Rapatriement n° @rt.Numero</MudLink>
                             <span>@(rt.MaterielReference ?? "matériel à identifier")</span>
                             <MudSpacer />
-                            <ChipTicket Statut="rt.Statut" />
+                            @{ var etat = ServiceRapatriements.Etat(rt); }
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(etat == "En cours" ? Color.Warning : etat == "Rapatrié" ? Color.Success : Color.Default)">@etat</MudChip>
                         </div>
                     }
                     <MudText Typo="Typo.caption">Retour de l'ancien matériel et son devenir : les mouvements y sont notés automatiquement.</MudText>
@@ -494,7 +495,7 @@ else
         _d = await db.Demandes.AsNoTracking().Include(x => x.Materiels).ThenInclude(x => x.Materiel).FirstOrDefaultAsync(x => x.IdPublic == IdPublic);
         if (_d is null) return;
         _messages = await Service.ListerMessagesAsync(_d.Id, _u!);
-        _rapatriements = _u!.EstAdminTickets ? await db.Tickets.AsNoTracking().Where(t => t.DemandeId == _d.Id).OrderBy(t => t.Numero).ToListAsync() : [];
+        _rapatriements = _u!.EstAdminTickets ? await db.Tickets.AsNoTracking().Include(t => t.Messages).Where(t => t.DemandeId == _d.Id).OrderBy(t => t.Numero).ToListAsync() : [];
         _priorite = _d.Priorite;
         _statut = _d.StatutRealisation;
         _commentaireInfo = _d.CommentaireInformatique;
